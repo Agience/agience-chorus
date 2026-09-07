@@ -12,6 +12,9 @@ stamps what it observed.
 """
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 
 from astra import sources
@@ -68,9 +71,22 @@ def test_datasetsource_maps_predicate_limit_and_stamp(monkeypatch):
     rows = [{"id": i, "title": f"T{i}", "text": ("word " * 40)} for i in range(10)]
     monkeypatch.setattr(S, "load_dataset" if hasattr(S, "load_dataset") else "load_dataset",
                         lambda *a, **k: iter(rows), raising=False)
-    # patch the symbol the method actually imports
-    import datasets
-    monkeypatch.setattr(datasets, "load_dataset", lambda *a, **k: iter(rows))
+    # Patch the symbol the method actually imports: `DatasetSource.poll` does
+    # `from datasets import load_dataset` (`astra/sources.py:137`), so a module of that name has to
+    # exist for the patch to land on.
+    #
+    # The REAL HuggingFace `datasets` is not needed and is not a chorus dependency: `load_dataset`
+    # is replaced outright and the rows below are in memory, so the library would do no work even
+    # if present. When it is absent, a stub module stands in — which keeps this test measuring
+    # `DatasetSource`'s predicate/limit/stamp mapping everywhere, rather than skipping wherever a
+    # large optional package happens not to be installed. It was passing only on machines that had
+    # it; CI has never had it.
+    try:
+        import datasets
+    except ModuleNotFoundError:
+        datasets = types.ModuleType("datasets")
+        monkeypatch.setitem(sys.modules, "datasets", datasets)
+    monkeypatch.setattr(datasets, "load_dataset", lambda *a, **k: iter(rows), raising=False)
 
     src = S.DatasetSource(
         "fake", "org/fake", split="train",

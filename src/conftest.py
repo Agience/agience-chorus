@@ -28,6 +28,18 @@ from pathlib import Path as _Path
 
 _os.environ.setdefault("AGIENCE_BUNDLE_ROOT", str(_Path(__file__).resolve().parents[1] / "bundles"))
 
+# This test process's observer identity. Mantle's sqlite store REFUSES to open without one, and it
+# is right to: `(_origin, _seq)` is the store's only version identity, so a node that generated an
+# id per boot would fork its own proper time and leave peers with two permanently-unordered event
+# streams. A test process has no proper time to fork — each store fixture writes into its own
+# `tmp_path` lattice and discards it — but it does need the id to be STABLE within a run, which a
+# literal gives exactly.
+#
+# Here rather than in the four fixtures that open a store, so the fifth one written does not
+# rediscover this. `setdefault`, so a developer machine that pins a real node id still wins and
+# nothing about a deployment changes: only a process that named none gets this.
+_os.environ.setdefault("EMBER_NODE_ID", "chorus-test")
+
 # ── ember's shared test doubles ─────────────────────────────────────────────────────────────────
 #
 # The tests that exercise chorus's operators THROUGH ember's runner live here, because that is where
