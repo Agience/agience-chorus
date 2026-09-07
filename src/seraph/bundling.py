@@ -53,7 +53,10 @@ BUNDLE_CONDENSE_CAP = "op.bundle.condense"
 #: because it is where the build CLI happens to live. That made a repository whose job is to RUN
 #: things the home of another repository's build artifacts, and it put every consumer's checkout of
 #: the payloads behind observe rather than behind their source.
-SPEC_NAME = "agience-chorus/bundle_spec.json"
+#: Beside this module, which is the capability that reads it. NOT inside `bundles/`: that
+#: directory is enumerated by globbing `*.json`, one file per group, so a spec sitting there is
+#: picked up as a group named "spec" — measured, not guessed.
+SPEC_NAME = "agience-chorus/src/seraph/bundle_spec.json"
 
 #: Where the shipped payloads live — the runner's fallback when the store has no `bundle-<group>`.
 SHIPPED_DIR = "agience-chorus/bundles"

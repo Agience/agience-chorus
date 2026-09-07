@@ -18,7 +18,7 @@ import pytest
 HERE = pathlib.Path(__file__).resolve()
 SERAPH = HERE.parents[1]
 WORKSPACE = HERE.parents[4]
-BUNDLES = WORKSPACE / "agience-observe" / "bundles"
+BUNDLES = WORKSPACE / "agience-chorus" / "bundles"   # built here, from chorus source
 
 sys.path.insert(0, str(SERAPH))
 sys.path.insert(0, str(WORKSPACE / "agience-prism" / "py" / "src"))
@@ -26,8 +26,8 @@ sys.path.insert(0, str(WORKSPACE / "agience-prism" / "py" / "src"))
 import bundling  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
-    not (WORKSPACE / "agience-observe" / "bundle_spec.json").is_file(),
-    reason="no agience-observe checkout beside chorus — the spec and payloads are its")
+    not (WORKSPACE / "agience-chorus" / "src" / "seraph" / "bundle_spec.json").is_file(),
+    reason="this repository's own src/seraph/bundle_spec.json is missing")
 
 
 def _shipped() -> dict:
@@ -98,8 +98,9 @@ def test_the_organon_REFUSES_a_moved_module_instead_of_searching_by_basename():
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         root = pathlib.Path(d)
-        (root / "agience-observe").mkdir()
-        (root / "agience-observe" / "bundle_spec.json").write_text(json.dumps(tmp_spec),
+        (root / "agience-chorus" / "bundles").mkdir(parents=True)
+        (root / "agience-chorus" / "src" / "seraph").mkdir(parents=True)
+        (root / "agience-chorus" / "src" / "seraph" / "bundle_spec.json").write_text(json.dumps(tmp_spec),
                                                                   encoding="utf-8")
         with pytest.raises(FileNotFoundError) as e:
             bundling.observe(str(root))
@@ -152,9 +153,10 @@ def test_LANDING_is_explicit_and_writes_the_same_bytes():
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         root = pathlib.Path(d)
-        (root / "agience-observe").mkdir(parents=True)
-        shutil.copy(WORKSPACE / "agience-observe" / "bundle_spec.json",
-                    root / "agience-observe" / "bundle_spec.json")
+        (root / "agience-chorus" / "bundles").mkdir(parents=True)
+        (root / "agience-chorus" / "src" / "seraph").mkdir(parents=True)
+        shutil.copy(WORKSPACE / "agience-chorus" / "src" / "seraph" / "bundle_spec.json",
+                    root / "agience-chorus" / "src" / "seraph" / "bundle_spec.json")
         for rel in ("agience-chorus/src/seraph",):
             (root / rel).mkdir(parents=True, exist_ok=True)
         # only the `bundling` group's source is needed for a one-group land
@@ -163,7 +165,7 @@ def test_LANDING_is_explicit_and_writes_the_same_bytes():
         need = {"groups": ["bundling"], "land": True}
         got = bundling.bundle_condense_handler(str(root))(need)
         assert got["landed"] == ["bundling"], got
-        landed = json.loads((root / "agience-observe" / "bundles" / "bundling.json")
+        landed = json.loads((root / "agience-chorus" / "bundles" / "bundling.json")
                             .read_text(encoding="utf-8"))
         assert landed["sha256"] == got["groups"]["bundling"]["sha256"]
         assert landed == bundling.condense(bundling.observe(str(root), groups=["bundling"]))[0]

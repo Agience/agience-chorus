@@ -22,8 +22,15 @@ from pathlib import Path
 import pytest
 
 SRC = Path(__file__).resolve().parents[1]
-BUNDLES = SRC.parents[1] / "agience-observe"
-SPEC = BUNDLES / "bundle_spec.json"
+#: The spec names its modules WORKSPACE-relative (`agience-chorus/src/...`), so the root they
+#: resolve against is named here rather than derived from a neighbouring path. It used to be spelled
+#: `BUNDLES.parent`, which was the workspace only while `BUNDLES` pointed at a sibling repository —
+#: when the payloads moved into this one that silently became `agience-chorus`, every module
+#: resolved to a path that does not exist, and the test reported all seventeen registrars as
+#: unbundled. An implied root is the thing that broke; this is the explicit one.
+WORKSPACE = SRC.parents[1]
+BUNDLES = SRC.parent / "bundles"                # this repository's own payloads
+SPEC = SRC / "seraph" / "bundle_spec.json"      # ...and the declaration behind them
 
 #: Known and deliberate, per `sage/recognition.py`'s own docstring: it is not wired into
 #: `sage/manifest.py` because sage's registrars come from its five bundle groups
@@ -39,7 +46,7 @@ KNOWN_UNBUNDLED = {"sage/recognition.py"}
 
 def _spec_modules() -> set:
     spec = json.loads(SPEC.read_text(encoding="utf-8"))
-    return {(BUNDLES.parent / rel).resolve()
+    return {(WORKSPACE / rel).resolve()
             for decl in spec.values() for rel in decl["modules"].values()}
 
 
@@ -73,7 +80,7 @@ def _registrar_modules() -> dict:
 
 
 @pytest.mark.skipif(not SPEC.is_file(),
-                    reason="no agience-observe checkout beside this repo — the spec is its")
+                    reason="bundles/spec.json is missing from this repository")
 def test_every_capability_module_RIDES_IN_A_BUNDLE():
     """A registrar outside every bundle group is a capability that cannot be deployed — it answers
     only where the source tree is.
@@ -93,7 +100,7 @@ def test_every_capability_module_RIDES_IN_A_BUNDLE():
         "KNOWN_UNBUNDLED with the reason." % orphans)
 
 
-@pytest.mark.skipif(not SPEC.is_file(), reason="no agience-observe checkout beside this repo")
+@pytest.mark.skipif(not SPEC.is_file(), reason="bundles/spec.json is missing from this repository")
 def test_the_KNOWN_exception_still_exists_and_is_still_unbundled():
     """Keeps the exception honest: an allow-list that is never re-read becomes a place to hide
     things. If `sage/recognition.py` is ever wired into a bundle group, this fails and the entry
