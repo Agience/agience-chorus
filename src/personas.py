@@ -529,7 +529,8 @@ def _content_root_secret(shard: str) -> bytes:
 
 
 if __name__ == "__main__":  # pragma: no cover — the regeneration hook
-    # `python src/personas.py > manifest.json` — the file is a projection of `roster()`, refreshed
+    # `python src/personas.py` prints the roster. It is not written to a file: a checked-in
+    # projection of this function was read by nothing and drifted from it by construction.
     # this way. It is not a source: `src/tests/test_personas.py` fails if the two differ, which
     # keeps the static roster from drifting from the live one.
     import json as _json
