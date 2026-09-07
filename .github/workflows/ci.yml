@@ -36,6 +36,13 @@ jobs:
         with: { repository: "${{ github.repository_owner }}/agience-mantle", path: .siblings/agience-mantle }
       - uses: actions/checkout@v4
         with: { repository: "${{ github.repository_owner }}/agience-ember", path: .siblings/agience-ember }
+      # `.siblings/` now holds every repository the bundle spec names EXCEPT this one. The spec
+      # declares module sources workspace-relatively (`agience-chorus/...`, `agience-crystal/...`),
+      # so `src/seraph/tests/test_bundling.py` needs one directory containing both — and that is
+      # `.siblings/` once chorus itself appears there. A link, not a copy: the payloads are compared
+      # byte-for-byte against this checkout's source, so it must BE this checkout.
+      - name: Make .siblings a complete workspace
+        run: ln -s "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/.siblings/agience-chorus"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

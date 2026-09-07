@@ -17,8 +17,36 @@ import pytest
 
 HERE = pathlib.Path(__file__).resolve()
 SERAPH = HERE.parents[1]
-WORKSPACE = HERE.parents[4]
-BUNDLES = WORKSPACE / "agience-chorus" / "bundles"   # built here, from chorus source
+CHORUS = HERE.parents[3]                             # <repo>/src/seraph/tests -> <repo>
+
+
+def _workspace() -> pathlib.Path:
+    """The directory the spec's paths are relative to — DISCOVERED, not counted.
+
+    `bundle_spec.json` declares each module by a workspace-relative path (`agience-crystal/src/...`),
+    so the root has to be a directory holding every repository it names. Two layouts do that and
+    they are not the same shape:
+
+      a developer workspace   <root>/agience-chorus, <root>/agience-crystal, ...
+      CI                      <repo>/.siblings/agience-crystal, plus `agience-chorus` linked in
+
+    `actions/checkout` cannot write above the workspace, so in CI the siblings sit UNDER the repo
+    and a counted `parents[4]` lands on a directory that has `agience-chorus` and nothing else —
+    which is why every crystal-sourced module reported "declared source is not at ...".
+
+    The required names are read off the spec rather than listed here, so a group that starts
+    sourcing from a third repository cannot silently pick a root that lacks it.
+    """
+    spec = json.loads((SERAPH / "bundle_spec.json").read_text(encoding="utf-8"))
+    needed = {rel.split("/")[0] for d in spec.values() for rel in d["modules"].values()}
+    for cand in (HERE.parents[4], CHORUS / ".siblings"):
+        if all((cand / n).is_dir() for n in needed):
+            return cand
+    return HERE.parents[4]                           # nothing satisfies it; fail loudly downstream
+
+
+WORKSPACE = _workspace()
+BUNDLES = CHORUS / "bundles"                         # built here, from chorus source
 
 sys.path.insert(0, str(SERAPH))
 sys.path.insert(0, str(WORKSPACE / "agience-prism" / "py" / "src"))
