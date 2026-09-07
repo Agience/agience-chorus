@@ -67,9 +67,42 @@ from prism.trust import (
 _auth = _AgienceServerAuth(ARIA_CLIENT_ID, MANTLE_URI)
 
 
+#: The store the browse facet renders. A host BINDS one; aria never imports an engine to get it.
+#: `bind_store(lambda: my_store)` at assembly, the same injection shape `crystal.ontology.driver`
+#: uses — which is what lets aria serve this without a dependency on whoever holds the store.
+_STORE_PROVIDER = None
+
+
+def bind_store(provider) -> None:
+    """Bind the callable that yields the store the browse facet renders.
+
+    Called per request rather than resolved once, so a host that binds after startup still serves.
+    Unbound, the facet's routes answer 503 with the reason — an uninitialised surface and a broken
+    one are different facts and must read differently.
+    """
+    global _STORE_PROVIDER
+    _STORE_PROVIDER = provider
+
+
 def create_aria_app():
-    """Return the Aria MCP ASGI app with verified middleware and startup hooks."""
-    return _auth.create_app(mcp)
+    """Return the Aria MCP ASGI app with verified middleware and startup hooks.
+
+    The browse facet's HTTP routes are mounted here — `/browse`, `/chat`, `/status`, `/dashboard`,
+    `/library` and the two `/api/artifact*` reads. They were served by `ember/surface/serve.py`
+    while the facet lived in the engine; they moved with it. Crystal routes to this app by host
+    header, so the surface is reachable exactly as before.
+    """
+    app = _auth.create_app(mcp)
+    try:
+        from aria.facets.browse_routes import mount_browse
+        mount_browse(app, lambda: _STORE_PROVIDER() if _STORE_PROVIDER else None)
+    except Exception as exc:                       # pragma: no cover - never take the tekton down
+        # The MCP surface is aria's contract; the facet is an addition to it. A facet that cannot
+        # mount must not stop the tekton from serving its tools, so this is logged and carried
+        # rather than raised — and it is logged, so a missing page is never silent.
+        import logging
+        logging.getLogger("aria").warning("browse facet not mounted: %s", exc)
+    return app
 
 
 # ---------------------------------------------------------------------------

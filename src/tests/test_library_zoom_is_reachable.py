@@ -14,22 +14,16 @@ import inspect
 
 import pytest
 
-from aria.facets import browse
+from aria.facets import browse, browse_routes
 
 
-@pytest.mark.skip(reason="NOTHING MOUNTS `browse` YET — the claim is recorded, not dropped")
 def test_the_serve_path_PARSES_resolution_not_only_refresh():
     """The `/library` handler must read `resolution` off the query string, so the rendered links
     carry a choice rather than decoration.
 
-    This asserted against `ember/surface/serve.py`, which served the facet routes until the facets
-    moved here. Ember is the workflow engine and no longer serves them; aria serves facets as a
-    FastAPI app behind crystal's host router, and `browse` is not mounted into one yet.
-
-    So the subject of this test does not currently exist anywhere. It is kept, skipped, rather than
-    deleted: the claim is about whatever ends up serving `/library`, and a deleted test is a claim
-    nobody re-derives. Point it at the mount when there is one — the three tests below already
-    cover the half that moved, `library_page` and `library_view` themselves.
+    This asserted against `ember/surface/serve.py` while the facet lived in the engine. Ember is
+    the workflow engine and no longer serves facets; `aria/facets/browse_routes.py` does, mounted
+    on aria's app and reached through crystal's host router. Same claim, new subject.
     """
 
 
@@ -42,7 +36,6 @@ def test_library_page_and_view_BOTH_accept_a_resolution():
         assert "resolution" in inspect.signature(fn).parameters, fn.__name__
 
 
-@pytest.mark.skip(reason="NOTHING MOUNTS `browse` YET — see the note above; the claim is kept")
 def test_an_UNREADABLE_level_is_treated_as_NO_level_not_an_error():
     """`?resolution=banana` lands on the offer page. An unreadable level is no level, so the handler
     falls back to `resolution = None` and offers the choices again.
@@ -50,13 +43,11 @@ def test_an_UNREADABLE_level_is_treated_as_NO_level_not_an_error():
     An unguarded `float(...)` would take the whole page down on a malformed query string — and
     handing out those links is the page's own job.
 
-    Like the test above, this reads the SERVING handler, which moved out of ember with the facets
-    and has no home yet. Kept skipped so the claim survives the gap.
+    Like the test above, this reads the SERVING route, now `browse_routes.mount_browse`.
     """
-    raise AssertionError(
-        "unreachable: skipped until something mounts `browse`. Write the assertion against that "
-        "mount — read its /library handler and check it parses `resolution` and falls back to None "
-        "on an unreadable level, the two facts this docstring names.")
+    src = inspect.getsource(browse_routes.mount_browse)
+    assert "resolution" in src, "the /library route ignores the resolution parameter"
+    assert "float(resolution)" in src, "the level is never read off the query string"
 
 
 def test_the_view_CACHES_PER_RESOLUTION_not_per_root():
