@@ -104,7 +104,13 @@ def _install_ontology() -> bool:
     subprocess whose cwd is not fixed, and a second copy of a 100-line extraction would duplicate a
     fixture that already exists."""
     import ember
-    tests = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(ember.__file__))), "tests")
+    # `AGIENCE_EMBER_TESTS` is set by chorus's `src/conftest.py`, which has already located the
+    # ember checkout. Preferred over deriving it here: walking three directories up from
+    # `ember.__file__` reaches the repository root only for an EDITABLE install. A regular install
+    # puts `ember/` in site-packages, where three up is `lib/python3.12` and holds no `tests/` —
+    # which is how CI installs it, and why this could not find `_fakes` there.
+    tests = os.environ.get("AGIENCE_EMBER_TESTS") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(ember.__file__))), "tests")
     if tests not in sys.path:
         sys.path.insert(0, tests)
     from _fakes import _install_offline_wordnet

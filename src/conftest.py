@@ -54,6 +54,15 @@ for _up in _probe.parents:
         if _cand.is_dir():
             if str(_cand) not in _sys.path:
                 _sys.path.append(str(_cand))   # append: chorus's own helpers win on a name clash
+            # Published for SUBPROCESSES. `sage/tests/_recognition_probe.py` runs in its own
+            # interpreter — it must, because it blocks `ember` at the meta-path for the requester
+            # while the provider needs it — and a child inherits the environment, never the
+            # parent's runtime `sys.path`. It used to derive this from `ember.__file__` by walking
+            # up three directories, which is the repo root for an EDITABLE install and
+            # `lib/python3.12` for a regular one; CI installs ember regularly, so it found nothing.
+            # This process already resolved the real directory, so it says where rather than
+            # letting each child re-derive it from a layout assumption.
+            _os.environ.setdefault("AGIENCE_EMBER_TESTS", str(_cand))
             break
     else:
         continue
