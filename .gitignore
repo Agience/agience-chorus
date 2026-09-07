@@ -50,9 +50,10 @@ node_modules/
 *.tsbuildinfo
 
 # --- IDE / OS ---
-.vscode/*
-# the Mantle MCP server, tracked deliberately -- agience-build/scripts/mcp_config.py
-!.vscode/mcp.json
+# `.vscode/mcp.json` names an internal Mantle endpoint. It is tracked in no repository,
+# public or private. `agience-build/scripts/mcp_config.py` writes it locally for the
+# editor; it does not enter git.
+.vscode/
 .idea/
 *.swp
 *.swo
@@ -63,3 +64,12 @@ Desktop.ini
 
 # The store a test run creates. State, not source.
 lattice.db
+
+# The public site's React front end is WORK IN PROGRESS and is not carried here.
+#
+# Its backend-for-frontend is. `src/aria/www/bff/main.py` is loaded by `aria/web_bff.py`
+# (`Path(__file__).parent / "www" / "bff" / "main.py"`) and travels inside the `web_bff`
+# operator bundle, so it is live code and stays tracked. Hence the exception rather than a
+# plain `/src/aria/www`, which would silently drop the next file added under bff/.
+/src/aria/www/*
+!/src/aria/www/bff/

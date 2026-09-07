@@ -19,24 +19,29 @@ jobs:
   # Chorus reaches all four: `crystal` at 87 import sites, `prism` at 73, `mantle` at 40, and
   # `ember` at exactly one — `src/conftest.py`, a fixture file. Product code imports no ember, and
   # `src/tests/test_chorus_does_not_import_ember.py` is what holds that.
+  #
+  # Each `path:` is the repository's own name. `src/conftest.py` locates ember's shared test doubles
+  # by looking for a directory called `agience-ember`; under a shortened name it finds nothing, adds
+  # nothing to the path, and the two files that compare chorus against ember SKIP — green, and
+  # measuring neither. That is what this job is for, so the name is part of the check.
   suite:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
-        with: { repository: "${{ github.repository_owner }}/agience-prism-py", path: .siblings/prism }
+        with: { repository: "${{ github.repository_owner }}/agience-prism-py", path: .siblings/agience-prism-py }
       - uses: actions/checkout@v4
-        with: { repository: "${{ github.repository_owner }}/agience-crystal", path: .siblings/crystal }
+        with: { repository: "${{ github.repository_owner }}/agience-crystal", path: .siblings/agience-crystal }
       - uses: actions/checkout@v4
-        with: { repository: "${{ github.repository_owner }}/agience-mantle", path: .siblings/mantle }
+        with: { repository: "${{ github.repository_owner }}/agience-mantle", path: .siblings/agience-mantle }
       - uses: actions/checkout@v4
-        with: { repository: "${{ github.repository_owner }}/agience-ember", path: .siblings/ember }
+        with: { repository: "${{ github.repository_owner }}/agience-ember", path: .siblings/agience-ember }
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install --upgrade pip setuptools
-      - run: pip install './.siblings/prism[trust,vector,wire]' './.siblings/crystal[service,ontology]' ./.siblings/mantle ./.siblings/ember
+      - run: pip install './.siblings/agience-prism-py[trust,vector,wire]' './.siblings/agience-crystal[service,ontology]' ./.siblings/agience-mantle ./.siblings/agience-ember
       - run: pip install -r requirements.txt
       - run: pip install pytest pytest-asyncio pytest-timeout
       - name: Run the suite
@@ -60,36 +65,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
-        with: { repository: "${{ github.repository_owner }}/agience-prism-py", path: .siblings/prism }
+        with: { repository: "${{ github.repository_owner }}/agience-prism-py", path: .siblings/agience-prism-py }
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/agience-observe
-          path: .siblings/observe
+          path: .siblings/agience-observe
           # agience-observe is private and this repository is public, so a public repo's own
           # GITHUB_TOKEN cannot read it. Without the secret this job cannot run; it is skipped
           # rather than reported green, because "the bundles match" is the claim it exists to make.
           token: ${{ secrets.WORKSPACE_READ_TOKEN }}
         continue-on-error: true
         id: builder
+      # No `cache: pip` here, unlike the suite job. This job pip-installs NOTHING — it runs a
+      # checker out of a sibling checkout — so the cache action's post step finds no
+      # `~/.cache/pip` to save and fails the job at the very end. That turned the deliberate
+      # "observe was unreachable, so say so and move on" path into a red job, which is the
+      # opposite of what the skip below is for.
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12", cache: pip }
+        with: { python-version: "3.12" }
       - name: Bundles match chorus source
         if: steps.builder.outcome == 'success'
-        run: python .siblings/observe/build_bundles.py --check
+        run: python .siblings/agience-observe/build_bundles.py --check
       - name: Say so when it could not be checked
         if: steps.builder.outcome != 'success'
         run: |
           echo "::warning::agience-observe was not reachable, so the bundle payloads were NOT" \
                "checked against source. Set WORKSPACE_READ_TOKEN, or wait until observe is public."
 
-  # Two web applications, each with its own build. `astra/web` has a test script; `aria/www` has
-  # only build and lint, so that is what runs — a build failure is the signal there.
+  # One web application. `aria/www` — the public site's React front end — is work in progress and
+  # is not carried in this repository; only its backend-for-frontend (`src/aria/www/bff/`) is, and
+  # that is Python, covered by the suite job above.
   web:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        app: [src/astra/web, src/aria/www]
+        app: [src/astra/web]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
