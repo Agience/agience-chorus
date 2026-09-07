@@ -27,7 +27,30 @@ import os as _os
 from pathlib import Path as _Path
 
 _os.environ.setdefault("AGIENCE_BUNDLE_ROOT", str(_Path(__file__).resolve().parents[1] / "bundles"))
-del _os, _Path
+
+# ── ember's shared test doubles ─────────────────────────────────────────────────────────────────
+#
+# The tests that exercise chorus's operators THROUGH ember's runner live here, because that is where
+# the payloads are. They use ember's `_FakeStore` — a double for mantle's store, ~160 lines with
+# `_FakeArtifacts` and `_FakeGraph` behind it.
+#
+# Reached rather than copied. A second copy of a double that models another repository's API is a
+# copy that drifts, and the drift is silent: the stale side keeps passing against a store shape that
+# no longer exists. There is one copy, in ember, and this puts it on the path.
+#
+# Found by climbing to the workspace, the same way everything else here locates a sibling. Absent an
+# ember checkout the path is simply not added, and the tests that need it fail to import — which is
+# the honest signal, since without ember there is no runner to test through.
+import sys as _sys
+
+_probe = _Path(__file__).resolve()
+for _up in _probe.parents:
+    _cand = _up / "agience-ember" / "tests"
+    if _cand.is_dir():
+        if str(_cand) not in _sys.path:
+            _sys.path.append(str(_cand))       # append: chorus's own helpers win on a name clash
+        break
+del _os, _Path, _sys, _probe
 
 import json
 import os

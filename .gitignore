@@ -60,3 +60,6 @@ node_modules/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# The store a test run creates. State, not source.
+lattice.db
