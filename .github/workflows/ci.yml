@@ -1,0 +1,109 @@
+name: ci
+
+# Three jobs, because this repository holds three things that fail in different ways: the tektons,
+# the payloads they ship as, and two web applications with their own build.
+#
+# There is no `publish.yml`. Chorus is not on PyPI: no directory under `src/` carries an
+# `__init__.py`, so a build produces a wheel with no modules in it. `pyproject.toml` says so at
+# length. Releases here are GitHub releases of the source.
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+
+jobs:
+  # The Python suite. Every sibling below is PUBLIC, so none of these checkouts needs a token, and a
+  # fork can run this job as-is.
+  #
+  # Chorus reaches all four: `crystal` at 87 import sites, `prism` at 73, `mantle` at 40, and
+  # `ember` at exactly one — `src/conftest.py`, a fixture file. Product code imports no ember, and
+  # `src/tests/test_chorus_does_not_import_ember.py` is what holds that.
+  suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/agience-prism-py", path: .siblings/prism }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/agience-crystal", path: .siblings/crystal }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/agience-mantle", path: .siblings/mantle }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/agience-ember", path: .siblings/ember }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip setuptools
+      - run: pip install './.siblings/prism[trust,vector,wire]' './.siblings/crystal[service,ontology]' ./.siblings/mantle ./.siblings/ember
+      - run: pip install -r requirements.txt
+      - run: pip install pytest pytest-asyncio pytest-timeout
+      - name: Run the suite
+        env:
+          # The operator payloads are this repository's own — chorus builds them from chorus source
+          # — so this points at the checkout rather than at a sibling.
+          AGIENCE_BUNDLE_ROOT: ${{ github.workspace }}/bundles
+          # One thread is the only safe setting in CI: OpenBLAS otherwise faults at exit or hangs.
+          OPENBLAS_NUM_THREADS: "1"
+        run: python -m pytest -q --timeout=300
+
+  # The payloads must equal what the builder produces from current source. A stale bundle is the one
+  # defect that cannot be caught by running the code: the runtime reads the PAYLOAD, so an edit to
+  # `src/<tekton>/*.py` that was never rebuilt is inert, and the sha the mesh publishes disagrees
+  # with the source in this repository.
+  #
+  # The builder is a CLI in `agience-observe`; the production logic is chorus's own
+  # `src/seraph/bundling.py`, which this repository already tests. Only the command lives there.
+  bundles-match-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/agience-prism-py", path: .siblings/prism }
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/agience-observe
+          path: .siblings/observe
+          # agience-observe is private and this repository is public, so a public repo's own
+          # GITHUB_TOKEN cannot read it. Without the secret this job cannot run; it is skipped
+          # rather than reported green, because "the bundles match" is the claim it exists to make.
+          token: ${{ secrets.WORKSPACE_READ_TOKEN }}
+        continue-on-error: true
+        id: builder
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - name: Bundles match chorus source
+        if: steps.builder.outcome == 'success'
+        run: python .siblings/observe/build_bundles.py --check
+      - name: Say so when it could not be checked
+        if: steps.builder.outcome != 'success'
+        run: |
+          echo "::warning::agience-observe was not reachable, so the bundle payloads were NOT" \
+               "checked against source. Set WORKSPACE_READ_TOKEN, or wait until observe is public."
+
+  # Two web applications, each with its own build. `astra/web` has a test script; `aria/www` has
+  # only build and lint, so that is what runs — a build failure is the signal there.
+  web:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [src/astra/web, src/aria/www]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+      - run: npm ci --prefix ${{ matrix.app }}
+      - run: npm run build --prefix ${{ matrix.app }}
+      - name: Test, where the app has a suite
+        run: |
+          if node -e "process.exit(require('./${{ matrix.app }}/package.json').scripts.test?0:1)"; then
+            npm run test --prefix ${{ matrix.app }}
+          else
+            echo "no test script in ${{ matrix.app }} — build and lint are the signal"
+          fi
+      - run: npm run lint --prefix ${{ matrix.app }}

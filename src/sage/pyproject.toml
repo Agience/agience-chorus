@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "agience-server-sage"
+version = "0.1.0"
+license = "AGPL-3.0-only"
+description = "Agience Sage — MCP server for research and retrieval (hybrid search, evidence synthesis)"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=1.6.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+agience-server-sage = "server:mcp"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+per-file-ignores = {"server.py" = ["E402"], "tests/test_startup.py" = ["E402"]}
+
+# ⛔ NO [tool.pytest.ini_options] HERE (removed 2026-07-30). This file used to end with
+# a [tool.pytest.ini_options] section setting asyncio_mode = auto, which meant
+# `pytest src/<persona>` used a
+# DIFFERENT configuration from `pytest` at the chorus root — the repo's real config is
+# `agience-chorus/pytest.ini`, and it sets `--import-mode=importlib`, which this file did not.
+# Two configs for one tree makes a green run evidence about the command line rather than the code;
+# agience-mantle had the identical split and it reported 87 failures one way and 0 the other.
+#
+# Removing it is safe and was MEASURED, not assumed: all 69 async tests under `src/` already carry
+# an explicit `@pytest.mark.asyncio`, so nothing depended on auto mode. The packaging metadata above
+# stays — each persona really is independently deployable — it is only the test configuration that
+# must have one home.

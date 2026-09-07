@@ -1,0 +1,102 @@
+{
+  "$schema": "https://schemas.agience.io/mcp-server/v1/mcp.json",
+  "schema_version": "1",
+  "name": "agience-server-seraph",
+  "display_name": "Seraph \u2014 Security, Governance & Trust",
+  "description": "Guardian layer for the Agience platform: access control, audit trails, identity verification, policy compliance, and cryptographic artifact signing.",
+  "version": "0.1.0",
+  "image": "ghcr.io/agience/agience-server-seraph:latest",
+  "endpoints": {
+    "streamable_http": "/mcp"
+  },
+  "tools": [
+    {
+      "name": "complete_authorizer_bearer",
+      "description": "Complete a bearer-token-only authorization code exchange (no refresh token)"
+    },
+    {
+      "name": "resolve_llm_credentials",
+      "description": "Raises. No-models rule, universal and including BYOK: this platform hands out no model API keys",
+      "status": "not_implemented"
+    },
+    {
+      "name": "provide_aws_credentials",
+      "description": "Decrypt and return AWS credentials for a credential artifact"
+    },
+    {
+      "name": "audit_access",
+      "description": "Query the access audit log for a resource"
+    },
+    {
+      "name": "check_permissions",
+      "description": "Check what a person or API key can access"
+    },
+    {
+      "name": "grant_access",
+      "description": "Grant access to a collection for a person or team"
+    },
+    {
+      "name": "revoke_access",
+      "description": "Revoke access to a collection"
+    },
+    {
+      "name": "verify_token",
+      "description": "Verify a JWT against the platform JWKS and return which class it is, plus claims"
+    },
+    {
+      "name": "enforce_policy",
+      "description": "Evaluate a request or card against active system policies",
+      "status": "not_implemented"
+    },
+    {
+      "name": "list_policies",
+      "description": "List active governance policies",
+      "status": "not_implemented"
+    },
+    {
+      "name": "check_compliance",
+      "description": "Check compliance of a resource or workflow against governance rules",
+      "status": "not_implemented"
+    },
+    {
+      "name": "get_person_preferences",
+      "description": "Read the calling person's stored preferences from Origin"
+    },
+    {
+      "name": "set_person_preferences",
+      "description": "Update the calling person's preferences in Origin (shallow merge)"
+    }
+  ],
+  "resources": [],
+  "prompts": [],
+  "artifact_types": [
+    "application/vnd.agience.signature+json"
+  ],
+  "config": {
+    "env": {
+      "LOG_LEVEL": {
+        "description": "Logging level"
+      },
+      "MANTLE_URI": {
+        "description": "Base URI of the Mantle backend",
+        "required": true
+      },
+      "MCP_HOST": {
+        "description": "Bind host for the MCP server"
+      },
+      "MCP_PORT": {
+        "description": "HTTP port for the MCP server",
+        "default": "8089"
+      },
+      "MCP_TRANSPORT": {
+        "description": "MCP transport (http/stdio)"
+      },
+      "ORIGIN_URI": {
+        "description": "Base URI of the identity authority \u2014 issuance only (OIDC, WebAuthn, JWKS, key custody). Read by the person-management tektons, which reach it over the wire; chorus imports origin zero times.",
+        "default": "http://localhost:8080"
+      }
+    }
+  },
+  "_env_note": "AGIENCE_API_URI and AGIENCE_API_KEY were declared required here and are read NOWHERE in server.py (verified 2026-07-31). A deployer honouring this manifest set two dead variables and omitted MANTLE_URI, which then silently defaulted to localhost:8081. This note lives at TOP LEVEL, not inside config.env \u2014 a consumer iterating env would otherwise see a variable named '_removed'.",
+  "_tools_note": "Generated from the @mcp.tool registrations in server.py on 2026-07-31. It previously advertised tools that do not exist and omitted tools that do; a client reads this array to discover the surface."
+}

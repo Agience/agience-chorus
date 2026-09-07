@@ -1,0 +1,65 @@
+{
+  "content_type": "application/vnd.agience.operator+json",
+  "version": 1,
+  "inherits": ["application/json"],
+  "description": "Operator — a concrete, callable execution surface (the canonical invokable artifact; migrates from vnd.agience.transform+json). Its context.operator block names the MCP tool to run (server + tool) and the argument mapping. On invoke, the dispatcher runs that tool server-side, resolving each argument value from the invoke request ($.body.*), the operator's own document ($.content / $.context), and typed edges (@relationship.<name>). Bind a tool, an authorizer, a secret, or another operator by attaching them as relationship edges and referencing them in arguments.",
+  "context_schema": {
+    "operator": {
+      "type": "object",
+      "description": "Execution spec for this operator.",
+      "properties": {
+        "server": {
+          "type": "string",
+          "description": "MCP server short-name (e.g. 'iris') or UUID that owns the tool. Required."
+        },
+        "tool": {
+          "type": "string",
+          "description": "Tool name to invoke on the server. Required."
+        },
+        "arguments": {
+          "type": "object",
+          "description": "Tool argument map. Each value is resolved: '$.body.params.x' (invoke request), '$.content'/'$.context.x' (this artifact), '@relationship.<name>' (the root_id of a typed edge target, e.g. an attached authorizer), or a literal."
+        }
+      }
+    },
+    "title": { "type": "string" },
+    "description": { "type": "string" }
+  },
+  "operations": {
+    "invoke": {
+      "enabled": true,
+      "requires_grant": "invoke",
+      "dispatch": {
+        "kind": "mcp_tool",
+        "server_ref": "$.context.operator.server",
+        "tool_ref": "$.context.operator.tool",
+        "arguments": "$.context.operator.arguments"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "string" },
+          "params": { "type": "object" }
+        }
+      },
+      "emits": [
+        { "event": "artifact.invoke.completed", "phase": "after" },
+        { "event": "artifact.invoke.failed",    "phase": "error" }
+      ]
+    }
+  },
+  "ui": {
+    "label": "Operator",
+    "icon": "zap",
+    "color": "#8b5cf6",
+    "badge_class": "bg-indigo-100 text-indigo-800",
+    "tile_class": "",
+    "modes": ["floating", "preview"],
+    "states": ["view", "edit"],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "viewer": "operator"
+  }
+}

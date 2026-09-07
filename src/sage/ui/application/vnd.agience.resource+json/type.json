@@ -1,0 +1,6 @@
+{
+  "ui": {
+    "resource_uri": "ui://sage/vnd.agience.resource.html",
+    "resource_server": "sage"
+  }
+}

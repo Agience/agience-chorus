@@ -1,0 +1,53 @@
+{
+  "content_type": "application/vnd.agience.chat+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Agience Chat conversation artifact — stores agentic loop messages and tool call history",
+  "operations": {
+    "invoke": {
+      "enabled": true,
+      "requires_grant": "read",
+      "dispatch": {
+        "kind": "mcp_tool",
+        "server_ref": "aria",
+        "tool_ref": "$.body.name"
+      },
+      "emits": [
+        {
+          "event": "artifact.invoke.started",
+          "phase": "before"
+        },
+        {
+          "event": "artifact.invoke.completed",
+          "phase": "after"
+        },
+        {
+          "event": "artifact.invoke.failed",
+          "phase": "error"
+        }
+      ]
+    }
+  },
+  "ui": {
+    "label": "Chat",
+    "icon": "message-circle",
+    "color": "#0ea5e9",
+    "badge_class": "bg-sky-100 text-sky-800",
+    "tile_class": "ring-1 ring-sky-200/70",
+    "modes": [
+      "floating"
+    ],
+    "states": [
+      "active"
+    ],
+    "default_mode": "floating",
+    "default_state": "active",
+    "is_container": false,
+    "creatable": true,
+    "viewer": "chat",
+    "resource_uri": "ui://aria/vnd.agience.chat.html",
+    "resource_server": "aria"
+  }
+}

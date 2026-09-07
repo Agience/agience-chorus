@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lumen · Chat</title>
+<style>
+  /* ── Design tokens ──────────────────────────────────────────────────────── */
+  :root {
+    --bg: #ffffff;
+    --bg-elev: #f7f7f8;
+    --bg-user: #f0f1f4;
+    --border: #e6e6e9;
+    --border-strong: #d5d6db;
+    --text: #1f2023;
+    --text-dim: #6b6d76;
+    --text-faint: #9a9ca4;
+    --accent: #b8622f;
+    --accent-soft: #f3e6dd;
+    --danger: #c0392b;
+    --ok: #2f8a4c;
+    --code-bg: #f4f4f6;
+    --code-border: #e6e6e9;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+    --radius: 14px;
+    --maxw: 46rem;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace;
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1c1f;
+    --bg-elev: #26262b;
+    --bg-user: #2c2d33;
+    --border: #34343a;
+    --border-strong: #43434b;
+    --text: #ececf0;
+    --text-dim: #a2a3ad;
+    --text-faint: #6e6f79;
+    --accent: #e08551;
+    --accent-soft: #3a2a1f;
+    --danger: #f0776a;
+    --ok: #6cc48a;
+    --code-bg: #17171a;
+    --code-border: #34343a;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.35);
+  }
+
+  * , *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* ── App shell ──────────────────────────────────────────────────────────── */
+  .app { display: flex; flex-direction: column; height: 100dvh; }
+
+  header {
+    display: flex; align-items: center; gap: .75rem;
+    padding: .7rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    backdrop-filter: saturate(1.4) blur(12px);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .brand { display: flex; align-items: center; gap: .6rem; font-weight: 600; letter-spacing: -.01em; }
+  .brand .logo {
+    width: 28px; height: 28px; border-radius: 8px; flex: 0 0 auto;
+    background: linear-gradient(135deg, var(--accent), #d98a5b);
+    display: grid; place-items: center; color: #fff; font-weight: 700; font-size: .95rem;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+  }
+  .brand .sub { color: var(--text-faint); font-weight: 400; font-size: .82rem; }
+  .spacer { flex: 1; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: .4rem;
+    font-size: .74rem; font-weight: 500; color: var(--text-dim);
+    padding: .28rem .6rem; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--bg-elev);
+    user-select: none;
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+  .pill.live { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
+  .pill.live .dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+  .pill.offline .dot { background: var(--text-faint); }
+
+  .icon-btn {
+    display: grid; place-items: center;
+    width: 34px; height: 34px; border-radius: 9px;
+    border: 1px solid var(--border); background: var(--bg-elev);
+    color: var(--text-dim); cursor: pointer; transition: .15s;
+  }
+  .icon-btn:hover { color: var(--text); border-color: var(--border-strong); }
+  .icon-btn svg { width: 17px; height: 17px; }
+
+  /* ── Conversation scroll area ───────────────────────────────────────────── */
+  .scroll { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
+  .scroll::-webkit-scrollbar { width: 10px; }
+  .scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 10px; border: 3px solid var(--bg); }
+  .thread { max-width: var(--maxw); margin: 0 auto; padding: 1.5rem 1.15rem 8rem; }
+
+  /* ── Empty / welcome state ──────────────────────────────────────────────── */
+  .welcome { text-align: center; padding: 6vh 0 2rem; animation: fade .5s ease; }
+  .welcome .mark {
+    width: 54px; height: 54px; margin: 0 auto 1.1rem; border-radius: 15px;
+    background: linear-gradient(135deg, var(--accent), #d98a5b);
+    display: grid; place-items: center; color: #fff; font-size: 1.5rem; font-weight: 700;
+    box-shadow: var(--shadow);
+  }
+  .welcome h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -.02em; margin-bottom: .4rem; }
+  .welcome p { color: var(--text-dim); max-width: 32rem; margin: 0 auto; }
+  .chips { display: flex; flex-wrap: wrap; gap: .55rem; justify-content: center; margin-top: 1.6rem; }
+  .chip {
+    font: inherit; font-size: .86rem; text-align: left;
+    padding: .6rem .85rem; border-radius: 11px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--bg-elev); color: var(--text);
+    transition: .15s; max-width: 15rem;
+  }
+  .chip:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+  /* ── Messages ───────────────────────────────────────────────────────────── */
+  .msg { display: flex; gap: .85rem; padding: 1.05rem 0; animation: rise .28s ease; }
+  .msg + .msg { border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 9px; flex: 0 0 auto; margin-top: .1rem;
+    display: grid; place-items: center; font-size: .82rem; font-weight: 700; color: #fff;
+  }
+  .msg.user .avatar { background: var(--bg-user); color: var(--text-dim); border: 1px solid var(--border); }
+  .msg.assistant .avatar { background: linear-gradient(135deg, var(--accent), #d98a5b); }
+  .body { min-width: 0; flex: 1; }
+  .role { font-size: .78rem; font-weight: 600; color: var(--text-dim); margin-bottom: .2rem; }
+  .content { font-size: .96rem; word-wrap: break-word; overflow-wrap: anywhere; }
+
+  /* markdown */
+  .content > *:first-child { margin-top: 0; }
+  .content > *:last-child { margin-bottom: 0; }
+  .content p { margin: .55rem 0; }
+  .content h1, .content h2, .content h3 { line-height: 1.3; margin: 1.1rem 0 .5rem; font-weight: 600; letter-spacing: -.01em; }
+  .content h1 { font-size: 1.3rem; } .content h2 { font-size: 1.15rem; } .content h3 { font-size: 1.02rem; }
+  .content ul, .content ol { margin: .55rem 0 .55rem 1.3rem; }
+  .content li { margin: .2rem 0; }
+  .content a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+  .content blockquote { border-left: 3px solid var(--border-strong); padding-left: .9rem; color: var(--text-dim); margin: .6rem 0; }
+  .content strong { font-weight: 650; }
+  .content code:not(.block) {
+    font-family: var(--mono); font-size: .86em;
+    background: var(--code-bg); border: 1px solid var(--code-border);
+    padding: .1em .38em; border-radius: 6px;
+  }
+  .content hr { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
+
+  /* code blocks */
+  .codewrap { position: relative; margin: .75rem 0; border: 1px solid var(--code-border); border-radius: 11px; overflow: hidden; background: var(--code-bg); }
+  .codehead { display: flex; align-items: center; justify-content: space-between; padding: .38rem .7rem; border-bottom: 1px solid var(--code-border); font-size: .72rem; color: var(--text-faint); }
+  .codehead .lang { text-transform: uppercase; letter-spacing: .06em; }
+  .copybtn { font: inherit; font-size: .72rem; color: var(--text-dim); background: none; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
+  .copybtn:hover { color: var(--text); }
+  pre { margin: 0; padding: .85rem .9rem; overflow-x: auto; }
+  pre code { font-family: var(--mono); font-size: .84rem; line-height: 1.55; color: var(--text); }
+  .tok-key { color: #c678a9; } .tok-str { color: #6aab73; } .tok-num { color: #cf8a4b; }
+  .tok-com { color: var(--text-faint); font-style: italic; } .tok-bool { color: #cf8a4b; } .tok-fn { color: #5a9bd4; }
+  :root[data-theme="dark"] .tok-key { color: #e08fc4; } :root[data-theme="dark"] .tok-str { color: #8fce9a; }
+  :root[data-theme="dark"] .tok-num, :root[data-theme="dark"] .tok-bool { color: #e0a56b; }
+  :root[data-theme="dark"] .tok-fn { color: #79b8e8; }
+
+  /* typing indicator */
+  .typing { display: inline-flex; gap: .28rem; align-items: center; padding: .3rem 0; }
+  .typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); animation: blink 1.3s infinite ease-in-out; }
+  .typing span:nth-child(2) { animation-delay: .18s; } .typing span:nth-child(3) { animation-delay: .36s; }
+
+  /* offline / error notes */
+  .note { display: flex; gap: .6rem; align-items: flex-start; font-size: .9rem; padding: .7rem .85rem; border-radius: 11px; margin-top: .2rem; }
+  .note.offline { background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); color: var(--text); }
+  .note.error { background: color-mix(in srgb, var(--danger) 12%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border)); color: var(--text); }
+  .note svg { width: 17px; height: 17px; flex: 0 0 auto; margin-top: .12rem; }
+  .note.offline svg { color: var(--accent); } .note.error svg { color: var(--danger); }
+  .note b { font-weight: 600; }
+
+  /* ── Composer ───────────────────────────────────────────────────────────── */
+  .composer-wrap {
+    position: sticky; bottom: 0;
+    background: linear-gradient(to top, var(--bg) 55%, transparent);
+    padding: .5rem 1.15rem 1.1rem;
+  }
+  .composer {
+    max-width: var(--maxw); margin: 0 auto;
+    display: flex; align-items: flex-end; gap: .55rem;
+    border: 1px solid var(--border-strong); border-radius: 16px;
+    background: var(--bg-elev); padding: .5rem .5rem .5rem .85rem;
+    box-shadow: var(--shadow); transition: border-color .15s;
+  }
+  .composer:focus-within { border-color: var(--accent); }
+  textarea {
+    flex: 1; resize: none; border: none; outline: none; background: none;
+    color: var(--text); font: inherit; font-size: .96rem; line-height: 1.55;
+    max-height: 40vh; padding: .35rem 0;
+  }
+  textarea::placeholder { color: var(--text-faint); }
+  .send {
+    flex: 0 0 auto; width: 36px; height: 36px; border-radius: 10px; border: none; cursor: pointer;
+    background: var(--accent); color: #fff; display: grid; place-items: center; transition: .15s;
+  }
+  .send:disabled { opacity: .4; cursor: not-allowed; }
+  .send:not(:disabled):hover { filter: brightness(1.07); }
+  .send svg { width: 18px; height: 18px; }
+  .hint { max-width: var(--maxw); margin: .5rem auto 0; text-align: center; font-size: .74rem; color: var(--text-faint); }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes blink { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }
+
+  @media (max-width: 640px) {
+    .thread { padding: 1rem .85rem 8rem; }
+    .welcome { padding: 4vh 0 1.5rem; }
+    .brand .sub { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="logo">L</div>
+      <div>Lumen <span class="sub">· conversation</span></div>
+    </div>
+    <div class="spacer"></div>
+    <div id="status" class="pill offline"><span class="dot"></span><span id="statusText">checking…</span></div>
+    <button class="icon-btn" id="newBtn" title="New chat" aria-label="New chat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <button class="icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </header>
+
+  <div class="scroll" id="scroll">
+    <div class="thread" id="thread">
+      <div class="welcome" id="welcome">
+        <div class="mark">L</div>
+        <h1>How can I help?</h1>
+        <p>Lumen is Agience's grounded conversation surface. Ask a question to get started.</p>
+        <div class="chips" id="chips"></div>
+      </div>
+      <div id="messages"></div>
+    </div>
+  </div>
+
+  <div class="composer-wrap">
+    <form class="composer" id="form">
+      <textarea id="input" rows="1" placeholder="Message Lumen…" autofocus></textarea>
+      <button class="send" id="send" type="submit" disabled aria-label="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+      </button>
+    </form>
+    <div class="hint">Lumen answers only from grounded evidence — it never fabricates. Press Enter to send, Shift+Enter for a new line.</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const scroll = $("scroll"), messages = $("messages"), welcome = $("welcome");
+  const input = $("input"), send = $("send"), form = $("form");
+
+  // ── State ────────────────────────────────────────────────────────────────
+  const history = [];        // {role, content}
+  let busy = false;
+
+  // ── Theme ────────────────────────────────────────────────────────────────
+  const root = document.documentElement;
+  try {
+    const saved = localStorage.getItem("lumen-theme");
+    if (saved) root.setAttribute("data-theme", saved);
+    else if (matchMedia("(prefers-color-scheme: light)").matches) root.setAttribute("data-theme", "light");
+  } catch (e) {}
+  $("themeBtn").addEventListener("click", () => {
+    const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("lumen-theme", next); } catch (e) {}
+  });
+
+  // ── HTML escaping ─────────────────────────────────────────────────────────
+  const esc = (s) => s.replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  // ── Minimal, safe syntax highlighter (language-agnostic) ───────────────────
+  const KW = new RegExp("\\b(" + [
+    "function","return","const","let","var","if","else","for","while","do","switch","case","break",
+    "continue","new","class","extends","import","from","export","default","async","await","yield",
+    "try","catch","finally","throw","typeof","instanceof","in","of","this","super","void","delete",
+    "def","elif","lambda","pass","with","as","global","nonlocal","and","or","not","is","None","print",
+    "public","private","protected","static","final","abstract","interface","package","struct","enum",
+    "fn","impl","trait","match","mut","pub","use","type","int","str","bool","float","double","char"
+  ].join("|") + ")\\b", "g");
+  function highlight(escaped) {
+    // Operates on already-HTML-escaped text; tokens are wrapped in spans.
+    const parts = [];
+    // pull out strings & comments first so keyword/number passes don't touch them
+    const re = /(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;|`[^`]*?`)|(\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/)/g;
+    let last = 0, m;
+    while ((m = re.exec(escaped)) !== null) {
+      parts.push({ t: "code", v: escaped.slice(last, m.index) });
+      if (m[1]) parts.push({ t: "str", v: m[1] });
+      else parts.push({ t: "com", v: m[2] });
+      last = re.lastIndex;
+    }
+    parts.push({ t: "code", v: escaped.slice(last) });
+    return parts.map((p) => {
+      if (p.t === "str") return '<span class="tok-str">' + p.v + "</span>";
+      if (p.t === "com") return '<span class="tok-com">' + p.v + "</span>";
+      return p.v
+        .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-num">$1</span>')
+        .replace(/\b(true|false|null|undefined)\b/g, '<span class="tok-bool">$1</span>')
+        .replace(KW, '<span class="tok-key">$1</span>')
+        .replace(/\b([A-Za-z_]\w*)(?=\s*\()/g, '<span class="tok-fn">$1</span>');
+    }).join("");
+  }
+
+  // ── Tiny markdown renderer (safe: escapes first, whitelist of constructs) ──
+  function renderInline(t) {
+    // t is already HTML-escaped
+    return t
+      .replace(/`([^`]+)`/g, (_, c) => "<code>" + c + "</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+      .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  }
+  function renderMarkdown(src) {
+    const lines = src.replace(/\r\n/g, "\n").split("\n");
+    let html = "", i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      // fenced code block
+      const fence = line.match(/^```\s*([\w+-]*)\s*$/);
+      if (fence) {
+        const lang = fence[1] || "";
+        const buf = [];
+        i++;
+        while (i < lines.length && !/^```\s*$/.test(lines[i])) { buf.push(lines[i]); i++; }
+        i++; // consume closing fence
+        const code = highlight(esc(buf.join("\n")));
+        html += '<div class="codewrap"><div class="codehead"><span class="lang">' +
+          (lang || "code") + '</span><button class="copybtn" data-code="' +
+          esc(buf.join("\n")).replace(/"/g, "&quot;") + '">Copy</button></div>' +
+          '<pre><code class="block">' + code + "</code></pre></div>";
+        continue;
+      }
+      // heading
+      const h = line.match(/^(#{1,3})\s+(.*)$/);
+      if (h) { const n = h[1].length; html += "<h" + n + ">" + renderInline(esc(h[2])) + "</h" + n + ">"; i++; continue; }
+      // hr
+      if (/^\s*(---|\*\*\*)\s*$/.test(line)) { html += "<hr>"; i++; continue; }
+      // blockquote
+      if (/^>\s?/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^>\s?/.test(lines[i])) { buf.push(lines[i].replace(/^>\s?/, "")); i++; }
+        html += "<blockquote>" + renderInline(esc(buf.join(" "))) + "</blockquote>";
+        continue;
+      }
+      // unordered list
+      if (/^\s*[-*]\s+/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { buf.push(lines[i].replace(/^\s*[-*]\s+/, "")); i++; }
+        html += "<ul>" + buf.map((b) => "<li>" + renderInline(esc(b)) + "</li>").join("") + "</ul>";
+        continue;
+      }
+      // ordered list
+      if (/^\s*\d+\.\s+/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) { buf.push(lines[i].replace(/^\s*\d+\.\s+/, "")); i++; }
+        html += "<ol>" + buf.map((b) => "<li>" + renderInline(esc(b)) + "</li>").join("") + "</ol>";
+        continue;
+      }
+      // blank
+      if (/^\s*$/.test(line)) { i++; continue; }
+      // paragraph (gather consecutive non-empty, non-special lines)
+      const buf = [];
+      while (i < lines.length && !/^\s*$/.test(lines[i]) &&
+             !/^```/.test(lines[i]) && !/^(#{1,3})\s/.test(lines[i]) &&
+             !/^\s*[-*]\s+/.test(lines[i]) && !/^\s*\d+\.\s+/.test(lines[i]) &&
+             !/^>\s?/.test(lines[i])) { buf.push(lines[i]); i++; }
+      html += "<p>" + renderInline(esc(buf.join("\n"))).replace(/\n/g, "<br>") + "</p>";
+    }
+    return html;
+  }
+
+  // copy buttons (delegated)
+  messages.addEventListener("click", (e) => {
+    const btn = e.target.closest(".copybtn");
+    if (!btn) return;
+    const txt = btn.getAttribute("data-code")
+      .replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+      .replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+    navigator.clipboard.writeText(txt).then(() => {
+      btn.textContent = "Copied"; setTimeout(() => (btn.textContent = "Copy"), 1400);
+    }).catch(() => {});
+  });
+
+  // ── DOM builders ───────────────────────────────────────────────────────────
+  const AV = { user: "You", assistant: "L" };
+  function rowEl(role) {
+    const row = document.createElement("div");
+    row.className = "msg " + role;
+    row.innerHTML =
+      '<div class="avatar">' + AV[role] + "</div>" +
+      '<div class="body"><div class="role">' + (role === "user" ? "You" : "Lumen") +
+      '</div><div class="content"></div></div>';
+    return row;
+  }
+  function atBottom() { return scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 120; }
+  function toBottom() { scroll.scrollTop = scroll.scrollHeight; }
+
+  function addUser(text) {
+    if (welcome) welcome.style.display = "none";
+    const row = rowEl("user");
+    row.querySelector(".content").textContent = text;
+    messages.appendChild(row);
+    toBottom();
+  }
+  function addAssistantShell() {
+    const row = rowEl("assistant");
+    const c = row.querySelector(".content");
+    c.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
+    messages.appendChild(row);
+    toBottom();
+    return c;
+  }
+
+  // Progressive reveal — gives a live, streaming FEEL to the returned answer.
+  function reveal(contentEl, markdown) {
+    return new Promise((resolve) => {
+      const stick = atBottom();
+      const total = markdown.length;
+      // reveal ~ 90 chars per frame, min 14 steps, capped so long answers stay snappy
+      const step = Math.max(9, Math.ceil(total / 90));
+      let n = 0;
+      function tick() {
+        n = Math.min(total, n + step);
+        contentEl.innerHTML = renderMarkdown(markdown.slice(0, n));
+        if (stick) toBottom();
+        if (n < total) requestAnimationFrame(tick);
+        else resolve();
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+
+  // Both non-answers render as this note, but the HEADING must say which one it is. A refusal
+  // titled "Assistant offline — no live model connected" tells the reader the deployment is down
+  // when it is running and declining; that is a false claim about the system, made by the very
+  // surface whose job is not to fabricate. The caller passes the heading it can actually support.
+  function showNote(contentEl, text, heading) {
+    contentEl.innerHTML =
+      '<div class="note offline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>' +
+      "<div><b>" + esc(heading) + "</b><br>" + esc(text) + "</div></div>";
+  }
+  function showError(contentEl, text) {
+    contentEl.innerHTML =
+      '<div class="note error"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4M12 16h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>' +
+      "<div><b>Something went wrong.</b><br>" + esc(text) + "</div></div>";
+  }
+
+  // ── Networking ─────────────────────────────────────────────────────────────
+  // ⛔ THESE WERE ABSOLUTE ("/api/chat"), WHICH ONLY WORKS IF THIS PAGE OWNS THE ROOT. On aria's own
+  // subdomain it does; mounted under a prefix by a host that serves several personas it does not,
+  // and the page rendered perfectly and answered every message with "Something went wrong. HTTP
+  // 404" — the request went to /api/chat while the bff sat at /aria/api/chat. Resolving against
+  // where this page was actually served is right in BOTH cases: "/aria/chat" -> "/aria", and
+  // "/chat" on the subdomain -> "", which is the absolute form again.
+  const BASE = location.pathname.replace(/\/chat\/?$/, "");
+  async function getChallenge() {
+    try {
+      const r = await fetch(BASE + "/api/chat/nonce");
+      if (r.ok) return (await r.json()).nonce || "";
+    } catch (e) {}
+    return "";
+  }
+
+  async function sendMessage(text) {
+    if (busy || !text.trim()) return;
+    busy = true; updateSend();
+    addUser(text);
+    history.push({ role: "user", content: text });
+    const contentEl = addAssistantShell();
+
+    try {
+      const challenge = await getChallenge();
+      const headers = { "Content-Type": "application/json" };
+      if (challenge) headers["X-Agience-Challenge"] = challenge;
+      const res = await fetch(BASE + "/api/chat", {
+        method: "POST", headers,
+        body: JSON.stringify({ workspace_id: "", params: { messages: history } }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+
+      // `data.answer === null` used to be a third clause here. /api/chat returns `text`, never
+      // `answer`, so it read `undefined === null` — false on every response ever sent. It was not a
+      // safety net, it was a line that looked like one, and it made the real gate (`grounded`) look
+      // like it had a backstop it did not have.
+      if (data.offline || data.grounded === false) {
+        // A refusal (carrier live, nothing fired) and an outage (no carrier) both land here and
+        // both withhold an answer — but only the outage may claim the assistant is offline, and
+        // only the outage may flip the status pill. Flipping it on a refusal would report the
+        // service as down for the rest of the session because one query missed the corpus.
+        const outage = data.offline === true;
+        showNote(contentEl,
+                 data.text || "Live responses will light up once the carrier is connected.",
+                 outage ? "Assistant offline — no live model connected."
+                        : "No grounded answer.");
+        if (outage) setStatus(false);
+        // an honest non-answer is NOT added to history as an assistant turn
+      } else {
+        const answer = data.text || "";
+        await reveal(contentEl, answer);
+        history.push({ role: "assistant", content: answer });
+        setStatus(true);
+      }
+    } catch (err) {
+      showError(contentEl, (err && err.message) || "Network error. Please try again.");
+    } finally {
+      busy = false; updateSend(); input.focus();
+    }
+  }
+
+  // ── Status pill (polls /healthz) ───────────────────────────────────────────
+  function setStatus(live) {
+    const pill = $("status"), t = $("statusText");
+    if (live) { pill.className = "pill live"; t.textContent = "Live"; }
+    else { pill.className = "pill offline"; t.textContent = "Offline"; }
+  }
+  async function pollHealth() {
+    try {
+      const r = await fetch(BASE + "/healthz");
+      if (r.ok) { setStatus(!!(await r.json()).chat); return; }
+    } catch (e) {}
+    setStatus(false);
+  }
+
+  // ── Composer behavior ──────────────────────────────────────────────────────
+  function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, window.innerHeight * 0.4) + "px"; }
+  function updateSend() { send.disabled = busy || !input.value.trim(); }
+  input.addEventListener("input", () => { autosize(); updateSend(); });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+  });
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = ""; autosize(); updateSend();
+    sendMessage(text);
+  });
+  $("newBtn").addEventListener("click", () => {
+    history.length = 0; messages.innerHTML = "";
+    if (welcome) welcome.style.display = "";
+    input.value = ""; autosize(); updateSend(); input.focus();
+  });
+
+  // suggestion chips
+  const SUGGESTIONS = [
+    "What is Agience?",
+    "How do agents propagate signals?",
+    "Explain grounded retrieval",
+    "Show me a code example",
+  ];
+  const chips = $("chips");
+  SUGGESTIONS.forEach((s) => {
+    const b = document.createElement("button");
+    b.className = "chip"; b.type = "button"; b.textContent = s;
+    b.addEventListener("click", () => { input.value = s; autosize(); updateSend(); input.focus(); form.requestSubmit(); });
+    chips.appendChild(b);
+  });
+
+  pollHealth();
+  setInterval(pollHealth, 30000);
+})();
+</script>
+</body>
+</html>

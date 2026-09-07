@@ -1,0 +1,104 @@
+{
+  "$schema": "https://schemas.agience.io/mcp-server/v1/mcp.json",
+  "schema_version": "1",
+  "name": "agience-server-lumen",
+  "display_name": "Lumen — Wisdom & Inference",
+  "description": "Handles reasoning, workflow execution, synthesis, multi-step coordination, evaluation, and training feedback.",
+  "version": "0.1.0",
+  "image": "ghcr.io/agience/agience-server-lumen:latest",
+  "endpoints": {
+    "streamable_http": "/mcp"
+  },
+  "tools": [
+    {
+      "name": "synthesize",
+      "description": "Synthesize an evidence-backed answer: retrieve→reason→respond"
+    },
+    {
+      "name": "run_workflow",
+      "description": "Execute a multi-step workflow defined by a Transform artifact"
+    },
+    {
+      "name": "execute_transform",
+      "description": "Execute a Transform artifact"
+    },
+    {
+      "name": "chain_tasks",
+      "description": "Chain multiple MCP tool calls sequentially via the platform's artifact-invoke path"
+    },
+    {
+      "name": "schedule_action",
+      "description": "Schedule a deferred action for future execution. Creates a task card that will be executed at the specified time or interval",
+      "status": "not_implemented"
+    },
+    {
+      "name": "evaluate_output",
+      "description": "Evaluate the quality and accuracy of generated output. Scores content against criteria like relevance, completeness, coherence, and factual accuracy",
+      "status": "not_implemented"
+    },
+    {
+      "name": "submit_feedback",
+      "description": "Submit evaluation feedback on an artifact"
+    },
+    {
+      "name": "transcribe_artifact",
+      "description": "Raises. No-models rule: a hosted speech recognizer is a trained model",
+      "status": "not_implemented"
+    },
+    {
+      "name": "invoke_llm",
+      "description": "Raises. No-models rule, universal and including BYOK. Grounded operators are the reasoning surface",
+      "status": "not_implemented"
+    },
+    {
+      "name": "install_package",
+      "description": "Install a package into a target workspace"
+    },
+    {
+      "name": "export_package",
+      "description": "Populate a package manifest from workspace contents"
+    }
+  ],
+  "resources": [],
+  "prompts": [],
+  "artifact_types": [
+    "application/vnd.agience.evaluation+json"
+  ],
+  "config": {
+    "env": {
+      "CRYSTAL_URI": {
+        "description": "Base URI of the Crystal dispatcher",
+        "default": "http://localhost:8085"
+      },
+      "LOG_LEVEL": {
+        "description": "Logging level"
+      },
+      "LUMEN_GROUNDING_CHARS": {
+        "description": "Total grounding budget in characters"
+      },
+      "LUMEN_GROUNDING_PER_DOC_CHARS": {
+        "description": "Per-document grounding budget in characters"
+      },
+      "MANTLE_URI": {
+        "description": "Base URI of the Mantle backend",
+        "required": true
+      },
+      "MCP_HOST": {
+        "description": "Bind host for the MCP server"
+      },
+      "MCP_PORT": {
+        "description": "HTTP port for the MCP server",
+        "default": "8088"
+      },
+      "MCP_TRANSPORT": {
+        "description": "MCP transport (http/stdio)"
+      },
+      "ORIGIN_URI": {
+        "description": "Base URI of the Origin identity authority",
+        "required": true
+      }
+    }
+  },
+  "_env_note": "AGIENCE_API_URI and AGIENCE_API_KEY were declared required here and are read NOWHERE in server.py (verified 2026-07-31). A deployer honouring this manifest set two dead variables and omitted MANTLE_URI, which then silently defaulted to localhost:8081. This note lives at TOP LEVEL, not inside config.env — a consumer iterating env would otherwise see a variable named '_removed'.",
+  "_tools_note": "Generated from the @mcp.tool registrations in server.py on 2026-07-31. It previously advertised tools that do not exist and omitted tools that do; a client reads this array to discover the surface. NOTE: a `status: not_implemented` marker on `execute_transform` was removed 2026-07-31 — it raises only in one branch and is a live dispatcher; a client filtering on status would have dropped a working tool."
+}

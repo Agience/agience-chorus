@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agience-chorus"
+version = "0.1.0"
+description = "Agience Chorus — the tekton standard library: operators by domain, and the host that serves them."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.11"
+# DUAL-LICENSED, AND THE MANIFEST DECLARES ONLY THE AGPL HALF ON PURPOSE.
+# This package is offered under AGPL-3.0-only OR a commercial licence (see COMMERCIAL_LICENSE.md).
+# `license = "AGPL-3.0-only OR LicenseRef-Ikailo-Commercial"` is a valid PEP 639 expression and it is
+# still wrong here. SPDX `A OR B` means the recipient MAY CHOOSE either, and a recipient of this
+# package cannot: the commercial licence is not conveyed by the download, it is negotiated.
+# Declaring it would assert a grant the artifact does not carry. The manifest states what you
+# actually receive; the offer of the other half lives in LICENSE, NOTICE, README and
+# COMMERCIAL_LICENSE.md.
+license = "AGPL-3.0-only"
+authors = [{ name = "Ikailo Inc.", email = "connect@agience.ai" }]
+keywords = ["agience", "chorus", "tekton", "persona", "operator", "organon", "mcp"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+# NOT ON PyPI, AND THIS MANIFEST DOES NOT YET DESCRIBE A DISTRIBUTION.
+#
+# `packages.find` below returns an EMPTY list, because no directory under `src/` carries an
+# `__init__.py`: the seven tektons are deployed as services and their operators travel as
+# sha-verified bundles, not as an importable package. Building this today produces a wheel with no
+# modules in it, so there is no `publish.yml` in `.github/workflows/` and no release tag — an empty
+# distribution on an index is worse than no distribution.
+#
+# What a package here has to answer first: what `import chorus` would mean, which of `src/`'s 881
+# tracked files belong in a wheel (495 of them are two web applications with their own build), and
+# whether the tektons become extras. That is a design decision, not a packaging flag, and it is
+# deliberately not being guessed at here.
+#
+# The runtime dependency list stays in `requirements.txt` — a deployment installs from it and so
+# does local development, so restating pinned versions here would be the fork that convention
+# exists to avoid.
+dependencies = []
+
+[project.urls]
+Homepage = "https://agience.ai"
+Source = "https://github.com/Agience/agience-chorus"
+Issues = "https://github.com/Agience/agience-chorus/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# NO PER-TEKTON EXTRAS TODAY. A tekton's requirements are CAPABILITY DECLARATIONS, resolved at
+# runtime by `prism.crystal_model.activates_on` against what the host advertises — not by a
+# packaging option. `chorus[ophan]` would freeze into distribution what the capability gate already
+# decides, and a node that lacks a Stripe credential should refuse at discharge, not fail to install.
+#
+# The tekton-specific third-party imports (numpy, sympy, stripe) are dependencies of the CURRENT
+# implementation, where organon code is imported at module scope. They leave that list when the
+# operators travel as artifacts, which is the direction `prism.runner` and the shipped bundles
+# already prove out.

@@ -1,0 +1,41 @@
+{
+  "content_type": "application/vnd.agience.invoice+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "An invoice — accounts receivable record with line items, amounts, and payment tracking. Created by Ophan's create_invoice tool.",
+  "context_schema": {
+    "invoice_number": "string — unique invoice identifier",
+    "issuer": "string — issuer name or artifact ID",
+    "recipient": "string — recipient name or artifact ID",
+    "line_items": "object[] — [{description: string, quantity: number, unit_price: string, amount: string}]",
+    "total": "string — total amount as a decimal string",
+    "currency": "string — ISO 4217 currency code",
+    "status": "string — draft | sent | paid | void",
+    "due_date": "string? — ISO 8601 date",
+    "issued_at": "string — ISO 8601 timestamp"
+  },
+  "ui": {
+    "label": "Invoice",
+    "icon": "receipt",
+    "color": "#6366f1",
+    "badge_class": "bg-indigo-100 text-indigo-800",
+    "tile_class": "ring-1 ring-indigo-200/70",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view",
+      "edit"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "description": "Invoice — accounts receivable with line items and payment status.",
+    "resource_uri": "ui://ophan/vnd.agience.invoice.html",
+    "resource_server": "ophan"
+  }
+}

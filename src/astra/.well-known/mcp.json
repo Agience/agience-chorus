@@ -1,0 +1,120 @@
+{
+  "$schema": "https://schemas.agience.io/mcp-server/v1/mcp.json",
+  "schema_version": "1",
+  "name": "agience-server-astra",
+  "display_name": "Astra — Ingestion, Validation & Indexing",
+  "description": "Captures and prepares incoming information through ingestion, validation, normalization, indexing, hygiene, and telemetry collection.",
+  "version": "0.1.0",
+  "image": "ghcr.io/agience/agience-server-astra:latest",
+  "endpoints": {
+    "streamable_http": "/mcp"
+  },
+  "tools": [
+    {
+      "name": "ingest_file",
+      "description": "Ingest a file URL or raw text into a workspace as a card"
+    },
+    {
+      "name": "document_text_extract",
+      "description": "Extract text from a PDF artifact and create a derived text artifact"
+    },
+    {
+      "name": "process_uploaded_content",
+      "description": "Process uploaded text content � extract text and create derived artifacts for search and agent use"
+    },
+    {
+      "name": "validate_input",
+      "description": "Validate incoming data against a schema or content rules",
+      "status": "not_implemented"
+    },
+    {
+      "name": "normalize_artifact",
+      "description": "Normalize card content � standardize fields, clean formatting, resolve encodings",
+      "status": "not_implemented"
+    },
+    {
+      "name": "apply_metadata",
+      "description": "Merge caller-supplied metadata into an artifact's context.metadata field, then re-index so the fields become searchable. Deterministic merge; no model involved"
+    },
+    {
+      "name": "ingest_pipeline",
+      "description": "Run the document ingestion pipeline on a PDF artifact: deduplication check → text extraction"
+    },
+    {
+      "name": "deduplicate",
+      "description": "Check for duplicate content by SHA-256 hash. Stamps content_hash on the artifact context and searches the workspace for prior ingestions of the same file"
+    },
+    {
+      "name": "classify_content",
+      "description": "Raises. No-models rule: this platform runs no trained classifier",
+      "status": "not_implemented"
+    },
+    {
+      "name": "connect_source",
+      "description": "Register an external connector (Drive folder, inbox, Slack channel)"
+    },
+    {
+      "name": "sync_source",
+      "description": "Pull latest content from a registered connector into the workspace"
+    },
+    {
+      "name": "index_artifact",
+      "description": "Force re-index of a card into the search layer",
+      "status": "not_implemented"
+    },
+    {
+      "name": "ingest_text",
+      "description": "Extract text from an uploaded artifact, optionally chunk it, and create derived workspace artifacts (ingest.parsed_text and ingest.chunk) that are automatically indexed by the search pipeline"
+    },
+    {
+      "name": "transcribe",
+      "description": "Finalize a completed stream session card into a transcript card"
+    },
+    {
+      "name": "collect_telemetry",
+      "description": "Collect and record system activity telemetry as workspace cards",
+      "status": "not_implemented"
+    },
+    {
+      "name": "rotate_stream_key",
+      "description": "Generate or rotate the RTMP stream key for a stream source artifact"
+    }
+  ],
+  "resources": [],
+  "prompts": [],
+  "artifact_types": [
+    "application/vnd.agience.stream+json"
+  ],
+  "config": {
+    "env": {
+      "LOG_LEVEL": {
+        "description": "Logging level"
+      },
+      "MANTLE_URI": {
+        "description": "Base URI of the Mantle backend",
+        "required": true
+      },
+      "MCP_HOST": {
+        "description": "Bind host for the MCP server"
+      },
+      "MCP_PORT": {
+        "description": "HTTP port for the MCP server",
+        "default": "8087"
+      },
+      "MCP_TRANSPORT": {
+        "description": "MCP transport (http/stdio)"
+      },
+      "SEARCH_CHUNK_OVERLAP": {
+        "description": "Chunk overlap for text extraction"
+      },
+      "SEARCH_CHUNK_SIZE": {
+        "description": "Chunk size for text extraction"
+      },
+      "STREAM_INGEST_URL": {
+        "description": "Public RTMP ingest URL for OBS clients (e.g. rtmp://rtmp.example.com/live)"
+      }
+    }
+  },
+  "_env_note": "AGIENCE_API_URI and AGIENCE_API_KEY were declared required here and are read NOWHERE in server.py (verified 2026-07-31). A deployer honouring this manifest set two dead variables and omitted MANTLE_URI, which then silently defaulted to localhost:8081. This note lives at TOP LEVEL, not inside config.env — a consumer iterating env would otherwise see a variable named '_removed'.",
+  "_tools_note": "Generated from the @mcp.tool registrations in server.py on 2026-07-31. It previously advertised tools that do not exist and omitted tools that do; a client reads this array to discover the surface."
+}

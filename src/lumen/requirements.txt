@@ -1,0 +1,9 @@
+mcp[cli]>=1.6.0
+httpx>=0.27
+# amazon-transcribe removed 2026-07-22 — hosted speech recognizer (no-models rule);
+# transcribe_artifact is a tombstone
+cryptography>=42.0
+python-jose[cryptography]>=3.3
+
+# Dev
+pytest>=8.0

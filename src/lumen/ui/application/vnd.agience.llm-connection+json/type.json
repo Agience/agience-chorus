@@ -1,0 +1,188 @@
+{
+  "content_type": "application/vnd.agience.llm-connection+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "LLM Connection — configures access to a language model provider with credential resolution and rate limiting.",
+  "context_schema": {
+    "provider": {
+      "type": "string",
+      "enum": [
+        "openai",
+        "anthropic",
+        "azure",
+        "google",
+        "mistral",
+        "local"
+      ],
+      "description": "LLM provider identifier"
+    },
+    "model": {
+      "type": "string",
+      "description": "Model identifier (e.g. gpt-5-nano, claude-opus-4, claude-sonnet-4)"
+    },
+    "endpoint": {
+      "type": "string",
+      "description": "Custom API endpoint URL (optional, for Azure, local, or resold connections)"
+    },
+    "credentials_ref": {
+      "type": "object",
+      "description": "Pointer to credentials — never contains actual keys. Seraph resolves this at invocation time.",
+      "properties": {
+        "secret_id": {
+          "type": "string",
+          "description": "Exact secret UUID (if user-supplied)"
+        },
+        "secret_type": {
+          "type": "string",
+          "default": "llm_key",
+          "description": "Secret type for lookup in secrets service"
+        },
+        "provider": {
+          "type": "string",
+          "description": "Provider discriminator for secret lookup"
+        },
+        "resolution": {
+          "type": "string",
+          "enum": [
+            "user_secret",
+            "workspace_secret",
+            "platform_default",
+            "platform_secret"
+          ],
+          "description": "How to resolve the key at invocation time. platform_secret = the platform-default key, vault-custodied as a secret artifact and resolved server-side by Lumen as the system principal."
+        }
+      }
+    },
+    "rate_limits": {
+      "type": "object",
+      "description": "Rate limits applied per-user for this connection",
+      "properties": {
+        "requests_per_minute": {
+          "type": "integer",
+          "description": "Max requests per minute"
+        },
+        "tokens_per_minute": {
+          "type": "integer",
+          "description": "Max tokens per minute"
+        },
+        "tokens_per_day": {
+          "type": "integer",
+          "description": "Max tokens per day"
+        }
+      }
+    },
+    "tier": {
+      "type": "string",
+      "enum": [
+        "free",
+        "pro",
+        "power",
+        "custom"
+      ],
+      "description": "Subscription tier this connection belongs to"
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "Model capabilities for UX and routing decisions",
+      "properties": {
+        "chat": {
+          "type": "boolean"
+        },
+        "reasoning": {
+          "type": "boolean"
+        },
+        "vision": {
+          "type": "boolean"
+        },
+        "function_calling": {
+          "type": "boolean"
+        },
+        "max_context_tokens": {
+          "type": "integer"
+        }
+      }
+    },
+    "is_platform_default": {
+      "type": "boolean",
+      "description": "True for platform-seeded default connections"
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable name for this connection"
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief explanation of this connection"
+    },
+    "system_prompt": {
+      "type": "string",
+      "description": "Optional system prompt prepended to every chat turn when this connection is invoked directly (e.g. a website assistant persona)."
+    }
+  },
+  "operations": {
+    "invoke": {
+      "enabled": true,
+      "requires_grant": "invoke",
+      "dispatch": {
+        "kind": "mcp_tool",
+        "server_ref": "lumen",
+        "tool_ref": "invoke_llm",
+        "arguments": {
+          "connection_artifact_id": "$.root_id",
+          "workspace_id": "$.body.workspace_id",
+          "messages": "$.body.params.messages"
+        }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "messages": {
+                "type": "array",
+                "description": "Conversation as [{role, content}, ...] (or a JSON string of the same)."
+              }
+            }
+          }
+        }
+      },
+      "emits": [
+        {
+          "event": "llm.invoke.completed",
+          "phase": "after"
+        },
+        {
+          "event": "llm.invoke.failed",
+          "phase": "error"
+        }
+      ]
+    }
+  },
+  "ui": {
+    "label": "LLM Connection",
+    "icon": "brain",
+    "color": "#7c3aed",
+    "badge_class": "bg-violet-100 text-violet-800",
+    "tile_class": "ring-1 ring-violet-200/70",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "viewer": "llm-connection",
+    "resource_uri": "ui://lumen/vnd.agience.llm-connection.html",
+    "resource_server": "lumen"
+  }
+}

@@ -1,0 +1,253 @@
+"""Chorus persona-discovery + self-registration-inversion tests (GENESIS-NEXT §B1.10).
+
+The host lives in `crystal.host`; chorus keeps only the persona modules and the chorus-specific
+discovery seam (`personas.load_personas`). These tests lock in that:
+  * every persona module owns its registration data (module-level PERSONA + register()),
+  * `personas.load_personas()` derives the roster from those modules (no hardcoded role map),
+  * each binding self-registers via the persona's own register() — the host holds no roster.
+
+`personas` is imported lazily (inside fixtures/tests, never at collection time) because
+importing it boots the chorus service identity, which the session-scoped conftest fixture
+only materializes once tests start running.
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
+
+# `personas` lives in chorus/src (the shim's sibling); make it importable.
+_SRC = Path(__file__).resolve().parent.parent
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+_EXPECTED = {
+    "aria": "Presentation & Interface",
+    "sage": "Research & Retrieval",
+    "iris": "Routing & Communication",
+    "astra": "Ingestion & Indexing",
+    "lumen": "Wisdom & Inference",
+    "seraph": "Security & Governance",
+    "ophan": "Economic Operations",
+}
+
+
+def _personas_mod():
+    import personas  # noqa: PLC0415 — lazy: needs the conftest identity fixture
+
+    return personas
+
+
+@pytest.fixture(scope="module")
+def bindings():
+    return _personas_mod().load_personas()
+
+
+def test_all_personas_discovered(bindings):
+    assert {b.name for b in bindings} == set(_EXPECTED)
+
+
+def test_role_and_endpoint_come_from_persona_modules(bindings):
+    by_name = {b.name: b for b in bindings}
+    for name, role in _EXPECTED.items():
+        assert by_name[name].role == role
+        assert by_name[name].endpoint == f"/{name}/mcp"
+
+
+def test_personas_module_holds_no_hardcoded_role_map():
+    # The roster is the persona modules' own PERSONA dicts — personas.py must not
+    # carry a role/endpoint table of its own.
+    personas = _personas_mod()
+    for attr in dir(personas):
+        val = getattr(personas, attr)
+        if isinstance(val, dict) and set(val) & set(_EXPECTED):
+            pytest.fail(f"personas.{attr} looks like a hardcoded roster")
+
+
+def test_each_binding_delegates_to_persona_register(bindings):
+    # The host injects the registration helper (DI): a binding.register(fn) must call the persona
+    # module's own register(fn), which pushes the persona's {name, role, endpoint} via fn. We pass a
+    # mock as the injected helper so no network is touched and the tekton imports no crystal.
+    m = Mock(return_value=True)
+    for b in bindings:
+        assert b.register(m) is True
+    assert m.call_count == len(bindings)
+    # Every persona pushed its own name/role/endpoint (self-registration source of truth).
+    pushed = {c.kwargs["name"]: c.kwargs["role"] for c in m.call_args_list}
+    assert pushed == _EXPECTED
+
+
+# ── the roster is derived from what this node holds ──────────────────────────────────────────────
+#
+# `agience-chorus/manifest.json` is a projection of `personas.roster()`, not a hand-maintained
+# roster: a static file nothing reads and nothing checks is free to drift from what the persona
+# modules actually declare. A roster of seven is also a claim that every node is every persona,
+# which is not true in general — role is read from what a node holds and can discharge, not
+# configured — so the assertion that proves derivation rather than declaration is the subset one
+# below: a static file cannot shrink.
+
+_MANIFEST = Path(__file__).resolve().parents[2] / "manifest.json"
+
+
+def test_manifest_json_is_the_DERIVED_roster_and_cannot_drift(bindings):
+    """The file must equal what this node derives. It is a projection with a gate, not a source.
+
+    Hand-editing `manifest.json`, or changing a persona's `PERSONA["role"]` without regenerating,
+    fails here — this is what compares the two and catches drift between them.
+    """
+    personas = _personas_mod()
+    on_disk = json.loads(_MANIFEST.read_text(encoding="utf-8"))
+    derived = personas.roster()
+    assert on_disk == derived, (
+        "manifest.json is not the roster this node derives — it has been hand-edited or a persona "
+        "changed its own declaration. The file is a PROJECTION of `personas.roster()`; regenerate "
+        "it rather than editing it.")
+
+
+def test_the_roster_transcribes_nothing_the_persona_did_not_declare(bindings):
+    """Every field traces to the persona's own `PERSONA` dict or to a derivation stated once.
+
+    A hand-written `summary` — prose with no source deriving it — fails this, because prose nothing
+    derives is prose nothing can keep true.
+    """
+    personas = _personas_mod()
+    by_name = {b.name: b for b in bindings}
+    for entry in personas.roster():
+        b = by_name[entry["name"]]
+        assert entry["role"] == b.role, entry
+        assert entry["path"] == b.endpoint, entry
+        assert entry["title"] == entry["name"].capitalize(), entry
+        # `crystal.persona_registration._register_server` pushes `summary=role` on every live
+        # self-registration; the file saying something else is the two disagreeing.
+        assert entry["summary"] == entry["role"], entry
+
+
+def test_a_node_holding_a_SUBSET_derives_EXACTLY_that_subset():
+    """The assertion that separates derived from declared: a node holding two crystals produces a
+    roster of two. A static file of seven cannot do this at all — which is the whole point.
+
+    Run in a subprocess because `CHORUS_CRYSTALS` is read when `personas` is imported, and this
+    session has already imported it with the full set; an in-process version would keep measuring
+    the seven-crystal node and pass regardless of what `roster()` actually does.
+
+    If `roster()` ever read the file, or held a list of its own, it would return seven here and this
+    fails. It also fails if the subset node reports more than it holds.
+    """
+    src = Path(__file__).resolve().parents[1]
+    r = subprocess.run(
+        [sys.executable, "-c",
+         "import sys, json; sys.path.insert(0, %r)\n"
+         "import personas\n"
+         "print(json.dumps(personas.roster()))\n" % str(src)],
+        capture_output=True, text=True, cwd=str(src),
+        env=dict(os.environ, CHORUS_CRYSTALS="aria,seraph", OPENBLAS_NUM_THREADS="1"))
+    assert r.returncode == 0, f"subset node failed to boot:\n{r.stderr[-3000:]}"
+    got = json.loads(r.stdout.strip().splitlines()[-1])
+    assert [e["name"] for e in got] == ["aria", "seraph"], got
+    assert len(got) == 2, "a node holding two crystals reported %d — the roster is declared, not derived" % len(got)
+    assert {e["role"] for e in got} == {_EXPECTED["aria"], _EXPECTED["seraph"]}
+    # …and the static file still says seven, which is what makes the two-persona subset distinguishable.
+    assert len(json.loads(_MANIFEST.read_text(encoding="utf-8"))) == 7
+
+
+# ── the seam `web.serve` reaches across: chorus carries the root, crystal resolves the surface ──
+
+def test_every_binding_carries_its_own_dist_root(bindings):
+    """A facet declares `dist` relative to its persona dir; crystal may not learn the chorus layout
+    (that is the dependency cycle `personas.py` exists to prevent), so chorus carries the root it
+    already knows — it loaded the persona module from it. Without this, `crystal.web_serve` would
+    fall back to a cwd-relative guess, which serves whatever directory the process happened to start
+    in and looks identical to working when the cwd happens to be right.
+    """
+    for b in bindings:
+        assert b.dist_root is not None, f"{b.name} carries no dist_root — a surface cannot resolve"
+        assert b.dist_root.is_dir(), f"{b.name}'s dist_root does not exist: {b.dist_root}"
+        assert b.dist_root.name == b.name, \
+            f"{b.name}'s dist_root names a different persona: {b.dist_root}"
+
+
+def test_arias_declared_surface_RESOLVES_through_the_binding(bindings):
+    """The end-to-end seam, on the real declaration rather than a fixture.
+
+    A fixture-only test cannot catch a resolver that is correct against a directory the test itself
+    created while the real manifest still resolves to nothing — a wrong relative path, a root
+    pointing one level up, a facet whose `dist` key was renamed. This asserts the bytes that
+    actually ship.
+
+    Skipped, naming its precondition, where `www/dist` is not built: it is a gitignored Vite
+    output, so a clean checkout legitimately has none — the same split `test_web_facet.py` already
+    makes between the configuration half and the build half.
+    """
+    from crystal import web_serve
+
+    aria = next(b for b in bindings if b.name == "aria")
+    declared = {f["name"] for f in aria.facets}
+    assert "www" in declared, "aria stopped declaring the www facet"
+
+    if not (aria.dist_root / "www" / "dist").is_dir():
+        pytest.skip("aria's www/dist is not built (gitignored Vite output) — the CONFIGURATION half "
+                    "above still runs everywhere and this names exactly what it needs")
+
+    found = web_serve.surfaces([aria])
+    by_facet = {s.facet: s for s in found}
+
+    # Two different kinds of surface, which is the point of this assertion, not the count: `www` is
+    # static (a built Vite bundle on disk); a rendered surface is a route on a persona's own app.
+    # `web_serve` measures the difference rather than taking the declaration's word, so this proves
+    # the measurement still works.
+    assert by_facet["www"].kind == "static" and by_facet["www"].prefix == "/aria/www"
+    assert (by_facet["www"].directory / "index.html").is_file()
+
+    # Login does not belong to aria: a credential form served here and posting to origin is a
+    # cross-origin flow, and a session cookie browsers drop as third-party. It belongs to the
+    # authority, same-origin with the endpoint that verifies it, and origin's `web/index.html` is
+    # that page. This asserts aria has not re-declared it.
+    assert "login" not in declared, "aria re-declared a login facet; login belongs to origin"
+
+
+def test_astras_workspace_surface_RESOLVES_through_the_binding(bindings):
+    """The same seam on astra's `workspace` facet — the human door onto the lattice.
+
+    Added 2026-08-27 with the facet. It is the aria assertion applied to the declaration that
+    actually changed, and it exists because the failure mode here is silent in a specific way:
+    `workspace.<base>` resolves under the node's wildcard certificate whether or not anything is
+    behind it, and an unmatched host falls through to crystal's own index — a 200. Measured before
+    the facet was declared, `https://workspace.home.agience.ai/` answered 200 with
+    `{"service":"crystal-host",...}`, which is indistinguishable from a working deploy to anything
+    that only checks a status code.
+
+    ⚠ The declaration half runs everywhere; the build half names its precondition. `web/dist` is a
+    gitignored Vite output, so a clean checkout legitimately has none — the same split the aria
+    test above makes, for the same reason.
+    """
+    from crystal import web_serve
+
+    astra = next(b for b in bindings if b.name == "astra")
+    declared = {f["name"] for f in astra.facets}
+    assert "workspace" in declared, (
+        "astra stopped declaring the workspace facet — `workspace.<base>` now falls through to "
+        "crystal's host index, which answers 200 and looks like a working deploy")
+
+    entry = next(f for f in astra.facets if f["name"] == "workspace")
+    assert entry["subdomains"] == ["workspace"], entry
+    # `dist` is resolved against the persona dir by `web_serve._resolve_dist`; naming it here pins
+    # the half a rename would break silently.
+    assert entry["dist"] == "web/dist", entry
+
+    if not (astra.dist_root / "web" / "dist").is_dir():
+        pytest.skip("astra's web/dist is not built (gitignored Vite output) — the CONFIGURATION "
+                    "half above still runs everywhere and this names exactly what it needs")
+
+    by_facet = {s.facet: s for s in web_serve.surfaces([astra])}
+    assert by_facet["workspace"].kind == "static"
+    assert by_facet["workspace"].prefix == "/astra/workspace"
+    assert (by_facet["workspace"].directory / "index.html").is_file()
+    # The SPA reads its runtime config from `/config.js` before anything else runs. A bundle
+    # missing it serves a front page that then talks to the built-in localhost defaults.
+    assert (by_facet["workspace"].directory / "config.js").is_file(), \
+        "the built bundle carries no config.js — the app would fall back to localhost URIs"

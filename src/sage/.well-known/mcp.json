@@ -1,0 +1,102 @@
+{
+  "$schema": "https://schemas.agience.io/mcp-server/v1/mcp.json",
+  "schema_version": "1",
+  "name": "agience-server-sage",
+  "display_name": "Sage — Research & Retrieval",
+  "description": "Hybrid search and evidence-backed retrieval over the platform's own index.",
+  "version": "0.1.0",
+  "image": "ghcr.io/agience/agience-server-sage:latest",
+  "endpoints": {
+    "streamable_http": "/mcp"
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Lexical BM25 search across workspaces and collections"
+    },
+    {
+      "name": "corpus_search",
+      "description": "Search this node's corpus and rank by what the question is about, not by term overlap. Returns only artifacts the caller may read."
+    },
+    {
+      "name": "web_retrieve",
+      "description": "Fetch a web page or paper by URL, extract clean text, and persist it as a text/markdown artifact in the given workspace (stamped with operator provenance and the source URL)"
+    },
+    {
+      "name": "get_artifact",
+      "description": "Fetch a card by ID. Returns full card content and context"
+    },
+    {
+      "name": "browse_collections",
+      "description": "List committed collections accessible to the current user"
+    },
+    {
+      "name": "search_azure",
+      "description": "Raises. No-models rule: retrieval runs on the platform's own index. Use the `search` tool",
+      "status": "not_implemented"
+    },
+    {
+      "name": "index_to_azure",
+      "description": "Raises. No-models rule: source-of-truth and the retrieval index both stay in the platform",
+      "status": "not_implemented"
+    },
+    {
+      "name": "research",
+      "description": "Multi-step grounded research: (1) search the corpus via the retrieval organon (mantle FTS under the caller's grants), (2) deepen each hit by fetching its full content, (3) assemble a budgeted…"
+    },
+    {
+      "name": "cite_sources",
+      "description": "Produce a provenance receipt for a synthesised answer: for each cited card, fetch it under the caller's delegation and record id, title, content type, content length and content sha256 (the…"
+    },
+    {
+      "name": "ask",
+      "description": "Ask a question with optional card context: grounds the question via the retrieval organon (mantle FTS under the caller's grants) and/or the given cards, and returns {answer, citations, refusal} —…"
+    },
+    {
+      "name": "extract_information",
+      "description": "Extract structured fields from a card's content, deterministically: JSON content is read by key; text content is scanned for 'field: value' lines matching the schema's property names"
+    },
+    {
+      "name": "generate_meeting_insights",
+      "description": "Raises. Meeting summarization awaits a grounded summarization operator; the model leg is barred by the no-models rule. Use `ask` or `research` against the transcript card",
+      "status": "not_implemented"
+    }
+  ],
+  "resources": [
+    {
+      "uri_template": "agience://workspaces/{workspace_id}/artifacts",
+      "description": "Browse artifacts in a workspace"
+    },
+    {
+      "uri_template": "agience://collections/{collection_id}/artifacts",
+      "description": "Browse committed artifacts in a collection"
+    }
+  ],
+  "prompts": [],
+  "artifact_types": [
+    "application/vnd.agience.research+json"
+  ],
+  "config": {
+    "env": {
+      "LOG_LEVEL": {
+        "description": "Logging level"
+      },
+      "MANTLE_URI": {
+        "description": "Base URI of the Mantle backend",
+        "required": true
+      },
+      "MCP_HOST": {
+        "description": "Bind host for the MCP server"
+      },
+      "MCP_PORT": {
+        "description": "HTTP port for the MCP server",
+        "default": "8084"
+      },
+      "MCP_TRANSPORT": {
+        "description": "MCP transport (http/stdio)"
+      }
+    }
+  },
+  "_env_note": "AGIENCE_API_URI and AGIENCE_API_KEY were declared required here and are read NOWHERE in server.py (verified 2026-07-31). A deployer honouring this manifest set two dead variables and omitted MANTLE_URI, which then silently defaulted to localhost:8081. This note lives at TOP LEVEL, not inside config.env — a consumer iterating env would otherwise see a variable named '_removed'.",
+  "_tools_note": "Generated from the @mcp.tool registrations in server.py on 2026-07-31. It previously advertised tools that do not exist and omitted tools that do; a client reads this array to discover the surface."
+}

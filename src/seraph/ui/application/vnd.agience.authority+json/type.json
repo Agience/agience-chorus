@@ -1,0 +1,6 @@
+{
+  "ui": {
+    "resource_uri": "ui://seraph/vnd.agience.authority.html",
+    "resource_server": "seraph"
+  }
+}

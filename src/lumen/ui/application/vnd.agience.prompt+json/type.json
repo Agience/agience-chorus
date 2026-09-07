@@ -1,0 +1,6 @@
+{
+  "ui": {
+    "resource_uri": "ui://lumen/vnd.agience.prompt.html",
+    "resource_server": "lumen"
+  }
+}

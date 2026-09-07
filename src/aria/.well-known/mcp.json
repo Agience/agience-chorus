@@ -1,0 +1,78 @@
+{
+  "$schema": "https://schemas.agience.io/mcp-server/v1/mcp.json",
+  "schema_version": "1",
+  "name": "agience-server-aria",
+  "display_name": "Aria — Presentation & Interface",
+  "description": "Communicates results to humans through language, formatting, visualization, interface presentation, and channel-ready packaging while ensuring clarity and usability.",
+  "version": "0.1.0",
+  "image": "ghcr.io/agience/agience-server-aria:latest",
+  "endpoints": {
+    "streamable_http": "/mcp"
+  },
+  "tools": [
+    {
+      "name": "format_response",
+      "description": "Format content for human consumption. Transforms raw or structured data into a polished response with appropriate markup and layout",
+      "status": "not_implemented"
+    },
+    {
+      "name": "render_visualization",
+      "description": "Create a visual representation of structured data � charts, diagrams, tables, or other visual formats suitable for human review",
+      "status": "not_implemented"
+    },
+    {
+      "name": "adapt_tone",
+      "description": "Raises. Tone and register rewriting is model generation — no-models rule, universal and including BYOK. This surface answers in the source's own words",
+      "status": "not_implemented"
+    },
+    {
+      "name": "present_card",
+      "description": "Present a card's content with appropriate formatting and context for human review. Resolves the card by ID and renders its content"
+    },
+    {
+      "name": "narrate",
+      "description": "Raises. Turning data into narrative prose is model generation — no-models rule, universal and including BYOK. Grounded operators return what the sources say; they do not retell it",
+      "status": "not_implemented"
+    },
+    {
+      "name": "extract_units",
+      "description": "Raises. No-models rule, universal and including BYOK",
+      "status": "not_implemented"
+    },
+    {
+      "name": "attach_provenance",
+      "description": "Attach provenance metadata (source references) to existing workspace artifacts, writing into context.semantic.sources. mode='sources_only' is deterministic. mode='evidence' raises: no-models rule"
+    },
+    {
+      "name": "run_chat_turn",
+      "description": "Raises. No-models rule: this platform runs no model-backed chat",
+      "status": "not_implemented"
+    }
+  ],
+  "resources": [],
+  "prompts": [],
+  "artifact_types": [],
+  "config": {
+    "env": {
+      "LOG_LEVEL": {
+        "description": "Logging level"
+      },
+      "MANTLE_URI": {
+        "description": "Base URI of the Mantle backend",
+        "required": true
+      },
+      "MCP_HOST": {
+        "description": "Bind host for the MCP server"
+      },
+      "MCP_PORT": {
+        "description": "HTTP port for the MCP server",
+        "default": "8083"
+      },
+      "MCP_TRANSPORT": {
+        "description": "MCP transport (http/stdio)"
+      }
+    }
+  },
+  "_env_note": "AGIENCE_API_URI and AGIENCE_API_KEY were declared required here and are read NOWHERE in server.py (verified 2026-07-31). A deployer honouring this manifest set two dead variables and omitted MANTLE_URI, which then silently defaulted to localhost:8081. This note lives at TOP LEVEL, not inside config.env — a consumer iterating env would otherwise see a variable named '_removed'.",
+  "_tools_note": "Generated from the @mcp.tool registrations in server.py on 2026-07-31. It previously advertised tools that do not exist and omitted tools that do; a client reads this array to discover the surface. NOTE: a `status: not_implemented` marker on `attach_provenance` was removed 2026-07-31 — it raises only in one branch and is a live dispatcher; a client filtering on status would have dropped a working tool."
+}

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!--
+  BILLING SETTINGS — WITHDRAWN 2026-07-30.
+
+  This page used to call four ophan tools. All four are gone or refuse, on John's rulings:
+
+    get_billing_summary    REMOVED  ("Remove.") — it read /internal/gate/usage/{person_id}, a
+                                    platform-internal surface, for a caller-supplied person_id;
+                                    on platform identity that is a cross-tenant billing oracle.
+    create_checkout_session REFUSES ("bring it into a tekton") — outbound WRITE to api.stripe.com
+    create_portal_session   REFUSES ( "  )                     from inside a persona server, with
+    create_vu_topup         REFUSES ( "  )                     no organon, capability or gate.
+
+  The page is kept as a STATIC notice rather than deleted because `ui://ophan/billing-settings.html`
+  is a registered MCP resource the platform shell can still request; a 404 there would read as a
+  broken deployment. What it must never do again is call a tool that does not exist — a UI that
+  invokes a removed tool is itself an advertisement for it, and the "Unable to load billing
+  information" catch-all it used to fall into made a WITHDRAWN surface look like a transient outage.
+  So there is no script here at all: nothing to fail, nothing to retry, nothing to mislead.
+
+  The replacement is specified in `_scratch/OPHAN-STRIPE-TEKTON.md` (organon `op.pay.session`,
+  capability `net.request`, gated by the discharge grant). This page comes back when that lands and
+  when a usage read exists that authorizes a delegated caller for their OWN person only.
+-->
+<title>Billing</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff}
+.card{border:1px solid #e5e7eb;border-radius:12px;padding:20px}
+.title{font-size:15px;font-weight:700;margin-bottom:8px}
+.body{font-size:13px;color:#374151;line-height:1.55}
+.body p{margin-bottom:10px}
+.body p:last-child{margin-bottom:0}
+.muted{color:#6b7280;font-size:12px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#f3f4f6;padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="title">Billing is not available in this instance</div>
+  <div class="body">
+    <p>Self-serve subscription checkout, the customer portal and credit top-ups are withdrawn: a
+       reach that writes to the outside world goes through a granted capability.</p>
+    <p>The usage and plan summary is withdrawn: the read it depended on was not scoped to the
+       person asking.</p>
+    <p class="muted">Nothing here is charged, cancelled or changed by this notice. Existing plans
+       and limits are unaffected. Contact the platform operator to change a subscription.</p>
+  </div>
+</div>
+<script>
+'use strict';
+// Report our height to the shell. This is the ONLY thing this page does — no tool calls.
+window.parent.postMessage({
+  jsonrpc: '2.0',
+  method: 'ui/notifications/size-changed',
+  params: { height: document.documentElement.scrollHeight }
+}, '*');
+</script>
+</body>
+</html>

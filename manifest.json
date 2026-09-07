@@ -1,0 +1,58 @@
+[
+  {
+    "name": "aria",
+    "title": "Aria",
+    "path": "/aria/mcp",
+    "client_id": "agience-server-aria",
+    "role": "Presentation & Interface",
+    "summary": "Presentation & Interface"
+  },
+  {
+    "name": "astra",
+    "title": "Astra",
+    "path": "/astra/mcp",
+    "client_id": "agience-server-astra",
+    "role": "Ingestion & Indexing",
+    "summary": "Ingestion & Indexing"
+  },
+  {
+    "name": "sage",
+    "title": "Sage",
+    "path": "/sage/mcp",
+    "client_id": "agience-server-sage",
+    "role": "Research & Retrieval",
+    "summary": "Research & Retrieval"
+  },
+  {
+    "name": "iris",
+    "title": "Iris",
+    "path": "/iris/mcp",
+    "client_id": "agience-server-iris",
+    "role": "Routing & Communication",
+    "summary": "Routing & Communication"
+  },
+  {
+    "name": "ophan",
+    "title": "Ophan",
+    "path": "/ophan/mcp",
+    "client_id": "agience-server-ophan",
+    "role": "Economic Operations",
+    "summary": "Economic Operations"
+  },
+  {
+    "name": "seraph",
+    "title": "Seraph",
+    "path": "/seraph/mcp",
+    "client_id": "agience-server-seraph",
+    "role": "Security & Governance",
+    "summary": "Security & Governance"
+  },
+  {
+    "name": "lumen",
+    "title": "Lumen",
+    "path": "/lumen/mcp",
+    "client_id": "agience-server-lumen",
+    "role": "Wisdom & Inference",
+    "summary": "Wisdom & Inference"
+  }
+]

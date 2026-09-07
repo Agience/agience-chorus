@@ -1,0 +1,38 @@
+{
+  "content_type": "application/vnd.agience.license-event+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "A licensing lifecycle event recorded by Ophan — activation, revocation, expiry, grace period, or compliance alert.",
+  "context_schema": {
+    "event_type": "string — activated | revoked | expired | grace_started | warning | suspended | needs-license",
+    "severity": "string — info | warning | error | critical",
+    "account_id": "string — account identifier",
+    "license_id": "string — affected license identifier",
+    "reason": "string? — human-readable reason for the event",
+    "created_at": "string — ISO 8601 timestamp",
+    "details": "object? — additional event-specific data"
+  },
+  "ui": {
+    "label": "License Event",
+    "icon": "bell",
+    "color": "#f43f5e",
+    "badge_class": "bg-rose-100 text-rose-800",
+    "tile_class": "ring-1 ring-rose-200/70",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": false,
+    "description": "Licensing lifecycle event — activation, revocation, expiry, or compliance alert.",
+    "resource_uri": "ui://ophan/vnd.agience.license-event.html",
+    "resource_server": "ophan"
+  }
+}

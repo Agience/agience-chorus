@@ -1,0 +1,37 @@
+{
+  "content_type": "application/vnd.agience.market+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Market data artifact — OHLCV price history for a symbol over a specified time range. Produced by Ophan's get_market_data tool.",
+  "context_schema": {
+    "symbol": "string — ticker symbol (e.g. BTC-USD, AAPL)",
+    "interval": "string — candle interval: 1m | 5m | 15m | 1h | 4h | 1d",
+    "from": "string — start of range as ISO 8601 timestamp",
+    "to": "string — end of range as ISO 8601 timestamp",
+    "candles": "object[] — [{t: string, o: string, h: string, l: string, c: string, v: string}]",
+    "source": "string? — data provider (e.g. CoinGecko, Alpaca)"
+  },
+  "ui": {
+    "label": "Market Data",
+    "icon": "trending-up",
+    "color": "#06b6d4",
+    "badge_class": "bg-cyan-100 text-cyan-800",
+    "tile_class": "ring-1 ring-cyan-200/70",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": false,
+    "description": "Market data — OHLCV price history for a symbol over a time range.",
+    "resource_uri": "ui://ophan/vnd.agience.market.html",
+    "resource_server": "ophan"
+  }
+}
