@@ -41,7 +41,12 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install --upgrade pip setuptools
-      - run: pip install './.siblings/agience-prism-py[trust,vector,wire]' './.siblings/agience-crystal[service,ontology]' ./.siblings/agience-mantle ./.siblings/agience-ember
+      # `[optics]` on ember is not optional HERE. `ember/optics.py` imports entroptics eagerly —
+      # it is the one door onto the instrument — and chorus reaches it transitively: any test
+      # whose import chain runs through `ophan.market_frame` or `lumen.curriculum` lands there.
+      # Without the extra those four modules fail at COLLECTION, which stops the whole run.
+      # entroptics is published (0.2.1) and its repository is public, so this needs no token.
+      - run: pip install './.siblings/agience-prism-py[trust,vector,wire]' './.siblings/agience-crystal[service,ontology]' ./.siblings/agience-mantle './.siblings/agience-ember[optics]'
       - run: pip install -r requirements.txt
       - run: pip install pytest pytest-asyncio pytest-timeout
       - name: Run the suite
