@@ -43,13 +43,21 @@ _os.environ.setdefault("AGIENCE_BUNDLE_ROOT", str(_Path(__file__).resolve().pare
 # the honest signal, since without ember there is no runner to test through.
 import sys as _sys
 
+# TWO layouts are real. In a developer workspace the repos are siblings, so climbing the parents
+# reaches `agience-ember`. In CI they are not: `actions/checkout` cannot write above the workspace,
+# so it puts them under `<repo>/.siblings/`, which is a CHILD of a parent and no climb ever visits
+# it. Both are probed at each level, or the CI run adds nothing and the tests that need the doubles
+# skip — green, having compared nothing, which is the one outcome worth guarding against here.
 _probe = _Path(__file__).resolve()
 for _up in _probe.parents:
-    _cand = _up / "agience-ember" / "tests"
-    if _cand.is_dir():
-        if str(_cand) not in _sys.path:
-            _sys.path.append(str(_cand))       # append: chorus's own helpers win on a name clash
-        break
+    for _cand in (_up / "agience-ember" / "tests", _up / ".siblings" / "agience-ember" / "tests"):
+        if _cand.is_dir():
+            if str(_cand) not in _sys.path:
+                _sys.path.append(str(_cand))   # append: chorus's own helpers win on a name clash
+            break
+    else:
+        continue
+    break
 del _os, _Path, _sys, _probe
 
 import json

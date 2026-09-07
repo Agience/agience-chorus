@@ -1,10 +1,10 @@
 // window.__AGIENCE_CONFIG__ — the runtime config the SPA reads. Keys must match
 // `src/config/runtime.ts`.
 //
-// This file is served as-is when the facet is mounted by the host (`crystal/web_serve.py`), which
-// runs no entrypoint script. In the nginx container it is OVERWRITTEN at startup by
-// `docker/40-runtime-config.sh` from container env; the derivation below is then irrelevant, which
-// is correct — an operator who states the URIs outranks any convention.
+// This file is served as-is when the facet is mounted by the host (`crystal/web_serve.py`). The
+// derivation below is what runs; a deployment that wants to state its URIs instead sets
+// `window.__AGIENCE_CONFIG__` before this file loads, and the last line honours that — an operator
+// who states the URIs outranks any convention.
 //
 // ── WHY THE URIS ARE DERIVED RATHER THAN BAKED ────────────────────────────────────────────────
 // A node serves its services as siblings under one base: `workspace.home.agience.ai` sits beside

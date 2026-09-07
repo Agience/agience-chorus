@@ -13,10 +13,9 @@ recursion guard that skips auth resolution when calling Seraph itself.
 
 Seraph has two distinct roles:
   1. Credential application: resolves credentials to auth headers/tokens. A credential is an
-     ordinary artifact and its value is the artifact's CONTENT, read under the caller's
+     ordinary artifact and its value is the artifact's content, read under the caller's
      delegation and decrypted at rest by Mantle's envelope; Seraph never holds the
-     DATA_ENCRYPTION_KEY or a second copy of the material. [was `/secrets/reveal`, a route that
-     no longer exists — migrated 2026-08-26]
+     DATA_ENCRYPTION_KEY or a second copy of the material.
   2. Authorizer: knows OAuth providers (Google auth), handles OAuth flows.
 
 Tools
@@ -54,9 +53,7 @@ Auth
   exchange with Origin, no PLATFORM_INTERNAL_SECRET.
 
   `_fetch_and_decrypt_secret` performs a live `GET /artifacts/{id}` and is reached from two
-  registered tools — `complete_authorizer_bearer` and `provide_aws_credentials`. It POSTed
-  `/secrets/reveal` until 2026-08-26; that route does not exist, so it had been returning `None`
-  and every caller was taking its own failure branch.
+  registered tools — `complete_authorizer_bearer` and `provide_aws_credentials`.
 
   MANTLE_URI ⬩ Base URI of the Mantle backend
   ORIGIN_URI ⬩ Base URI of the identity authority (issuance). Reached over the
@@ -151,23 +148,15 @@ async def _fetch_and_decrypt_secret(
     secret_type: str | None = None,
     provider: str | None = None,
 ) -> str | None:
-    """Resolve a credential's value with a plain artifact READ.
+    """Resolve a credential's value with a plain artifact read.
 
-    Migrated 2026-08-26 under John's no-sealing ruling. This POSTed `{MANTLE_URI}/secrets/reveal`,
-    and that route does not exist — there is no `secrets_router.py` and no `/secret*` route anywhere
-    in `agience-mantle/src`. It returned `None` on every call, so every caller below took its
-    own failure branch. `iris/server.py::_fetch_secret_material` received the same treatment on
-    2026-08-25 and is the worked precedent.
+    A credential is an ordinary artifact: the value is its content, the light cone decides who may
+    read it, and *"`fetch` is what `read` already does"*. The delegation authorizes — Mantle maps
+    it to a user principal and the read is that user's read.
 
-    A credential is an ordinary artifact: the value is its CONTENT, the light cone decides who may
-    read it, and *"`fetch` is what `read` already does"*. The delegation still authorizes — Mantle
-    maps it to a user principal and the read is that user's read.
-
-    The selector parameters have no callers. All six call sites pass a concrete `secret_id`;
-    `authorizer_id` / `secret_type` / `provider` were never used, and the old body only logged a
-    warning that `authorizer_id` would widen the selector ambiguously. They are kept in the
-    signature so this is a body change and not a call-site change, and refused explicitly rather
-    than silently resolved — guessing which credential a caller meant is how the wrong one gets
+    `secret_id` is the only selector. All six call sites pass a concrete one; `authorizer_id` /
+    `secret_type` / `provider` are accepted in the signature and refused explicitly rather than
+    silently resolved, because guessing which credential a caller meant is how the wrong one gets
     handed out.
     """
     if not secret_id:
@@ -187,7 +176,7 @@ async def _fetch_and_decrypt_secret(
 
     content = (resp.json() or {}).get("content")
     #: Three shapes are in flight and all three are read rather than assumed. `_create_credential`
-    #: writes `{"value": ...}`; Mantle's own producer and older rows may carry `{"material": ...}`;
+    #: writes `{"value": ...}`; Mantle's own producer and earlier rows may carry `{"material": ...}`;
     #: and a bare string is the value itself. A shape this does not recognise yields None, which
     #: every caller already handles — never the raw JSON, which would be handed on as if it were
     #: the secret.
@@ -204,13 +193,12 @@ async def _fetch_and_decrypt_secret(
 
 # ── credentials as artifacts ─────────────────────────────────────────────────────────────────
 #
-# Mantle's `/secrets` surface no longer exists. There is no `secrets_router.py` and no
-# `/secret*` route anywhere in `agience-mantle/src`; every call below used to 404. A credential is
-# now an ordinary artifact — `mantle/services/bootstrap_types.py` states the design: *"the value is
-# the artifact's CONTENT, so the envelope encrypts it at rest under the origin-root principal and
-# the light cone decides who may read it. There is no second store and no second authorization
-# path."* The shape below is copied from the one live producer,
-# `mantle/services/seed_provisioning/platform_email.py`, rather than invented.
+# Mantle serves no `/secrets` surface: there is no `secrets_router.py` and no `/secret*` route
+# anywhere in `agience-mantle/src`. A credential is an ordinary artifact —
+# `mantle/services/bootstrap_types.py` states the design: *"the value is the artifact's CONTENT, so
+# the envelope encrypts it at rest under the origin-root principal and the light cone decides who
+# may read it. There is no second store and no second authorization path."* The shape below follows
+# the one live producer, `mantle/services/seed_provisioning/platform_email.py`.
 #
 # Filtering is client-side, and that is forced. Seraph selects credentials by `authorizer_id` and
 # by type — a pure-filter query. Mantle's `/artifacts/recall` refuses one by design (*"a filter
@@ -257,8 +245,8 @@ async def _list_credentials(
         log.error("Failed to list credentials: %s %s", resp.status_code, resp.text[:200])
         return []
     body = resp.json() or {}
-    #: `/artifacts/visible` returns `{items, total, has_more}` since 2026-08-25 (P-6/P-7).
-    #: The bare list is still read so a client pointed at an older node keeps working.
+    #: `/artifacts/visible` returns `{items, total, has_more}`. A bare list is read too, so a
+    #: client pointed at an older node keeps working.
     docs = body.get("items", []) if isinstance(body, dict) else body
     out: list[dict] = []
     for doc in docs or []:
@@ -284,7 +272,7 @@ async def _create_credential(
     authorizer_id: str | None = None,
     expires_at: str | None = None,
 ):
-    """Write one credential. The VALUE is the artifact's content and nothing else holds it."""
+    """Write one credential. The value is the artifact's content and nothing else holds it."""
     context: dict[str, object] = {
         "content_type": _CREDENTIAL_CT,
         "kind": kind,
@@ -339,9 +327,8 @@ async def _list_secrets_metadata(
 
 # Seraph has no `_fetch_secret_via_op` helper. The Chorus op-dispatch route it would have posted to
 # (`/artifacts/{id}/op/fetch`) does not exist; mantle carries a guard
-# (`test_op_dispatch_route_is_gone.py`) to keep it that way. Nor is the live path
-# `/secrets/reveal` any more — that route is gone too. It is a plain `GET /artifacts/{id}`; see
-# `_fetch_and_decrypt_secret` above.
+# (`test_op_dispatch_route_is_gone.py`) to keep it that way. Credential resolution is a plain
+# `GET /artifacts/{id}`; see `_fetch_and_decrypt_secret` above.
 
 
 async def _store_or_rotate_bearer_token(
@@ -444,12 +431,11 @@ async def provide_access_token(
             return _json.dumps({"error": "Failed to decrypt bearer token"})
 
         # Check expiry
-        #: Read through `_credential_context`, NOT off the artifact's top level. `expires_at` is
-        #: written INSIDE `context` by `_create_credential`, and `context` reaches us as a JSON
-        #: STRING. `bt_secret.get("expires_at")` therefore returned "" on every credential ever
-        #: written, the branch below was never entered, and an expired bearer token was handed back
-        #: as valid — demonstrated 2026-08-26 with a token dated 2000-01-01. The accessor two
-        #: calls earlier in this same flow already reads it correctly for `kind`/`authorizer_id`.
+        #: Read through `_credential_context`, not off the artifact's top level. `_create_credential`
+        #: writes `expires_at` inside `context`, and `context` reaches us as a JSON string, so
+        #: `bt_secret.get("expires_at")` is always "" — the branch below would never run and an
+        #: expired bearer token would be handed back as valid. The accessor two calls earlier in
+        #: this same flow reads `kind` / `authorizer_id` the same way.
         expires_at = _credential_context(bt_secret).get("expires_at", "")
         if expires_at:
             from datetime import datetime, timezone
@@ -936,24 +922,13 @@ async def revoke_access(
                         "all_revoked": bool(results) and all(x["revoked"] for x in results)})
 
 
-# `rotate_api_key` was removed 2026-08-26, and it had never worked.
+# Seraph exposes no api-key rotation tool. Mantle serves no `/api-keys` plane; its key surface is
+# `/grants/keys`, whose contract is per-resource CRUDEASIO (`can_read`, `can_update`, … plus
+# `resource_id`, `role`, `expires_at`), and rotating a grant key is `POST /grants/keys` +
+# `DELETE /grants/keys/{key_id}`.
 #
-# It read, re-issued and revoked against `GET|POST|DELETE {MANTLE_URI}/api-keys[/{id}]` — a plane
-# mantle does not serve. Its first call 404'd, the tool returned its own
-# "cannot read the existing key — refusing to rotate" branch, and an operator was told the
-# rotation was refused for safety rather than that the endpoint was gone.
-#
-# Removed rather than repointed, and the tool's own docstring is the argument. Mantle's
-# surviving key surface is `/grants/keys`, whose contract is PER-RESOURCE CRUDEASIO
-# (`can_read`, `can_update`, … plus `resource_id`, `role`, `expires_at`). The old one was
-# SCOPE-based (`scopes[]`, `resource_filters`, `client_id`/`host_id`/`server_id`/`agent_id`).
-# There is no mechanical mapping between them — and this tool existed precisely to stop a
-# rotation silently re-scoping a key: *"guessing here would quietly widen access during a
-# security operation"*. Inventing that mapping is the thing it was written to refuse.
-#
-# Rotating a grant key is `POST /grants/keys` + `DELETE /grants/keys/{key_id}`, and what the
-# replacement should carry is an authorization decision, not a translation. Left for that
-# decision rather than approximated here.
+# What such a tool has to carry is an authorization decision about the new key's scope, not a
+# mechanical translation: guessing there would quietly widen access during a security operation.
 
 
 @mcp.tool(description="Verify a JWT against the platform JWKS and return which class it is, plus claims")

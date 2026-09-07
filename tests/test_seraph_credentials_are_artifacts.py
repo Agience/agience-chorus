@@ -1,17 +1,14 @@
-"""Seraph reads and writes credentials as ARTIFACTS, not through Mantle's removed `/secrets`.
+"""Seraph reads and writes credentials as artifacts, and makes no `/secrets` call.
 
-What this replaces: Mantle has no `secrets_router.py` and no `/secret*` route anywhere in
-`agience-mantle/src`. Seraph made seven live CRUD calls to `{MANTLE_URI}/secrets*`, and every one
-of them 404'd — silently, because each call site checked only for its own error case and logged.
+Mantle serves no `/secrets` surface: there is no `secrets_router.py` and no `/secret*` route
+anywhere in `agience-mantle/src`. A credential is an ordinary artifact, and
+`mantle/services/bootstrap_types.py` states the design: *"the value is the artifact's CONTENT, so
+the envelope encrypts it at rest under the origin-root principal and the light cone decides who may
+read it. There is no second store and no second authorization path."* The shape asserted below is
+the one Mantle's own producer writes (`seed_provisioning/platform_email.py`), not one invented here.
 
-A credential is now an ordinary artifact. `mantle/services/bootstrap_types.py` states the design:
-*"the value is the artifact's CONTENT, so the envelope encrypts it at rest under the origin-root
-principal and the light cone decides who may read it. There is no second store and no second
-authorization path."* The shape asserted below is the one Mantle's own producer writes
-(`seed_provisioning/platform_email.py`), not one invented here.
-
-These tests are the first coverage this code has ever had — chorus's suite had four tests and
-none touched seraph, ophan or credentials. That is why the migration came with them.
+These tests pin the wire shape of the write, the client-side narrowing of the list, the
+bearer-token expiry check, and the artifact read that resolves a credential's value.
 """
 from __future__ import annotations
 
@@ -137,20 +134,14 @@ def test_context_accepts_both_a_string_and_a_dict():
 # ── the guard ────────────────────────────────────────────────────────────────────────────────
 
 def test_no_secrets_call_survives():
-    """UPDATED 2026-08-26: the count is now ZERO, and the reason is a ruling, not a refactor.
+    """No `/secrets` HTTP call survives in `seraph/server.py`. The count is zero.
 
-    This test previously pinned **one** surviving call, on the reasoning that *"`/secrets/reveal`
-    asked Mantle to decrypt FOR A NAMED RECIPIENT. Credentials-as-artifacts has no equivalent —
-    recipient identity is not a storage concern — so that one call stays broken until the question
-    is answered."* That was right, and the question has since been answered.
+    There is no named-recipient case left to carve out. An authorized reader fetches plaintext over
+    TLS, so `fetch` is what `read` already does, and `_fetch_and_decrypt_secret` reads the artifact
+    the way `iris/server.py` does.
 
-    🔷 John: Chorus adopts Mantle's position — an authorized reader fetches
-    plaintext over TLS, so **`fetch` is what `read` already does** and there is no named recipient to
-    preserve. `_fetch_and_decrypt_secret` now reads the artifact, as `iris/server.py` already did.
-
-    The count still matters, in the other direction: a `/secrets` call reappearing here would be
-    a call to a route that does not exist, failing silently into each caller's own error branch —
-    which is exactly how seven of them sat broken and unnoticed."""
+    The count matters in the other direction: a `/secrets` call reappearing here would be a call to
+    a route that does not exist, failing silently into the caller's own error branch."""
     tree = ast.parse(_SERVER.read_text(encoding="utf-8"))
     verbs = {"get", "post", "put", "patch", "delete"}
     calls = []
@@ -168,17 +159,15 @@ def test_no_secrets_call_survives():
         % (calls,))
 
 
-# ── the bearer-token expiry check, which had never fired ──────────────────────────────────────
+# ── the bearer-token expiry check ─────────────────────────────────────────────────────────────
 #
-# `expires_at` is written INSIDE `context` by `_create_credential`, and `context` reaches a reader
-# as a JSON STRING. `provide_access_token` read `bt_secret.get("expires_at", "")` — the artifact's
-# TOP level — which returned "" on every credential ever written. The branch was never entered and
-# an expired bearer token was returned as valid. Demonstrated 2026-08-26 with a token dated
-# 2000-01-01.
+# `expires_at` is written inside `context` by `_create_credential`, and `context` reaches a reader
+# as a JSON string, so `provide_access_token` reads it through `_credential_context` rather than
+# off the artifact's top level. Read at the top level, `bt_secret.get("expires_at", "")` returns ""
+# on every credential ever written: the expiry branch is never entered and an expired bearer token
+# is handed back as valid.
 #
-# The accessor that reads it correctly was already in the same file, two calls earlier in the
-# same flow, filtering on `kind` and `authorizer_id`. The defect was reading one field a different
-# way from its neighbours.
+# The accessor two calls earlier in the same flow reads `kind` and `authorizer_id` the same way.
 
 _BEARER_CFG = json.dumps({"token_response_type": "bearer_only"})
 
@@ -205,7 +194,7 @@ async def _resolve(monkeypatch, expires_at: str) -> dict:
 
 @pytest.mark.asyncio
 async def test_an_expired_bearer_token_is_refused(monkeypatch):
-    """The regression. Before 2026-08-26 this returned the token."""
+    """An `expires_at` in the past is refused, not handed back as a live token."""
     out = await _resolve(monkeypatch, "2000-01-01T00:00:00+00:00")
     assert out.get("error") == "token_expired", (
         "an expired bearer token was handed back as valid: %r" % out)
@@ -248,12 +237,11 @@ async def test_an_unparseable_context_does_not_hand_back_the_token_by_accident(m
     assert "access_token" in out or out.get("error"), out
 
 
-# ── the credential READ that replaced /secrets/reveal ─────────────────────────────────────────
+# ── the credential read ───────────────────────────────────────────────────────────────────────
 #
-# `_fetch_and_decrypt_secret` POSTed `{MANTLE_URI}/secrets/reveal` until 2026-08-26. That route
-# does not exist, so it returned None on every call and all six callers took their own failure
-# branch — silently. Migrated to a plain `GET /artifacts/{id}` under John's no-sealing ruling,
-# following `iris/server.py::_fetch_secret_material`, which had the same treatment a day earlier.
+# `_fetch_and_decrypt_secret` resolves a credential's value with a plain `GET /artifacts/{id}`,
+# following `iris/server.py::_fetch_secret_material`. There is no reveal or unseal step: the light
+# cone decides who may read, and an authorized reader gets plaintext over TLS.
 
 def _artifact_response(content):
     r = MagicMock()

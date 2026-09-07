@@ -4,8 +4,8 @@ Status: **Reference** --- current server.py surface
 
 The rename from `nexus` is incomplete: `pyproject.toml` (package name and entry point) and
 `.well-known/mcp.json` (name and the `ghcr.io/agience/agience-server-nexus:latest` image) still
-carry the old name, while `server.py` and `manifest.json` say `iris`. Completing the rename
-requires moving a published image.
+carry the old name, while `server.py` says `iris`. Completing the rename requires moving a
+published image.
 
 Iris is the networking and transport tekton. It handles delivery channels and the scaffolding for endpoint and tunnel routing.
 

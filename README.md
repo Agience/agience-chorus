@@ -43,7 +43,7 @@ sha-verified bundles. [`pyproject.toml`](pyproject.toml) records that decision i
 ## The bundles
 
 [`bundles/`](bundles/) holds the operator payloads, one JSON per group, built from the sources named
-in [`bundle_spec.json`](bundle_spec.json). Each carries a `sha256` that the mesh publishes.
+in [`src/seraph/bundle_spec.json`](src/seraph/bundle_spec.json). Each carries a `sha256` that the mesh publishes.
 
 **The runtime reads the payload, not the source file.** An edit to a tekton that is not rebuilt has
 no effect, and the published sha then disagrees with the tree.
@@ -68,6 +68,8 @@ Tektons dispatch no LLM completion. Three call sites raise `NotImplementedError`
 in the `@mcp.tool` description a caller reads: `invoke_llm` and `transcribe_artifact` in
 [`src/lumen/server.py`](src/lumen/server.py), and `resolve_llm_credentials` in
 [`src/seraph/server.py`](src/seraph/server.py).
+
+Security issues: email **connect@agience.ai** rather than opening a public issue.
 
 Dual-licensed — see [`LICENSE`](LICENSE), [`COMMERCIAL_LICENSE.md`](COMMERCIAL_LICENSE.md),
 [`NOTICE`](NOTICE) and [`CLA.md`](CLA.md).

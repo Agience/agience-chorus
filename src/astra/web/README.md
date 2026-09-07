@@ -15,7 +15,6 @@ Distinct from `www.agience.ai` (the marketing site) — Facet is the product UI.
 |---|---|
 | `src/` | Application source: components, config (`config/runtime.ts`), product copy. |
 | `index.html`, `vite.config.*`, `tailwind.config.js` | Build + styling. |
-| `nginx.conf`, `Dockerfile` | Container serving. |
 | `CLA.md`, `COMMERCIAL_LICENSE.md`, `COLOR_SCHEME.md` | Contribution, commercial, and design docs. |
 
 ## License

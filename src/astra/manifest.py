@@ -67,13 +67,13 @@ OPERATORS = operators()
 # address, so declaring it here is the whole of the routing work — locally,
 # `workspace.home.agience.ai` with `CRYSTAL_HOST_DOMAIN=home.agience.ai`.
 #
-# ⚠ The node has to load astra, or this is declared and unreachable. A facet reaches the host router
+# The node has to load astra, or this is declared and unreachable. A facet reaches the host router
 # only from a MOUNTED persona, so `CHORUS_CRYSTALS` must name `astra` — and the failure is silent:
 # the subdomain falls through to crystal's bare host index, which is a 200. That is exactly how
 # `pharos.home.agience.ai` was declared and dark, and `_fleet/peers/71/home/node.env` carries the
 # note.
 #
-# ⚠ And the bundle is load-bearing for this declaration, which is not obvious. `REGISTRARS` above
+# And the bundle is load-bearing for this declaration, which is not obvious. `REGISTRARS` above
 # raises when the `fetch` bundle cannot be resolved, and `chorus.personas._persona_manifest` answers
 # a raising manifest with `([], [])` — so a node that cannot resolve the bundle loses this facet
 # too, not just astra's organon. Measured 2026-08-27 with `AGIENCE_BUNDLE_ROOT` pointed at

@@ -158,7 +158,11 @@ export default function AdvancedSearch({
     } finally {
       setIsSearching(false);
     }
-  }, [scope, scopeId, sortMode, precision, onResults, onClear]);
+  // No `precision`: this callback does not read it, on purpose — see the banner above, where
+  // the request deliberately omits a field mantle stopped reading. Listing it here changed
+  // nothing but the callback's identity. The re-search that a precision change SHOULD cause
+  // still happens, from the effect further down that lists it in its own deps.
+  }, [scope, scopeId, sortMode, onResults, onClear]);
   
   // Fetch suggestions
   const fetchSuggestions = useCallback(async (suggestQuery: string) => {

@@ -39,6 +39,12 @@ type AuthPhase = 'email' | 'login' | 'register' | 'otp'
 // Recent SP->IdP redirect timestamps, used to break an auth bounce loop.
 const SP_ATTEMPTS_KEY = 'sp_login_attempts'
 
+// Which redirect targets an SP may hand us. A constant, and it belongs at module scope: declared
+// inside the component it was rebuilt on every render, which made `finishLogin` — the callback that
+// hands a token back to an SP — a new function on every render, and left it reported as a hook with
+// a missing dependency. No `g` flag, so `.test()` carries no lastIndex between calls.
+const SP_ALLOW = /^https:\/\/([a-z0-9-]+\.)*agience\.ai(\/|$)/i
+
 const Login: React.FC = () => {
   const { login, setAuthData, isAuthenticated } = useAuth()
   const navigate = useNavigate()
@@ -160,7 +166,6 @@ const Login: React.FC = () => {
   }, [otpCountdown])
 
   // -- Finish: return the token to the SP (SSO) or set it locally (normal app login) --
-  const SP_ALLOW = /^https:\/\/([a-z0-9-]+\.)*agience\.ai(\/|$)/i
   const finishLogin = useCallback((token: string) => {
     if (spRedirect && SP_ALLOW.test(spRedirect)) {
       // Establish the Origin session too, not just the SP's. Without this, signing in
@@ -198,7 +203,9 @@ const Login: React.FC = () => {
       }
     }
     navigate(postLoginRedirectTarget(), { replace: true })
-  }, [isAuthenticated, navigate, spRedirect, finishLogin]) // eslint-disable-line react-hooks/exhaustive-deps
+  // No disable needed: the dependency list is complete. It carried one until `SP_ALLOW` moved to
+  // module scope — a constant rebuilt on every render was the only thing missing from it.
+  }, [isAuthenticated, navigate, spRedirect, finishLogin])
 
   // -- Unified identifier submit (username or email) --
   const handleIdentifierContinue = useCallback(async () => {

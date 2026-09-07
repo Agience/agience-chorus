@@ -144,10 +144,9 @@ def _reach_from(ro, seeds, seed_ids):
     #   rarest seed   singles relevance 84.8%  phrases relevance 50.0%  nonsense 7.9%
     #   INTERSECTION  singles relevance 84.8%  phrases relevance 75.0%  nonsense 7.9%
     #
-    # Backoff, when nothing observed every seed: drop the HIGHEST-degree seed — the least
-    # informative — and intersect again, down to a single seed, which is exactly the old behaviour.
-    # So this degrades to the previous rule and never below it. Rarity is the measured degree, the
-    # same discriminator used to order the seeds and to weight the coupling.
+    # Backoff, when nothing observed every seed: drop the highest-degree seed — the least
+    # informative — and intersect again, down to a single seed. Rarity is the measured degree, the
+    # same discriminator that orders the seeds and weights the coupling.
     posting = {}
     for sid in seed_ids:
         srcs = [r[0] for r in ro.execute(
@@ -221,10 +220,9 @@ def query_vector(seeds, idx, coord, dim):
 
     Returns `(qv, used, unseen)`. `unseen` is measured against the collection's index, so it means
     "this seed is not in the reading's coordinate at all" — NOT "held by no context in this
-    neighbourhood", which is what the call site's comment used to claim. The distinction matters: it
-    is a statement about the reading, not about how far the neighbourhood happened to open, and a plan to
-    widen the neighbourhood whenever `unseen` is non-empty would be widening for a reason that has
-    nothing to do with the neighbourhood.
+    neighbourhood". The distinction matters: it is a statement about the reading, not about how far
+    the neighbourhood happened to open, and widening the neighbourhood whenever `unseen` is
+    non-empty would be widening for a reason that has nothing to do with the neighbourhood.
 
     A seed with no coordinate is neither an error nor a zero: it is dropped and named.
     """
@@ -241,14 +239,12 @@ def query_vector(seeds, idx, coord, dim):
 
 
 def widen(ro, ctx, held):
-    """One more hop, taken through the rarest units first. **NOT WIRED — see below before reviving.**
+    """One more hop, taken through the rarest units first. Not called by `answers`.
 
-    `answers` does not call this and has not for some time: the reading's coordinate is now derived
-    once from the whole collection, so a query no longer has to widen its way to a frame that
-    resolves. This is kept because the hop rule is correct and a caller may want it; it is marked
-    because a docstring describing growth that does not happen cost a day of planning around it.
+    The reading's coordinate is derived once from the whole collection, so a query does not have to
+    widen its way to a frame that resolves. The hop rule is kept here for a caller that wants it.
 
-    Widening was then measured as a way to give the COUPLING test more to rank over, and it is worse
+    Measured as a way to give the coupling test more to rank over, widening is worse
     on every axis (1.05M-char corpus, 24 cross-partition probes + 24 matched nonsense):
 
         rarest seed only   median 2 contexts   coupling 54.2% real / 0.0% nonsense   relevance 95.8%
@@ -378,9 +374,8 @@ def answers(ro, queries, say=lambda *a: None, null_draws=32):
         # `projection.read_cloud`. A per-query co-presence matrix built only from what the query
         # reached would resolve too few modes to be more than nominally full rank, absorbing
         # everything handed to it regardless of query, which discriminates nothing. The basis is a
-        # property of the reading, so it is computed once for all queries here — and a query no
-        # longer has to widen its way to a frame that resolves, because the frame it couples in
-        # already did.
+        # property of the reading, so it is computed once for all queries here, and the frame a
+        # query couples in already resolves without widening.
         idx = _idx
         coord = _coord
         B = _B
@@ -421,16 +416,13 @@ def answers(ro, queries, say=lambda *a: None, null_draws=32):
             continue
         rows = np.vstack([qv, qv])
 
-        # The incident energy, so what each element absorbed is reported as the scale-free FRACTION
-        # rather than a raw magnitude. The grounding test below already argues this: "absorbed
-        # energy scales with the magnitude of the query vector, so a random draw that happens to
-        # pull high-energy units would out-couple a specific low-energy question no matter how
-        # relevant it is." That reasoning was applied to the null and not to the weights, so
-        # `spans[].weight` and `passages[].absorbed_energy` spanned four orders of magnitude across
-        # queries and NONSENSE carried the largest — its seeds are common single characters whose
-        # coordinates are dense. Measured: ||qv||^2 of 1.4 for `enzyme` against 14962 for `qzlkvn`.
-        # Dividing by the incident makes every weight the `A^2` of the same `A^2 + T^2 = 1` split
-        # the rest of the module reads with, and comparable between queries.
+        # The incident energy, so what each element absorbed is reported as the scale-free fraction
+        # rather than a raw magnitude. Absorbed energy scales with the magnitude of the query
+        # vector, so a raw weight ranks a high-energy draw above a specific low-energy question no
+        # matter how relevant it is — measured, ||qv||^2 of 1.4 for `enzyme` against 14962 for
+        # `qzlkvn`, whose seeds are common single characters with dense coordinates. Dividing by
+        # the incident makes every weight the `A^2` of the same `A^2 + T^2 = 1` split the rest of
+        # the module reads with, and comparable between queries.
         _incident = float((np.abs(rows) ** 2).sum()) or 1.0
         attended, residual, fired = [], rows, []
         while True:
@@ -453,9 +445,9 @@ def answers(ro, queries, say=lambda *a: None, null_draws=32):
         # attended contexts hold them — degree, not relevance — and a unit present in every
         # attended context discriminates nothing, since it is true of all of them and says nothing
         # about which one was attended. The coupling is therefore carried in proportion to how rare
-        # the unit is across the collection, which is the same measured degree already used to
-        # choose the seed and to order the widening. One discriminator, three places. Nothing is
-        # excluded; a common unit is still present, just quieter.
+        # the unit is across the collection, which is the same measured degree that chooses the
+        # seeds and orders the widening hop. One discriminator, three places. Nothing is excluded;
+        # a common unit is still present, just quieter.
         #
         # The degrees are fetched for the neighbourhood's units in a single indexed read, one query
         # rather than one per unit, and counted in Python rather than with `count(*)`
@@ -465,10 +457,9 @@ def answers(ro, queries, say=lambda *a: None, null_draws=32):
         _w = sorted(_want)
         for i in range(0, len(_w), 400):
             chunk = _w[i:i + 400]
-            # Named `_sql`, not `q`: `q` is the caller's query and is still needed below for
-            # `coverage`. Shadowing it here divided the recognised-character count by the length of
-            # this SQL string instead of the query's, so every stored coverage was ~0.02 —
-            # 'Elizabeth', recognised whole as one unit, reported 0.017 instead of 1.0.
+            # Named `_sql`, not `q`: `q` is the caller's query and is read below for `coverage`.
+            # Shadowing it here divides the recognised-character count by the length of this SQL
+            # string instead of the query's.
             _sql = ("SELECT dst FROM edge WHERE label IN ('observed','observed_alone') "
                     "AND dst IN (%s)" % ",".join("?" * len(chunk)))
             for (d,) in ro.execute(_sql, chunk):
@@ -510,7 +501,7 @@ def answers(ro, queries, say=lambda *a: None, null_draws=32):
                 nxt[u] += (w / n) * share
         # Co-presence is not predication, and the answer must say which it is: a span that shares
         # a paragraph with the query term can describe a different subject in that same paragraph.
-        # The distance in characters from the query term is not used to weight the coupling —
+        # The distance in characters from the query term does not weight the coupling —
         # deciding that "about" means "near" is a modelling choice, and a paragraph is a coherent
         # unit — it is reported instead, so a span that is merely co-present cannot be read as a
         # predication without the reader seeing the gap.
@@ -547,7 +538,7 @@ def answers(ro, queries, say=lambda *a: None, null_draws=32):
         # hide a span sitting far from the thing asked about — co-presence is not predication. Both
         # are in the response; neither is the other's summary.
         _passages = [{"text": _bodies.get(nm, ""), "cited": nm, "absorbed_energy": round(w, 4)}
-                     for nm, w in attended if _bodies.get(nm)]   # w is now a fraction of incident
+                     for nm, w in attended if _bodies.get(nm)]   # w is a fraction of incident
         out["answer"] = "\n\n".join(p["text"] for p in _passages)
         out["passages"] = _passages
         out["spans"] = [{"span": s, "weight": w, "chars_from_query": d} for s, w, d in top]
@@ -601,14 +592,14 @@ def answers(ro, queries, say=lambda *a: None, null_draws=32):
         _real = _fraction(qv, _band)
         _null_best = 0.0
 
-        # The draw is MATCHED to the query's own seed lengths, because seed length is the thing that
-        # separates a recognised word from an unrecognised string and the old null let it vary.
-        # `Elizabeth` is recognised as ONE nine-character unit; `vrskw` shatters into ['v','rs','k',
-        # 'w']. Drawing units of any length compared four single characters against four arbitrary
-        # units — many of them long and specific — so nonsense cleared the bar and grounded. Holding
-        # the length profile fixed leaves exactly one thing varying: whether these particular units
-        # couple here, which is the question. A length with no units falls back to the nearest one
-        # that has them, so the draw is always the same shape as the query.
+        # The draw is matched to the query's own seed lengths, because seed length is the thing that
+        # separates a recognised word from an unrecognised string. `Elizabeth` is recognised as one
+        # nine-character unit; `vrskw` shatters into ['v','rs','k','w']. Drawing units of any length
+        # would compare four single characters against four arbitrary units — many of them long and
+        # specific — and nonsense would clear the bar and ground. Holding the length profile fixed
+        # leaves exactly one thing varying: whether these particular units couple here, which is the
+        # question. A length with no units falls back to the nearest one that has them, so the draw
+        # is always the same shape as the query.
         def _match(L):
             if L in _by_len:
                 return _by_len[L]
@@ -620,10 +611,9 @@ def answers(ro, queries, say=lambda *a: None, null_draws=32):
             _nqv = coord[_pick].sum(axis=0)
             if np.any(_nqv):
                 _null_best = max(_null_best, _fraction(_nqv, _band))
-        # Two distinct readings, reported separately because they answer different questions and
-        # the stronger one was previously invisible: recognition is "is this in what I read"
-        # (measured 79% real / 0% nonsense), coupling is "does this neighbourhood absorb it
-        # specifically" (33% / 12% on the same probes).
+        # Two distinct readings, reported separately because they answer different questions:
+        # recognition is "is this in what I read" (measured 79% real / 0% nonsense), coupling is
+        # "does this neighbourhood absorb it specifically" (33% / 12% on the same probes).
         _rec = recognition(ro, q)
         out["recognition"] = _rec
         out["recognised_above_null"] = _rec["recognised"]
