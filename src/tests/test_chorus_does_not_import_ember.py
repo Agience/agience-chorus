@@ -413,6 +413,18 @@ def test_the_seams_chorus_declares_are_named_exactly():
                        "sage/content_search.py"],
         "match":      ["lumen/reach_provider.py", "sage/content_search.py",
                        "sage/match.py", "sage/reach_provider.py"],
+        # ── what the browse FACET reads off the running engine ──────────────────────────────
+        #
+        # `aria/facets/browse.py` moved here from `ember/facets/`. Facets are chorus's and the
+        # engine is ember's, so a facet that renders what a node holds reaches the engine
+        # through seams — which is what these four are. Inside the engine it imported
+        # `ember.genesis`, `ember.runtime.improve`, `ember.surface.stats` and
+        # `ember.runtime.pool` outright; that is the freedom living in the wrong repository
+        # buys, and the reason the move is a rewrite rather than a copy.
+        "genesis":    ["aria/facets/browse.py"],
+        "improve":    ["aria/facets/browse.py"],
+        "pool":       ["aria/facets/browse.py"],
+        "stats":      ["aria/facets/browse.py"],
     }, {k: sorted(v) for k, v in sorted(declared.items())}
 
     # the positive control: the scan would find a declaration. Without it the dict above could be
