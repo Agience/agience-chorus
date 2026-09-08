@@ -60,7 +60,7 @@ jobs:
       # nothing about that failure looks like a packaging mistake at the point it happens. They are
       # carried as package data (`[tool.setuptools.package-data]`), which is exactly the kind of
       # declaration that stops working silently when a path moves.
-      - name: The wheel ships only agience_chorus, and ships its payloads
+      - name: Both artifacts ship agience_chorus and its payloads
         run: |
           python - <<'PY'
           import glob, json, pathlib, zipfile
@@ -89,8 +89,22 @@ jobs:
           leaked = [n for n in names if "/tests/" in n or "/www/" in n or "/web/" in n]
           assert not leaked, "the wheel leaked %d file(s), e.g. %s" % (len(leaked), leaked[:3])
 
-          print("wheel: %s -> agience_chorus only, %d payloads, spec present"
-                % (whl, len(shipped)))
+          # THE SDIST TOO. Both artifacts are uploaded, and pip serves the sdist to anyone whose
+          # platform or settings decline the wheel — so checking only the wheel leaves half of what
+          # is published unverified. Package data reaches the sdist by a different mechanism than it
+          # reaches the wheel, which is exactly the kind of difference that fails silently.
+          import tarfile
+          sd, = glob.glob("dist/*.tar.gz")
+          snames = tarfile.open(sd).getnames()
+          s_shipped = {n.split("/")[-1] for n in snames
+                       if "/bundles/" in n and n.endswith(".json")}
+          s_missing = sorted(on_disk - s_shipped)
+          assert not s_missing, "the sdist is missing %d payload(s): %s" % (len(s_missing), s_missing)
+          assert any(n.endswith("seraph/bundle_spec.json") for n in snames), "the sdist has no spec"
+          assert any(n.endswith("/pyproject.toml") for n in snames), "the sdist cannot rebuild"
+
+          print("wheel: %s -> agience_chorus only, %d payloads, spec present" % (whl, len(shipped)))
+          print("sdist: %s -> %d payloads, spec present" % (sd, len(s_shipped)))
           PY
 
       - name: Create GitHub Release
