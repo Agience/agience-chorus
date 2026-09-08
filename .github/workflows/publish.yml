@@ -1,0 +1,104 @@
+name: Release
+
+# Cut a release by pushing a tag. The tag minus "v" must match `version` in pyproject.toml, and the
+# job below refuses the pair when they disagree:
+#
+#     git tag v0.1.0 && git push github v0.1.0
+#
+# One job builds, creates the GitHub Release, and publishes to PyPI via Trusted Publishing (OIDC) —
+# no token stored. Tests are not re-run here: ci.yml gates every commit on main, and the tag points
+# at a tested one.
+#
+# ORDERING: chorus declares `agience-prism`, `agience-crystal` and `agience-mantle`, so all three
+# must be on PyPI at or above the floors in `pyproject.toml` before a chorus release resolves for
+# anyone outside this workspace. They are (prism 0.1.2, crystal 0.1.1, mantle 0.1.0).
+#
+# Two things must be true before a tag publishes anything, and neither lives in this file:
+#
+#   1. A PyPI Trusted Publisher for `agience-chorus` naming this repository, this workflow file, and
+#      the `pypi` environment below. Without it the publish step fails at the OIDC exchange.
+#   2. A `pypi` environment on this repository. The `environment:` key below is what the publisher
+#      matches against.
+#
+# A version is permanent once published: PyPI refuses a re-upload of the same version, so a bad cut
+# is fixed by releasing a new version rather than by replacing one.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}      # manual dry run: builds and twine-checks, publishes nothing
+
+permissions:
+  contents: write            # create the GitHub Release
+  id-token: write            # PyPI Trusted Publishing (OIDC)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: pypi         # must match the PyPI publisher's Environment name
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Tag matches pyproject version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          echo "tag=$tag  pyproject=$ver"
+          test "$tag" = "$ver" || { echo "::error::tag v$tag != pyproject version $ver"; exit 1; }
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check dist/*
+
+      # THE PAYLOADS MUST BE IN THE WHEEL. This check is chorus's own, and no sibling needs it: the
+      # runtime executes the operator PAYLOAD, never the source file, so a wheel that ships the
+      # modules but not `bundles/` installs a chorus that cannot discharge a single operator — and
+      # nothing about that failure looks like a packaging mistake at the point it happens. They are
+      # carried as package data (`[tool.setuptools.package-data]`), which is exactly the kind of
+      # declaration that stops working silently when a path moves.
+      - name: The wheel ships only agience_chorus, and ships its payloads
+        run: |
+          python - <<'PY'
+          import glob, json, pathlib, zipfile
+          whl, = glob.glob("dist/*.whl")
+          z = zipfile.ZipFile(whl)
+          names = z.namelist()
+
+          roots = {n.split("/")[0] for n in names if not n.split("/")[0].endswith(".dist-info")}
+          assert roots == {"agience_chorus"}, "the wheel ships %s" % (sorted(roots),)
+          declared = z.read([n for n in names if n.endswith("top_level.txt")][0]).decode().split()
+          assert declared == ["agience_chorus"], "top_level.txt declares %r" % (declared,)
+
+          # Every payload the repository holds must be in the wheel — counted, not spot-checked.
+          on_disk = {p.name for p in pathlib.Path("src/agience_chorus/bundles").glob("*.json")}
+          shipped = {n.split("/")[-1] for n in names
+                     if "/bundles/" in n and n.endswith(".json")}
+          missing = sorted(on_disk - shipped)
+          assert not missing, "the wheel is missing %d payload(s): %s" % (len(missing), missing)
+          assert shipped, "the wheel carries no operator payloads at all"
+
+          spec = "agience_chorus/seraph/bundle_spec.json"
+          assert spec in names, "the wheel carries no %s" % spec
+
+          # Tests and the two web application trees are excluded on purpose; crystal 0.1.0 shipped
+          # `tests` and `types` in its top_level.txt for want of exactly this.
+          leaked = [n for n in names if "/tests/" in n or "/www/" in n or "/web/" in n]
+          assert not leaked, "the wheel leaked %d file(s), e.g. %s" % (len(leaked), leaked[:3])
+
+          print("wheel: %s -> agience_chorus only, %d payloads, spec present"
+                % (whl, len(shipped)))
+          PY
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*
+      - name: Publish to PyPI
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: pypa/gh-action-pypi-publish@release/v1

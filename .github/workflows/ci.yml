@@ -3,9 +3,9 @@ name: ci
 # Three jobs, because this repository holds three things that fail in different ways: the tektons,
 # the payloads they ship as, and two web applications with their own build.
 #
-# There is no `publish.yml`. Chorus is not on PyPI: no directory under `src/` carries an
-# `__init__.py`, so a build produces a wheel with no modules in it. `pyproject.toml` says so at
-# length. Releases here are GitHub releases of the source.
+# `publish.yml` cuts the release. Chorus is distributed as `agience-chorus`, importing as
+# `agience_chorus`, with one extra per tekton — see `pyproject.toml`. This file gates every commit
+# on main; the tag that publishes points at a commit this has already passed.
 on:
   push:
     branches: [main]
@@ -38,7 +38,7 @@ jobs:
         with: { repository: "${{ github.repository_owner }}/agience-ember", path: .siblings/agience-ember }
       # `.siblings/` now holds every repository the bundle spec names EXCEPT this one. The spec
       # declares module sources workspace-relatively (`agience-chorus/...`, `agience-crystal/...`),
-      # so `src/seraph/tests/test_bundling.py` needs one directory containing both — and that is
+      # so `src/agience_chorus/seraph/tests/test_bundling.py` needs one directory holding both — that is
       # `.siblings/` once chorus itself appears there. A link, not a copy: the payloads are compared
       # byte-for-byte against this checkout's source, so it must BE this checkout.
       - name: Make .siblings a complete workspace
@@ -73,7 +73,8 @@ jobs:
   # with the source in this repository.
   #
   # The builder is a CLI in `agience-observe`; the production logic is chorus's own
-  # `src/seraph/bundling.py`, which this repository already tests. Only the command lives there.
+  # `src/agience_chorus/seraph/bundling.py`, which this repository already tests. Only the command
+  # lives there.
   bundles-match-source:
     runs-on: ubuntu-latest
     steps:
@@ -107,14 +108,15 @@ jobs:
                "checked against source. Set WORKSPACE_READ_TOKEN, or wait until observe is public."
 
   # One web application. `aria/www` — the public site's React front end — is work in progress and
-  # is not carried in this repository; only its backend-for-frontend (`src/aria/www/bff/`) is, and
+  # is not carried in this repository; only its backend-for-frontend
+  # (`src/agience_chorus/aria/www/bff/`) is, and
   # that is Python, covered by the suite job above.
   web:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        app: [src/astra/web]
+        app: [src/agience_chorus/astra/web]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
