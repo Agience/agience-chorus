@@ -16,15 +16,56 @@ import pytest
 
 from aria.facets import browse, browse_routes
 
+pytest.importorskip("mcp.server.fastmcp", reason="the facet is served by aria's FastMCP app")
+from mcp.server.fastmcp import FastMCP                # noqa: E402
+from starlette.testclient import TestClient           # noqa: E402
 
+try:
+    from _fakes import _FakeStore                     # ember's double, via src/conftest.py
+except ImportError:                                    # pragma: no cover
+    _FakeStore = None
+
+
+def _client(store):
+    """Aria's surface, built the way `create_aria_app` builds it — a FastMCP instance, then the
+    Starlette app it generates. Driving the route is the only way to learn what the query string
+    actually does; reading the handler's source only learns how it was spelled."""
+    mcp = FastMCP("aria-test")
+    browse_routes.mount_browse(mcp, lambda: store)
+    return TestClient(mcp.streamable_http_app(), raise_server_exceptions=False)
+
+
+@pytest.mark.skipif(_FakeStore is None, reason="no agience-ember checkout — its store double is used")
 def test_the_serve_path_PARSES_resolution_not_only_refresh():
     """The `/library` handler must read `resolution` off the query string, so the rendered links
     carry a choice rather than decoration.
 
-    This asserted against `ember/surface/serve.py` while the facet lived in the engine. Ember is
-    the workflow engine and no longer serves facets; `aria/facets/browse_routes.py` does, mounted
-    on aria's app and reached through crystal's host router. Same claim, new subject.
+    THIS TEST HAD NO BODY. It carried this docstring and asserted nothing, so it passed on every
+    tree it was ever run against, including ones where the handler ignored the parameter entirely —
+    the exact failure it names. It now drives the route.
+
+    The claim is narrow and behavioural: asking for a level must not return the same bytes as
+    asking for nothing. A handler that parses `refresh` alone sends every rendered link back to the
+    offer page, and that is what this catches.
+
+    The value the page receives is RECORDED rather than inferred from rendered bytes: a fake corpus
+    offers no zoom levels, so comparing pages could only ever skip. What is always true, and is the
+    whole claim, is that `?resolution=0.42` reaches `library_page` as `0.42`, and a bare `/library`
+    reaches it as `None`.
     """
+    seen = []
+    real = browse.library_page
+    browse.library_page = lambda store, **kw: (seen.append(kw.get("resolution")), "<html></html>")[1]
+    try:
+        c = _client(_FakeStore())
+        assert c.get("/library?resolution=0.42").status_code == 200
+        assert c.get("/library").status_code == 200
+    finally:
+        browse.library_page = real
+
+    assert seen == [0.42, None], (
+        "the handler passed %r to library_page. A handler that parses `refresh` alone passes None "
+        "for every rendered link, which sends them all back to the offer page." % (seen,))
 
 
 def test_library_page_and_view_BOTH_accept_a_resolution():
@@ -36,6 +77,7 @@ def test_library_page_and_view_BOTH_accept_a_resolution():
         assert "resolution" in inspect.signature(fn).parameters, fn.__name__
 
 
+@pytest.mark.skipif(_FakeStore is None, reason="no agience-ember checkout")
 def test_an_UNREADABLE_level_is_treated_as_NO_level_not_an_error():
     """`?resolution=banana` lands on the offer page. An unreadable level is no level, so the handler
     falls back to `resolution = None` and offers the choices again.
@@ -43,11 +85,15 @@ def test_an_UNREADABLE_level_is_treated_as_NO_level_not_an_error():
     An unguarded `float(...)` would take the whole page down on a malformed query string — and
     handing out those links is the page's own job.
 
-    Like the test above, this reads the SERVING route, now `browse_routes.mount_browse`.
+    Driven through the route rather than read off the handler's source. The source form of this
+    assertion looked for the literal `float(resolution)` and broke the day the handler renamed its
+    local variable — while the behaviour it names was still correct. A grep over an implementation
+    measures its spelling; this measures what a malformed query string gets back.
     """
-    src = inspect.getsource(browse_routes.mount_browse)
-    assert "resolution" in src, "the /library route ignores the resolution parameter"
-    assert "float(resolution)" in src, "the level is never read off the query string"
+    c = _client(_FakeStore())
+    bad, offer = c.get("/library?resolution=banana"), c.get("/library")
+    assert bad.status_code == 200, "an unreadable level 500ed instead of offering the choices: %s" % bad.text[:200]
+    assert bad.text == offer.text, "an unreadable level did not fall back to the offer page"
 
 
 def test_the_view_CACHES_PER_RESOLUTION_not_per_root():

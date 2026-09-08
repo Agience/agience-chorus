@@ -92,17 +92,21 @@ def create_aria_app():
     while the facet lived in the engine; they moved with it. Crystal routes to this app by host
     header, so the surface is reachable exactly as before.
     """
-    app = _auth.create_app(mcp)
+    # Registered on the MCP INSTANCE, and before the app is built. Both halves matter:
+    # `mcp.streamable_http_app()` returns a Starlette app with no FastAPI `.get`, and it is rebuilt
+    # on every call — so routes added to the wrapped app raised AttributeError, and routes added to
+    # an app obtained here would be thrown away when `create_app` regenerated it. Registering on
+    # `mcp` means every app it generates carries them.
     try:
         from aria.facets.browse_routes import mount_browse
-        mount_browse(app, lambda: _STORE_PROVIDER() if _STORE_PROVIDER else None)
+        mount_browse(mcp, lambda: _STORE_PROVIDER() if _STORE_PROVIDER else None)
     except Exception as exc:                       # pragma: no cover - never take the tekton down
         # The MCP surface is aria's contract; the facet is an addition to it. A facet that cannot
         # mount must not stop the tekton from serving its tools, so this is logged and carried
         # rather than raised — and it is logged, so a missing page is never silent.
         import logging
         logging.getLogger("aria").warning("browse facet not mounted: %s", exc)
-    return app
+    return _auth.create_app(mcp)
 
 
 # ---------------------------------------------------------------------------
