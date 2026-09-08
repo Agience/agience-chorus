@@ -32,7 +32,9 @@ from pathlib import Path
 
 import pytest
 
-_SRC = Path(__file__).resolve().parents[1]        # agience-chorus/src
+_SRC = Path(__file__).resolve().parents[1] / "agience_chorus"
+# The package root. Personas are `agience_chorus.<persona>` subpackages now, not bare
+# directories under `src/` — the assertion below caught exactly that move.
 assert (_SRC / "aria").is_dir(), (
     "_SRC resolved to %s, which holds no personas — this file moved and parents[] is now "
     "wrong (the silent-vacuous-pass shape this workspace has been bitten by twice)" % _SRC)
@@ -58,7 +60,7 @@ def _lc(_store_obj, principal):
 
 
 def _build(tmp_path, **kw):
-    import live_service
+    from agience_chorus import live_service
     return live_service.build_live(_store(tmp_path), root_secret=ROOT, reach=_lc, **kw)
 
 
@@ -66,7 +68,7 @@ def _build(tmp_path, **kw):
 def test_a_missing_root_secret_is_refused(tmp_path):
     """Failure mode: generating one. A host would then talk only to itself and look correct, because a single
     process is both ends of the reach."""
-    import live_service
+    from agience_chorus import live_service
     for bad in (None, b"", 0):
         with pytest.raises(ValueError, match="root_secret"):
             live_service.build_live(_store(tmp_path), root_secret=bad)
@@ -77,7 +79,7 @@ def test_the_carrier_is_set_on_the_module_the_app_actually_reads(tmp_path):
     """The load-bearing check. Asserted through `aria.web_bff._load_bff_module()` — the same object the running
     app was built from — not through a fresh `import main`, which would be a different module and would let
     a broken wiring pass."""
-    from aria import web_bff
+    from agience_chorus.aria import web_bff
     svc = _build(tmp_path, respond_store=None)
     bff = web_bff._load_bff_module()
 
@@ -94,7 +96,7 @@ def test_the_carrier_is_set_on_the_module_the_app_actually_reads(tmp_path):
 def test_the_bff_reports_dark_before_and_after_the_service_runs(tmp_path):
     """Failure mode: a carrier left behind on stop. `_respond_carrier()` must go back to None, or the bff
     calls into a stopped loop and blocks instead of answering offline."""
-    from aria import web_bff
+    from agience_chorus.aria import web_bff
     bff = web_bff._load_bff_module()
     svc = _build(tmp_path, respond_store=None)
 
@@ -107,7 +109,7 @@ def test_the_bff_reports_dark_before_and_after_the_service_runs(tmp_path):
 
 def test_stop_restores_a_pre_existing_carrier_rather_than_clearing_it(tmp_path):
     """Failure mode: clobbering a carrier someone else installed. Restore, don't delete."""
-    from aria import web_bff
+    from agience_chorus.aria import web_bff
     bff = web_bff._load_bff_module()
     sentinel = {"respond": lambda q: {"answer": "pre-existing"}}
     bff._RESPOND_CARRIER = sentinel
@@ -137,7 +139,7 @@ def test_build_reports_what_it_wired_instead_of_implying_a_working_chat(tmp_path
     assert svc.wired == {"respond": False, "retrieve": False, "grants": False}, \
         "wired must report the injected-reach case as grants=False: %r" % (svc.wired,)
 
-    import live_service
+    from agience_chorus import live_service
     real = live_service.build_live(_store(tmp_path, "g2.db"), root_secret=ROOT)   # reach=None
     assert real.wired["grants"] is True, "with no injected reach, the real mantle.db.access light-cone decides"
 
@@ -168,6 +170,6 @@ def test_assembly_binds_no_port(tmp_path):
 
 def test_the_app_is_arias_own_bff_app(tmp_path):
     """Failure mode: handing back a different app than the one the carrier was wired into."""
-    from aria import web_bff
+    from agience_chorus.aria import web_bff
     svc = _build(tmp_path, respond_store=None)
     assert svc.app is web_bff.bff_app(), "the service's app is not aria's bff app"

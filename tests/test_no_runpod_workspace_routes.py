@@ -18,7 +18,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1] / "src"
+SRC = Path(__file__).resolve().parents[1] / "src" / "agience_chorus"
+# The chorus PACKAGE root — personas are `agience_chorus.<persona>` subpackages, not bare
+# directories under `src/`.
+
 
 #: The server path, not the word: `MANTLE_URI`-rooted (or a bare quoted path) `/workspaces/...`.
 _PATTERNS = (

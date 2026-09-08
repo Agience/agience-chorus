@@ -19,7 +19,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1]          # agience-chorus/src
+SRC = Path(__file__).resolve().parents[1] / "agience_chorus"
+# The package root. Personas are `agience_chorus.<persona>` subpackages now, not bare
+# directories under `src/` — the assertion below caught exactly that move.
 
 PERSONAS = ("aria", "astra", "iris", "lumen", "ophan", "sage", "seraph")
 
@@ -66,6 +68,23 @@ def _parse_failures(include_tests: bool = False):
     return bad
 
 
+def _persona_root(dotted: str) -> str:
+    """The persona a dotted module name belongs to, or its first segment if none.
+
+    Imports are qualified — `agience_chorus.lumen.reach_provider` — so the first segment is always
+    the package and never a persona. Taking `split(".")[0]` and testing it against `PERSONAS` made
+    this scan match NOTHING, which is the worst possible failure for a guard: it would have reported
+    zero cross-persona imports forever while every one of them stayed in place.
+
+    The bundled modules still carry bare fallback imports (`import content as C`), so a bare persona
+    name is still meaningful and is handled by the same rule.
+    """
+    parts = dotted.split(".")
+    if parts[0] == "agience_chorus" and len(parts) > 1:
+        return parts[1]
+    return parts[0]
+
+
 def _cross_persona_imports(include_tests: bool = False):
     """(importer, relpath, lineno, imported) for every persona→other-persona import. AST, not grep:
     a regex counts the word in a docstring and misses `from iris . comms import`."""
@@ -82,9 +101,9 @@ def _cross_persona_imports(include_tests: bool = False):
         for node in ast.walk(tree):
             roots = []
             if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                roots = [node.module.split(".")[0]]
+                roots = [_persona_root(node.module)]
             elif isinstance(node, ast.Import):
-                roots = [a.name.split(".")[0] for a in node.names]
+                roots = [_persona_root(a.name) for a in node.names]
             for root in roots:
                 if root in PERSONAS and root != mine:
                     out.append((mine, py.relative_to(SRC).as_posix(), node.lineno, root))

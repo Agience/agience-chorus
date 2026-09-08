@@ -11,7 +11,7 @@ from __future__ import annotations
 
 
 def _seam_mod(name: str):
-    from _host_seams import resolve
+    from agience_chorus._host_seams import resolve
     return resolve(name)
 
 
@@ -22,7 +22,7 @@ def test_status_page_survives_an_unmeasured_curriculum_stage(monkeypatch):
     A stage nobody measured and a stage measured at zero are different facts, so they read
     differently on the page. `f"{None:,}"` raises, so the formatting is guarded as well as the
     comparison — one unmeasured stage would otherwise take the whole page to a 500."""
-    from aria.facets import browse
+    from agience_chorus.aria.facets import browse
     improve = _seam_mod("improve")
     genesis = _seam_mod("genesis")
     monkeypatch.setattr(improve, "metrics", lambda b: {

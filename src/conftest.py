@@ -26,7 +26,9 @@ from __future__ import annotations
 import os as _os
 from pathlib import Path as _Path
 
-_os.environ.setdefault("AGIENCE_BUNDLE_ROOT", str(_Path(__file__).resolve().parents[1] / "bundles"))
+_os.environ.setdefault(
+    "AGIENCE_BUNDLE_ROOT",
+    str(_Path(__file__).resolve().parent / "agience_chorus" / "bundles"))
 
 # This test process's observer identity. Mantle's sqlite store REFUSES to open without one, and it
 # is right to: `(_origin, _seq)` is the store's only version identity, so a node that generated an
@@ -91,7 +93,7 @@ from jose import jwk
 
 # The fixture body lives in `_chorus_identity.py` so it has one home and can be registered by more
 # than one conftest.
-from _chorus_identity import _chorus_test_identity  # noqa: F401  (registers the fixture here)
+from agience_chorus._chorus_identity import _chorus_test_identity  # noqa: F401  (registers the fixture here)
 
 # ── this test process is the host, and says so ──────────────────────────────────────────────────
 # Persona modules declare `ember.{ontology.match, ontology.activation, signal.projection,

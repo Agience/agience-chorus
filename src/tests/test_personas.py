@@ -38,7 +38,7 @@ _EXPECTED = {
 
 
 def _personas_mod():
-    import personas  # noqa: PLC0415 — lazy: needs the conftest identity fixture
+    from agience_chorus import personas  # noqa: PLC0415 — lazy: needs the conftest identity fixture
 
     return personas
 
@@ -123,7 +123,7 @@ def test_a_node_holding_a_SUBSET_derives_EXACTLY_that_subset():
     r = subprocess.run(
         [sys.executable, "-c",
          "import sys, json; sys.path.insert(0, %r)\n"
-         "import personas\n"
+         "from agience_chorus import personas\n"
          "print(json.dumps(personas.roster()))\n" % str(src)],
         capture_output=True, text=True, cwd=str(src),
         env=dict(os.environ, CHORUS_CRYSTALS="aria,seraph", OPENBLAS_NUM_THREADS="1"))

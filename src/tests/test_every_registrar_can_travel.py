@@ -29,8 +29,9 @@ SRC = Path(__file__).resolve().parents[1]
 #: resolved to a path that does not exist, and the test reported all seventeen registrars as
 #: unbundled. An implied root is the thing that broke; this is the explicit one.
 WORKSPACE = SRC.parents[1]
-BUNDLES = SRC.parent / "bundles"                # this repository's own payloads
-SPEC = SRC / "seraph" / "bundle_spec.json"      # ...and the declaration behind them
+BUNDLES = SRC / "agience_chorus" / "bundles"    # this repository's own payloads, inside the
+#                                                package so the wheel carries them
+SPEC = SRC / "agience_chorus" / "seraph" / "bundle_spec.json"   # ...and the declaration behind them
 
 #: Known and deliberate, per `sage/recognition.py`'s own docstring: it is not wired into
 #: `sage/manifest.py` because sage's registrars come from its five bundle groups
@@ -41,7 +42,9 @@ SPEC = SRC / "seraph" / "bundle_spec.json"      # ...and the declaration behind 
 #: It mints the offer artifacts for seven recognition capabilities (`op.seed`, `op.spread`,
 #: `op.fire`, `op.propagate`, `op.frame`, `op.basis`, `op.coherent`). Listed here rather than
 #: pattern-matched so the exception is argued, and so wiring it later shows up as a diff.
-KNOWN_UNBUNDLED = {"sage/recognition.py"}
+KNOWN_UNBUNDLED = {"agience_chorus/sage/recognition.py"}
+#: Keyed relative to `SRC`, which is `src/` — so the package segment is part of the key. It was
+#: `sage/recognition.py` while the tektons sat directly under `src/`.
 
 
 def _spec_modules() -> set:
@@ -80,7 +83,7 @@ def _registrar_modules() -> dict:
 
 
 @pytest.mark.skipif(not SPEC.is_file(),
-                    reason="bundles/spec.json is missing from this repository")
+                    reason="src/agience_chorus/seraph/bundle_spec.json is missing from this repository")
 def test_every_capability_module_RIDES_IN_A_BUNDLE():
     """A registrar outside every bundle group is a capability that cannot be deployed — it answers
     only where the source tree is.
@@ -100,7 +103,7 @@ def test_every_capability_module_RIDES_IN_A_BUNDLE():
         "KNOWN_UNBUNDLED with the reason." % orphans)
 
 
-@pytest.mark.skipif(not SPEC.is_file(), reason="bundles/spec.json is missing from this repository")
+@pytest.mark.skipif(not SPEC.is_file(), reason="src/agience_chorus/seraph/bundle_spec.json is missing from this repository")
 def test_the_KNOWN_exception_still_exists_and_is_still_unbundled():
     """Keeps the exception honest: an allow-list that is never re-read becomes a place to hide
     things. If `sage/recognition.py` is ever wired into a bundle group, this fails and the entry
@@ -133,7 +136,7 @@ def test_THIS_GATE_CAN_ACTUALLY_FAIL():
     assert len(found) >= 5, "discovery found almost nothing — the gate above is vacuous: %s" % found
 
     # the false positive that taught the OPERATOR_CONTENT_TYPE discriminator
-    exchange = (SRC / "ophan" / "exchange.py")
+    exchange = (SRC / "agience_chorus" / "ophan" / "exchange.py")
     if exchange.is_file():
         assert exchange.resolve() not in found, (
             "ophan/exchange.py is back in the registrar set — it defines `register_exchange`, which "

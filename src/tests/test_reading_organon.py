@@ -21,7 +21,7 @@ import sqlite3
 
 import pytest
 
-from astra.reading.overlap import decompose, shared_spans
+from agience_chorus.astra.reading.overlap import decompose, shared_spans
 
 
 # ── the colimit: what the text shares with itself ────────────────────────────────────────────────
@@ -103,7 +103,7 @@ def shard(tmp_path):
 
 
 def _reader(shard_path, collection, monkeypatch):
-    from lumen.reading import query_neighbourhood as ap
+    from agience_chorus.lumen.reading import query_neighbourhood as ap
     monkeypatch.setattr(ap, "C", collection, raising=False)
     monkeypatch.setattr(ap, "DB", shard_path, raising=False)
     return ap
@@ -193,7 +193,7 @@ def test_query_vector_reports_when_NOTHING_is_visible(shard, monkeypatch):
 import pathlib
 import re as _re
 
-SRC = pathlib.Path(__file__).resolve().parents[1]
+SRC = pathlib.Path(__file__).resolve().parents[1] / "agience_chorus"  # personas are `agience_chorus.<persona>` subpackages now, not bare directories under src/
 READING = SRC / "lumen" / "reading"
 
 #: The placement module, which is owned by no persona and therefore does not live under `READING`.

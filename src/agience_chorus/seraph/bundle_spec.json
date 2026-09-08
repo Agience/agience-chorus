@@ -1,0 +1,190 @@
+{
+  "arithmetic": {
+    "entry_module": "arithmetic",
+    "host_seams": [],
+    "modules": {
+      "answer": "agience-chorus/src/agience_chorus/lumen/answer.py",
+      "arithmetic": "agience-chorus/src/agience_chorus/lumen/arithmetic.py",
+      "category": "agience-chorus/src/agience_chorus/lumen/category.py",
+      "evolution": "agience-crystal/src/crystal/evolution.py"
+    },
+    "register_fns": [
+      "register_transform_operators"
+    ]
+  },
+  "canon": {
+    "entry_module": "canon",
+    "host_seams": [
+      "content_search"
+    ],
+    "modules": {
+      "canon": "agience-chorus/src/agience_chorus/sage/canon.py"
+    },
+    "register_fns": [
+      "register_canon_operators"
+    ]
+  },
+  "check": {
+    "entry_module": "check",
+    "host_seams": [],
+    "modules": {
+      "check": "agience-chorus/src/agience_chorus/lumen/check.py"
+    },
+    "register_fns": [
+      "register_check_operators"
+    ]
+  },
+  "comms": {
+    "entry_module": "comms",
+    "host_seams": [],
+    "modules": {
+      "comms": "agience-chorus/src/agience_chorus/iris/comms/__init__.py",
+      "facet_nas": "agience-chorus/src/agience_chorus/iris/comms/facet_nas.py",
+      "mcp_tekton": "agience-chorus/src/agience_chorus/iris/comms/mcp_tekton.py",
+      "message": "agience-chorus/src/agience_chorus/iris/comms/message.py",
+      "operators": "agience-chorus/src/agience_chorus/iris/comms/operators.py",
+      "tekton_comms": "agience-chorus/src/agience_chorus/iris/comms/tekton_comms.py",
+      "wiring": "agience-chorus/src/agience_chorus/iris/comms/wiring.py"
+    },
+    "register_fns": [
+      "register_comms_operators",
+      "register_mcp_operators"
+    ]
+  },
+  "corpus": {
+    "entry_module": "corpus",
+    "host_seams": [],
+    "modules": {
+      "content": "agience-chorus/src/agience_chorus/sage/content.py",
+      "corpus": "agience-chorus/src/agience_chorus/sage/corpus.py",
+      "evolution": "agience-crystal/src/crystal/evolution.py"
+    },
+    "register_fns": [
+      "register_corpus_operators"
+    ]
+  },
+  "curriculum": {
+    "entry_module": "curriculum",
+    "host_seams": [],
+    "modules": {
+      "curriculum": "agience-chorus/src/agience_chorus/lumen/curriculum.py"
+    },
+    "register_fns": [
+      "register_curriculum_operators"
+    ]
+  },
+  "dev_ops": {
+    "entry_module": "dev_ops",
+    "host_seams": [],
+    "modules": {
+      "answer": "agience-chorus/src/agience_chorus/lumen/answer.py",
+      "dev_ops": "agience-chorus/src/agience_chorus/lumen/dev_ops.py",
+      "evolution": "agience-crystal/src/crystal/evolution.py"
+    },
+    "register_fns": [
+      "register_dev_operators"
+    ]
+  },
+  "docs_ops": {
+    "entry_module": "docs_ops",
+    "host_seams": [],
+    "modules": {
+      "content": "agience-chorus/src/agience_chorus/sage/content.py",
+      "docs_ops": "agience-chorus/src/agience_chorus/sage/docs_ops.py",
+      "evolution": "agience-crystal/src/crystal/evolution.py"
+    },
+    "register_fns": [
+      "register_docs_operators"
+    ]
+  },
+  "fetch": {
+    "entry_module": "fetch",
+    "host_seams": [],
+    "modules": {
+      "evolution": "agience-crystal/src/crystal/evolution.py",
+      "fetch": "agience-chorus/src/agience_chorus/astra/fetch.py"
+    },
+    "register_fns": [
+      "register_fetch_operators"
+    ]
+  },
+  "identity": {
+    "entry_module": "identity",
+    "host_seams": [],
+    "modules": {
+      "identity": "agience-chorus/src/agience_chorus/aria/identity.py"
+    },
+    "register_fns": [
+      "register_identity_operators"
+    ]
+  },
+  "install": {
+    "entry_module": "install",
+    "host_seams": [],
+    "modules": {
+      "install": "agience-chorus/src/agience_chorus/seraph/install.py"
+    },
+    "register_fns": [
+      "register_install_operators"
+    ]
+  },
+  "operators": {
+    "entry_module": "operators",
+    "host_seams": [
+      "match"
+    ],
+    "modules": {
+      "code_index": "agience-chorus/src/agience_chorus/astra/code_index.py",
+      "content": "agience-chorus/src/agience_chorus/sage/content.py",
+      "describe": "agience-chorus/src/agience_chorus/sage/describe.py",
+      "doc_index": "agience-chorus/src/agience_chorus/astra/doc_index.py",
+      "evolution": "agience-crystal/src/crystal/evolution.py",
+      "operators": "agience-chorus/src/agience_chorus/sage/operators.py"
+    },
+    "register_fns": [
+      "register_operators"
+    ]
+  },
+  "reasoning": {
+    "entry_module": "reasoning",
+    "host_seams": [],
+    "modules": {
+      "reasoning": "agience-chorus/src/agience_chorus/lumen/reasoning.py"
+    },
+    "register_fns": [
+      "register_reasoning_operators"
+    ]
+  },
+  "retrieval": {
+    "entry_module": "retrieval",
+    "host_seams": [],
+    "modules": {
+      "retrieval": "agience-chorus/src/agience_chorus/sage/retrieval.py"
+    },
+    "register_fns": [
+      "register_retrieval_operators"
+    ]
+  },
+  "web_bff": {
+    "entry_module": "web_bff",
+    "host_seams": [
+      "bff_main"
+    ],
+    "modules": {
+      "web_bff": "agience-chorus/src/agience_chorus/aria/web_bff.py"
+    },
+    "register_fns": [
+      "register_web_operators"
+    ]
+  },
+  "bundling": {
+    "entry_module": "bundling",
+    "host_seams": [],
+    "modules": {
+      "bundling": "agience-chorus/src/agience_chorus/seraph/bundling.py"
+    },
+    "register_fns": [
+      "register_bundling_operators"
+    ]
+  }
+}

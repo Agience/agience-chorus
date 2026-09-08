@@ -27,8 +27,12 @@ import subprocess
 import sys
 import textwrap
 
-SRC = pathlib.Path(__file__).resolve().parents[1]
-EMBER = SRC.parents[1] / "agience-ember"
+# `SRC` is the chorus PACKAGE root — personas are `agience_chorus.<persona>` subpackages now, not
+# bare directories under `src/`. `EMBER` is derived from the repository root separately rather than
+# from `SRC`, so deepening the package cannot silently move the sibling lookup with it.
+_REPO = pathlib.Path(__file__).resolve().parents[2]
+SRC = _REPO / "src" / "agience_chorus"
+EMBER = _REPO.parent / "agience-ember"
 
 #: chorus counted as its package names — the §2 definition, so the two directions are symmetric.
 CHORUS_PKGS = {"aria", "astra", "iris", "lumen", "ophan", "sage", "seraph"}
@@ -189,8 +193,11 @@ def test_the_guard_NAMES_the_file_and_line_when_the_edge_returns():
 # ── 3 · the seam — an unfilled one raises, and never binds what is lying around ──────────────────
 
 def _run(body: str) -> subprocess.CompletedProcess:
+    # cwd is `src/`, the directory the PACKAGE sits in — not the package itself. The child then
+    # imports `agience_chorus.…` exactly as an installed copy would, rather than reaching persona
+    # directories as bare top-level names, which is what these seam tests exist to prove impossible.
     return subprocess.run([sys.executable, "-c", textwrap.dedent(body)],
-                          capture_output=True, text=True, cwd=str(SRC))
+                          capture_output=True, text=True, cwd=str(SRC.parent))
 
 
 def test_an_UNFILLED_seam_RAISES_and_never_takes_a_module_lying_in_sys_modules():
@@ -218,7 +225,7 @@ def test_an_UNFILLED_seam_RAISES_and_never_takes_a_module_lying_in_sys_modules()
         from prism import runner
         assert runner.registered_seams() == {}, "something bound a seam: %r" % runner.registered_seams()
 
-        import _host_seams
+        from agience_chorus import _host_seams
         for name in ("match", "activation", "projection", "delegate"):
             try:
                 mod = _host_seams.resolve(name)
@@ -256,7 +263,7 @@ def test_a_REGISTERED_seam_is_what_the_persona_MEASURES_WITH():
         from prism import runner
         runner.register_seam("activation", "a_host_of_my_own")   # the HOST's answer
 
-        import _host_seams
+        from agience_chorus import _host_seams
         assert _host_seams.filled("activation")
         assert _host_seams.resolve("activation").MARKER == "HOST-CHOSE-THIS"
 
@@ -282,10 +289,10 @@ def test_declaring_a_seam_imports_NOTHING_until_it_is_used():
     """
     r = _run("""
         import sys
-        import sage.match as M
+        import agience_chorus.sage.match as M
         print("EMBER-AFTER-IMPORT", "ember" in sys.modules)
 
-        import _host_seams
+        from agience_chorus import _host_seams
         from prism import runner
         import types
         m = types.ModuleType("probe_match"); m.MARKER = "PROBE"
@@ -318,7 +325,7 @@ def test_on_a_runner_the_seam_resolves_to_the_EXACT_module_the_import_named():
     import ember.signal.projection
 
     sys.path.insert(0, str(SRC)) if str(SRC) not in sys.path else None
-    import _host_seams
+    from agience_chorus import _host_seams
 
     assert _host_seams.resolve("match") is ember.ontology.match
     assert _host_seams.resolve("activation") is ember.ontology.activation
@@ -326,8 +333,8 @@ def test_on_a_runner_the_seam_resolves_to_the_EXACT_module_the_import_named():
     assert _host_seams.resolve("delegate") is ember.runtime.delegate
 
     # …and the persona modules hold those same objects behind their lazy handles.
-    from sage import match as sage_match
-    from lumen import conversation as lumen_conversation
+    from agience_chorus.sage import match as sage_match
+    from agience_chorus.lumen import conversation as lumen_conversation
     assert sage_match._EM.propagate is ember.ontology.match.propagate
     assert lumen_conversation._A.recognize is ember.ontology.activation.recognize
 

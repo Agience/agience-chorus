@@ -24,7 +24,10 @@ import pytest
 # Persona servers live under src/<persona>/server.py. Anchored here, not at the repo root:
 # anchoring elsewhere makes the glob match zero persona files, and the guard passes vacuously on an
 # empty scan.
-SRC = Path(__file__).resolve().parents[1] / "src"
+SRC = Path(__file__).resolve().parents[1] / "src" / "agience_chorus"
+# The chorus PACKAGE root — personas are `agience_chorus.<persona>` subpackages, not bare
+# directories under `src/`.
+
 
 # Argument names that carry a caller-chosen resource identity.
 RESOURCE_ARGS = {

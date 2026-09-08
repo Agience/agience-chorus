@@ -32,7 +32,7 @@ _NOT_PERSONA_ENV: set[str] = set()
 
 
 def _src_root() -> pathlib.Path:
-    return pathlib.Path(__file__).resolve().parents[1] / "src"
+    return pathlib.Path(__file__).resolve().parents[1] / "src" / "agience_chorus"  # personas are `agience_chorus.<persona>` subpackages now, not bare directories under src/
 
 
 def _persona_dirs():

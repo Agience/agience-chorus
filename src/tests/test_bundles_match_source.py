@@ -26,7 +26,9 @@ _BUILDER = _WORKSPACE / "agience-observe" / "build_bundles.py"
 #: The payloads are THIS repository's — chorus builds them from chorus source. The builder is a CLI
 #: that still lives in agience-observe, so the two paths are deliberately unrelated: one is where
 #: the output lands, the other is where the command lives.
-_BUNDLES = _HERE.parents[2] / "bundles"
+_BUNDLES = _HERE.parents[1] / "agience_chorus" / "bundles"
+#: Inside the package, so the wheel carries them — the runtime executes the payload, so an
+#: installed chorus without them could not discharge an operator.
 
 
 def _run_check():

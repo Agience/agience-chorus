@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 # Persona servers live under src/<persona>/.
-SRC = Path(__file__).resolve().parents[1] / "src"
+SRC = Path(__file__).resolve().parents[1] / "src" / "agience_chorus"  # personas are `agience_chorus.<persona>` subpackages now, not bare directories under src/
 
 # Attribute-call sinks: asyncio.create_subprocess_shell, os.system, os.popen, ...
 FORBIDDEN_ATTRS = {

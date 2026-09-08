@@ -6,7 +6,7 @@ from __future__ import annotations
 
 
 def _by_name():
-    import personas  # imported lazily so the session chorus-identity fixture materializes the key first
+    from agience_chorus import personas  # imported lazily so the session chorus-identity fixture materializes the key first
     return {b.name: b for b in personas.load_personas()}
 
 

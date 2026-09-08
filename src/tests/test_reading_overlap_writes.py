@@ -23,7 +23,7 @@ import sqlite3
 
 import pytest
 
-from astra.reading import overlap
+from agience_chorus.astra.reading import overlap
 
 
 # Two paragraphs share "the market moved"; each also says something only it says. Deliberately not a
@@ -81,7 +81,7 @@ def _contexts(collection="read:t"):
     `ember/signal/projection.py::read_unit_contexts`, and `read_basis` is how a persona reaches it. A
     second count kept anywhere else would diverge from this one as the reading accumulates.
     """
-    from astra.reading import read_basis
+    from agience_chorus.astra.reading import read_basis
     ro = sqlite3.connect(read_basis._db())
     try:
         return {u: set(c) for u, c in read_basis.unit_contexts(ro, collection).items()}

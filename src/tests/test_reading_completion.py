@@ -44,7 +44,7 @@ def _shard(tmp_path, collection, vertices=(), edges=()):
     db = sqlite3.connect(str(tmp_path / "l.db"))
     db.execute("CREATE TABLE vertex (id TEXT PRIMARY KEY, ct TEXT, doc TEXT, created_by TEXT)")
     db.execute("CREATE TABLE edge (src TEXT, dst TEXT, label TEXT, props TEXT, edge_key TEXT)")
-    from astra.reading.organon_reader import _unit_id
+    from agience_chorus.astra.reading.organon_reader import _unit_id
     for surf in vertices:
         vid = _unit_id(collection, surf)
         db.execute("INSERT OR REPLACE INTO vertex VALUES (?,?,?,?)",
@@ -62,7 +62,7 @@ def _shard(tmp_path, collection, vertices=(), edges=()):
 def test_place_finds_the_LONGEST_vertex_not_a_prefix_chain(tmp_path):
     """Extending only while every prefix exists stops at the first gap: `Wickham` is held, `Wic` is
     not, so a chain walk can never reach the longer vertex."""
-    import reading_junction as J
+    import agience_chorus.reading_junction as J
     C = "read:t"
     ro = _shard(tmp_path, C, vertices=["W", "Wi", "Wickham", "c", "k", "h", "a", "m"])
     assert J.place(ro, C, "Wickham") == ["Wickham"], "placement fell back to the chain walk"
@@ -72,7 +72,7 @@ def test_place_sees_BOTH_id_encodings(tmp_path):
     """`:Lady` and `u004c+...` do not sort together, so one range scan is blind to every vertex
     whose surface carries a space or punctuation — the reader could not see what it had just
     written."""
-    import reading_junction as J
+    import agience_chorus.reading_junction as J
     C = "read:t"
     ro = _shard(tmp_path, C, vertices=["L", "Lady", "Lady Catherine", "a", "d", "y"])
     assert J.place(ro, C, "Lady Catherine") == ["Lady Catherine"]
@@ -80,7 +80,7 @@ def test_place_sees_BOTH_id_encodings(tmp_path):
 
 def test_place_advances_past_what_it_placed(tmp_path):
     """The residual re-places from its new position; a walk that did not advance would repeat."""
-    import reading_junction as J
+    import agience_chorus.reading_junction as J
     C = "read:t"
     ro = _shard(tmp_path, C, vertices=["the ", "cat", "t", "h", "e", " ", "c", "a"])
     assert "".join(J.place(ro, C, "the cat")) == "the cat", "the walk lost or repeated characters"
@@ -93,7 +93,7 @@ def test_place_on_an_empty_ontology_places_nothing(tmp_path):
     empty store would then place a signal completely and `complete` would compute full coverage
     over letters nobody had read. A cold start is a real state, and the honest report of it is that
     nothing was recognised."""
-    import reading_junction as J
+    import agience_chorus.reading_junction as J
     C = "read:t"
     ro = _shard(tmp_path, C, vertices=[])
     assert J.place(ro, C, "abc") == []
@@ -101,7 +101,7 @@ def test_place_on_an_empty_ontology_places_nothing(tmp_path):
 
 def test_place_reports_the_part_it_does_not_hold(tmp_path):
     """Coverage has to be able to fall below 1, or it measures nothing."""
-    import reading_junction as J
+    import agience_chorus.reading_junction as J
     C = "read:t"
     ro = _shard(tmp_path, C, vertices=["cat "])
     placed = J.place(ro, C, "cat dog")
@@ -117,8 +117,8 @@ def test_a_junction_is_read_off_bits_saved_NOT_a_typed_label(tmp_path):
     members for fewer bits, and `bits_saved` already carries that."""
     import inspect
 
-    from astra.reading import compact
-    from lumen.reading import complete
+    from agience_chorus.astra.reading import compact
+    from agience_chorus.lumen.reading import complete
     src = _code(compact) + _code(complete.outgest)
     assert "'colimit'" not in src and '"colimit"' not in src, \
         "a typed colimit label came back; the reading is off `bits_saved`"
@@ -128,8 +128,8 @@ def test_a_junction_is_read_off_bits_saved_NOT_a_typed_label(tmp_path):
 def test_outgest_descends_only_edges_that_carry_a_saving(tmp_path):
     """A junction's members are the edges with a measured saving. A plain co-presence edge is not a
     membership and must not be descended, or outgest would emit the whole neighbourhood."""
-    from astra.reading.organon_reader import _unit_id
-    from lumen.reading import complete as C
+    from agience_chorus.astra.reading.organon_reader import _unit_id
+    from agience_chorus.lumen.reading import complete as C
     K = "read:t"
     j, a, b, other = (_unit_id(K, x) for x in ("cat", "ca", "t", "dog"))
     ro = _shard(tmp_path, K, vertices=["cat", "ca", "t", "dog"], edges=[
@@ -148,7 +148,7 @@ def test_the_boundary_is_position_coherence_and_its_zero_is_computed():
     `position_coherence` is the one used, and that nothing is compared against a typed level."""
     import inspect
 
-    from astra.reading import resegment
+    from agience_chorus.astra.reading import resegment
     src = _code(resegment.resegment)
     assert "position_coherence" in src, "the boundary stopped using the published read"
     assert "pc < 0.0" in src, "the boundary is no longer the frame's own computed zero"
@@ -161,7 +161,7 @@ def test_too_few_rows_to_measure_does_NOT_close_the_screen():
     that emptied the completion screen when no decay curve could be fitted."""
     import inspect
 
-    from astra.reading import resegment
+    from agience_chorus.astra.reading import resegment
     src = _code(resegment.resegment)
     assert "len(rows_) < 4" in src and "continue" in src, \
         "a frame too small to measure is being treated as a boundary"
@@ -181,7 +181,7 @@ def test_a_learned_path_is_CONTINUED_not_forecast(tmp_path):
     unmeasured claim is what this file exists to prevent."""
     import inspect
 
-    from lumen.reading import complete as C
+    from agience_chorus.lumen.reading import complete as C
     src = _code(C.complete)
     assert "walk(" in src, "completion no longer deduces along the order edges"
     assert "predict(" in src, "completion no longer forecasts from the operator"
@@ -198,7 +198,7 @@ def test_continuation_walks_the_observation_stream_in_order(tmp_path):
     Read on `walk`, which is the deduction `complete` calls."""
     import inspect
 
-    from lumen.reading import complete as C
+    from agience_chorus.lumen.reading import complete as C
     src = _code(C.walk)
     assert "obs-" in src, "the continuation stopped reading the observation stream"
     assert "char" not in src, "a stamped position came back onto the edge"
@@ -228,6 +228,6 @@ def test_recurrence_is_required_because_n1_is_degenerate():
     the ratio a measurement."""
     import inspect
 
-    from astra.reading import compact, read_once
+    from agience_chorus.astra.reading import compact, read_once
     for src in (_code(compact.one_pass), _code(read_once.read_once)):
         assert "n < 2" in src or "n >= 2" in src, "the degeneracy guard at n=1 is gone"

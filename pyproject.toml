@@ -30,23 +30,53 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
-# NOT ON PyPI, AND THIS MANIFEST DOES NOT YET DESCRIBE A DISTRIBUTION.
+# The base every tekton needs. Per-tekton additions are extras, below.
 #
-# `packages.find` below returns an EMPTY list, because no directory under `src/` carries an
-# `__init__.py`: the seven tektons are deployed as services and their operators travel as
-# sha-verified bundles, not as an importable package. Building this today produces a wheel with no
-# modules in it, so there is no `publish.yml` in `.github/workflows/` and no release tag — an empty
-# distribution on an index is worse than no distribution.
+# Declared here rather than read from `requirements.txt`, because this is what an installer resolves
+# and it has to be splittable: a file cannot say "stripe belongs to ophan". `requirements.txt` now
+# installs this package instead of restating it, so there is still one source of truth.
+dependencies = [
+    "mcp[cli]>=1.6.0,<2",
+    "httpx>=0.27",
+    "fastapi>=0.115",
+    "starlette>=0.37",      # imported directly (aria's facet routes, sage) — not just via fastapi
+    "uvicorn>=0.30",
+    "cryptography>=42.0",
+    "python-jose[cryptography]>=3.3",
+    "pydantic>=2.0",        # explicit: fastapi pulls it, but chorus imports it directly
+    "agience-prism[wire,trust]>=0.1.2",
+    "agience-crystal[ontology,service]>=0.1.0",
+    "agience-mantle",
+]
+
+# ── per-tekton extras ────────────────────────────────────────────────────────────────────────────
+# WHAT THESE DO AND DO NOT DO. An extra selects DEPENDENCIES, never modules: `agience-chorus[ophan]`
+# installs all seven tektons and adds Stripe. Python has no mechanism for an extra to exclude code,
+# so this is not "install only ophan" — that would need seven distributions, which the code could
+# support (no tekton imports another, held by `src/tests/test_no_tekton_imports_another.py`) but
+# which is not what this is.
 #
-# What a package here has to answer first: what `import chorus` would mean, which of `src/`'s 881
-# tracked files belong in a wheel (495 of them are two web applications with their own build), and
-# whether the tektons become extras. That is a design decision, not a packaging flag, and it is
-# deliberately not being guessed at here.
+# What it buys is real, and measured: a node running only `iris` and `seraph` otherwise installs
+# Stripe, HuggingFace `datasets`, pypdf, sympy and numpy to run none of them.
 #
-# The runtime dependency list stays in `requirements.txt` — a deployment installs from it and so
-# does local development, so restating pinned versions here would be the fork that convention
-# exists to avoid.
-dependencies = []
+# This does NOT replace the capability gate. `prism.crystal_model.activates_on` decides whether an
+# operator discharges against what the host advertises; an extra decides what is on disk. A node
+# without a Stripe credential should still refuse at discharge — installing the library is not a
+# claim that it may be used.
+[project.optional-dependencies]
+astra = ["pypdf>=5.0", "numpy>=1.24", "datasets>=2.14"]
+lumen = ["numpy>=1.24", "sympy>=1.12"]
+sage = ["sympy>=1.12"]
+ophan = ["stripe>=9.0"]
+# aria, iris and seraph add nothing to the base. Declared anyway, and empty, so `[aria]` resolves
+# rather than erroring — an installer should not have to know which tektons happen to be lean.
+aria = []
+iris = []
+seraph = []
+all = [
+    "agience-chorus[astra,lumen,sage,ophan,aria,iris,seraph]",
+]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "pytest-timeout>=2.2", "build>=1.0"]
 
 [project.urls]
 Homepage = "https://agience.ai"
@@ -55,6 +85,16 @@ Issues = "https://github.com/Agience/agience-chorus/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["agience_chorus*"]
+# `include` is not decoration. Without it setuptools also packaged `tests` and `types` from
+# agience-crystal's src/ — that shipped in crystal 0.1.0 and its `top_level.txt` still shows it.
+exclude = ["*.tests", "*.tests.*", "*.www*", "*.web*"]
+
+# The operator payloads ship WITH the package. They are what the runtime executes — it reads
+# the payload, never the source file — so a wheel without them installs a chorus that cannot
+# discharge an operator, and `AGIENCE_BUNDLE_ROOT` would have to point back at a checkout.
+[tool.setuptools.package-data]
+"agience_chorus" = ["bundles/*.json", "seraph/bundle_spec.json"]
 
 # NO PER-TEKTON EXTRAS TODAY. A tekton's requirements are CAPABILITY DECLARATIONS, resolved at
 # runtime by `prism.crystal_model.activates_on` against what the host advertises — not by a

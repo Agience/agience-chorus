@@ -31,16 +31,20 @@ _EMBER = _CHORUS.parent / "agience-ember"
 #: `canonical` must be valid Python — the normalised source is re-parsed.
 _MIRRORS = [
     (
-        _CHORUS / "src" / "corpus_fts.py",
+        _CHORUS / "src" / "agience_chorus" / "corpus_fts.py",
         _EMBER / "src" / "ember" / "corpus" / "fts.py",
         [('logging.getLogger("chorus.corpus_fts")',
           'logging.getLogger("ember.corpus.fts")',
           'logging.getLogger("<mirror>")')],
     ),
     (
-        _CHORUS / "src" / "corpus_stats.py",
+        _CHORUS / "src" / "agience_chorus" / "corpus_stats.py",
         _EMBER / "src" / "ember" / "ontology" / "corpus_stats.py",
-        [("import corpus_fts as _fts",
+        # Each side names the index the way its own package does — chorus qualifies
+        # (`agience_chorus.corpus_fts`), ember reaches its subpackage (`ember.corpus.fts`). Both
+        # normalise to one canonical line so the comparison is of BEHAVIOUR, not of how the two
+        # trees happen to be laid out.
+        [("import agience_chorus.corpus_fts as _fts",
           "from ember.corpus import fts as _fts",
           "import _mirror_fts as _fts")],
     ),

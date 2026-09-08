@@ -1,18 +1,5 @@
 # Contributing to Agience Chorus
 
-## Build and test
-
-```bash
-pip install -r requirements.txt
-python -m pytest -q
-```
-
-Chorus runs from a checkout: no directory under `src/` carries an `__init__.py`. Tektons never
-import one another, and each builds its own server auth.
-
-**The runtime reads the bundle payload, not the source file.** After changing a tekton, rebuild the
-bundles or the change is inert — `src/tests/test_bundles_match_source.py` fails when they drift.
-
 ## Contributing
 
 Fork, branch from `main`, sign off every commit (`git commit -s`) to certify the

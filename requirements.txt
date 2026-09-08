@@ -1,100 +1,11 @@
-# All server persona dependencies combined
-
-# --- Agience shared libraries (installed packages, NOT vendored) ---
-# ⛔ `agience-beam` IS ARCHIVED AND ITS LINE IS GONE FROM THE LIST BELOW [2026-08-05].
-#   The repo held three things and all three left it:
-#     THE WIRE        -> `prism.*` behind `prism[wire]` (plan D5): reach · plane · streams · carriers ·
-#                        frames · propagation · mcp_bridge · schema · demurrage · minting · settlement ·
-#                        pump · minhash · error_threshold · extraction · conservation.
-#     THE DERIVATIONS -> `prism.*`, dependency-free base (plan D10): resolution · adaptive_cut.
-#     THE INSTRUMENT    -> `ember.optics` (AGPL). It was the last thing left in beam.
+# Chorus's dependencies live in `pyproject.toml`, because they have to be splittable: this file
+# cannot say "stripe belongs to ophan", and per-tekton extras are the point (`agience-chorus[ophan]`).
 #
-#   ⭐ AND CHORUS NEEDED NO PRODUCT CHANGE FOR ANY OF IT, WHICH IS THE RETURN ON D5 AND D10. This
-#   comment used to end with the open item: *"beam holds EMBER's instrument, so `chorus → beam` is an
-#   L3→L3 edge of the same class D3 exists to cut, and plan item D10 closes it by INJECTION rather
-#   than by another move."* D10 finished — the four remaining call sites took `read=` / `dynamics=`
-#   slots and `enrich.py`'s `entropy_bits` landed on `prism.instrument.Conservation` — so the count
-#   was already 0 when the instrument moved. Had it not been, those lines would now read
-#   `chorus → ember`: the L3 sideways edge held at 0 by a mutation-proved ratchet
-#   (`src/tests/test_chorus_does_not_import_ember.py`).
+# Installing this file installs the package with every tekton's extras, which is what a developer
+# checkout and CI both want. A deployment that runs a subset installs that subset instead:
 #
-#   MEASURED by AST over `src/`, both import spellings, 2026-08-05:
-#     chorus -> beam    0 files (non-test AND test — the package does not exist)
-#     chorus -> ember   0 non-test files; TESTS only, as HOSTS. A test that measures imports ember so
-#                       that `ember/__init__.py` registers `ember.optics` as the process-default
-#                       instrument. ⚠ Those `import ember` lines carry `# noqa: F401` and are LOAD-
-#                       BEARING: the default is process-global, so removing one leaves the suite green
-#                       and breaks that file when it is run alone.
-#   Ratcheted by `src/tests/test_chorus_does_not_import_the_archived_beam.py`.
-# crystal (Apache): condensation + routing; server.py imports crystal.gateway_middleware /
-#   crystal.type_registration / crystal.operators.push (the boot-time operator-catalog push).
-#   Local dev: pip install -e ../agience-crystal
-# ✅ origin (AGPL): GONE, 2026-08-04 (plan items D1 + D2). It said "every persona imports
-#   origin.agience_server_auth for request auth… when it moves, this line goes and chorus stops
-#   importing origin at all." It moved, to `prism.trust.server_auth`, along with the scope
-#   vocabulary; ophan now reads economy constants off the Origin ARTIFACT instead of importing the
-#   service. **chorus imports origin ZERO times** (AST over non-test src/) — Origin is reached over
-#   the wire at ORIGIN_URI, which is what makes a chorus fork able to point at any authority.
-# prism (Apache): the trust floor, the contract — AND, since 2026-08-04, the WIRE.
-#   ⛔ IT WAS NOT DECLARED AT ALL UNTIL NOW, and it is the most-imported package chorus has:
-#   measured by AST over non-test src/, **29 files / 49 statements** — `trust` 14, the wire 17,
-#   `runner` 8, `canonical` 3, `grounding` 3, and one each of `config`, `delegate`, `source`,
-#   `instrument`. It was described in this comment block and left out of the list below, so a fresh
-#   `pip install -r requirements.txt` built an environment that could not import a single persona.
-#   That is the same defect the ⚠ note further down records for numpy/sympy/stripe/pydantic.
-#   EXTRAS, and why exactly these two:
-#     [wire]   `numpy>=1.24, cryptography>=42` — prism.{reach,plane,streams,carriers,frames,pump,
-#              mcp_bridge,demurrage,settlement}. 9 of the 16 wire modules install on the bare base;
-#              the extra is what the other 7 need, and prism's `tests/test_wire_extra.py` measures
-#              which is which rather than asserting it.
-#     [trust]  `python-jose[cryptography], cryptography` — every persona's `server.py` request auth.
-#   Not `[all]`: that pulls fastapi/uvicorn/mcp for `prism.host` and `prism.server`, and chorus
-#   imports NEITHER (measured). Asking for a surface you do not use is how an extra becomes cosmetic.
-#   Local dev: pip install -e "../agience-prism/py[wire,trust]"
-
-# Capped below 2.0 deliberately. mcp 2.x renamed FastMCP to MCPServer and moved it out of
-# `mcp.server.fastmcp`; all seven `src/<tekton>/server.py` import that module at MODULE scope,
-# so a 2.x resolve is not a degraded run, it is a collection error in every persona at once.
-# A lower bound alone said nothing about that: this repo pins its own installs (it publishes no
-# wheel), a developer's environment held 1.21.2, and CI resolved 2.x and went red while every
-# local suite stayed green. Lift the cap by MIGRATING the seven imports, not by widening this.
-mcp[cli]>=1.6.0,<2
-httpx>=0.27
-fastapi>=0.115
-uvicorn>=0.30
-cryptography>=42.0
-python-jose[cryptography]>=3.3
-
-# ⛔ MODEL DEPENDENCIES REMOVED [John, 2026-07-22: no-models rule is universal, incl. BYOK —
-# remote model APIs count as trained weights]:
-#   openai              (aria chat/extraction — tools are tombstones now)
-#   tiktoken            (astra chunk sizing — downloads OpenAI BPE ranks, a trained
-#                        tokenizer artifact; replaced by deterministic word-span sizing)
-#   amazon-transcribe   (lumen transcribe_artifact — hosted speech recognizer)
-#   github-copilot-sdk  (iris/nexus — Copilot is a hosted code model)
-
-# astra
-pypdf>=5.0
-
-# ⚠ ADDED 2026-08-04 — these are imported at module scope in src/ and were declared NOWHERE, so a
-# fresh `pip install -r requirements.txt` produced an environment that crashed on first use.
-numpy>=1.24        # lumen/{conversation,curriculum,reasoning,server}
-sympy>=1.12        # lumen/check, sage/wedge
-stripe>=9.0        # ophan/server — the payments organon
-pydantic>=2.0      # explicit: fastapi pulls it, but chorus imports it directly
-
-# Re-homed shared libraries (see the note at the top of this file).
-# The distribution is `agience-prism`; `agience-prism-py` is the REPOSITORY name and
-# resolves to nothing on PyPI. Every checkout here is `pip install -e`'d, which is what hid
-# that for as long as it did.
-agience-prism[wire,trust]>=0.1.2
-agience-crystal[ontology,service]>=0.1.0
-agience-mantle     # the store. TEN MODULE-SCOPE import sites (measured 2026-08-17, AST, direct
-                   # children of the module body — the further 23 are in-function):
-                   #   aria/server.py:150 · astra/server.py:85,288 · iris/server.py:130
-                   #   lumen/code.py:16 · lumen/server.py:151 · ophan/server.py:1010
-                   #   sage/content_search.py:25 · sage/server.py:170 · seraph/server.py:278
-                   # Seven of the ten are persona `server.py` modules, so importing any persona
-                   # needs it. This was declared in NEITHER pyproject.toml (`dependencies = []` by
-                   # policy) NOR here, and only resolved because the workspace is editable-installed.
-                   # chorus -> mantle is a permitted edge (L3 -> L1); what was missing was saying so.
+#     pip install "agience-chorus[iris,seraph]"      # no Stripe, no HuggingFace datasets, no numpy
+#     pip install -e ".[all,dev]"                    # a full checkout, with the test tools
+#
+# Restating the versions here would be the fork this indirection exists to avoid.
+-e .[all]

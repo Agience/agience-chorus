@@ -54,13 +54,15 @@ jobs:
       # Without the extra those four modules fail at COLLECTION, which stops the whole run.
       # entroptics is published (0.2.1) and its repository is public, so this needs no token.
       - run: pip install './.siblings/agience-prism-py[trust,vector,wire]' './.siblings/agience-crystal[service,ontology]' ./.siblings/agience-mantle './.siblings/agience-ember[optics]'
-      - run: pip install -r requirements.txt
-      - run: pip install pytest pytest-asyncio pytest-timeout
+      # The checkout, installed as the package it now is, with every tekton's extras and the
+      # test tools. `requirements.txt` resolves to `-e .[all]`; `[dev]` adds pytest.
+      - run: pip install -e ".[all,dev]"
       - name: Run the suite
         env:
           # The operator payloads are this repository's own — chorus builds them from chorus source
           # — so this points at the checkout rather than at a sibling.
-          AGIENCE_BUNDLE_ROOT: ${{ github.workspace }}/bundles
+          # The payloads live inside the package now, so the wheel carries them.
+          AGIENCE_BUNDLE_ROOT: ${{ github.workspace }}/src/agience_chorus/bundles
           # One thread is the only safe setting in CI: OpenBLAS otherwise faults at exit or hangs.
           OPENBLAS_NUM_THREADS: "1"
         run: python -m pytest -q --timeout=300

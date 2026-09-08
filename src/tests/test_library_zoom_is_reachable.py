@@ -14,7 +14,7 @@ import inspect
 
 import pytest
 
-from aria.facets import browse, browse_routes
+from agience_chorus.aria.facets import browse, browse_routes
 
 pytest.importorskip("mcp.server.fastmcp", reason="the facet is served by aria's FastMCP app")
 from mcp.server.fastmcp import FastMCP                # noqa: E402

@@ -65,7 +65,7 @@ def test_the_width_is_the_CONTEXT_COUNT_and_nothing_chooses_it(read_shard):
     """The width must be a count the reading produced. A `d=`/`D` parameter reappearing here is the
     defect returning, so the signature is pinned too."""
     import inspect
-    from astra.reading import read_basis
+    from agience_chorus.astra.reading import read_basis
     path, C = read_shard
     M, names, contexts = read_basis.cloud(_ro(path), C)
     assert M.shape == (len(names), len(contexts))
@@ -77,7 +77,7 @@ def test_the_width_is_the_CONTEXT_COUNT_and_nothing_chooses_it(read_shard):
     # Scoped to the code that builds the width, not to the module: scanning the whole module's
     # source would fail on this module's own docstring, which documents the `D = 2048` defect — a
     # test that forbids describing a bug would delete the record of it.
-    from _host_seams import seam
+    from agience_chorus._host_seams import seam
     body = inspect.getsource(seam("projection").read_cloud)
     assert "2048" not in body, "a chosen width came back into the coordinate"
     assert "hash" not in body.lower(), "a feature hash came back — the width is exact, not hashed"
@@ -86,7 +86,7 @@ def test_the_width_is_the_CONTEXT_COUNT_and_nothing_chooses_it(read_shard):
 def test_reading_MORE_grows_rows_FASTER_than_the_width(read_shard):
     """`T/F` must rise as the corpus grows — the property one-hot inverted. Units accumulate far
     faster than contexts, so adding a context that carries several new units improves the frame."""
-    from astra.reading import read_basis
+    from agience_chorus.astra.reading import read_basis
     path, C = read_shard
     M0, n0, c0 = read_basis.cloud(_ro(path), C)
     db = sqlite3.connect(path)
@@ -106,8 +106,8 @@ def test_the_amplitude_is_ENTROPTICS_INFORMATION_not_a_hand_rolled_reciprocal(re
     """A plausible reciprocal like `1/degree` has no owner and would stand in for the measure
     entroptics already publishes. This pins the source, not a computed number: the cell must be
     `sqrt(self_information_bits(deg, total))` read through the instrument."""
-    from _host_seams import seam
-    from astra.reading import read_basis
+    from agience_chorus._host_seams import seam
+    from agience_chorus.astra.reading import read_basis
     path, C = read_shard
     M, names, contexts = read_basis.cloud(_ro(path), C)
     # `dog` sits in exactly one context (para-2, which holds 2 units); total incidences = 8.
@@ -129,7 +129,7 @@ def test_a_CROWDED_context_arrives_QUIETER_and_nothing_is_excluded(read_shard):
     `the` is not compared against `dog` here because both sit in para-2, so both would take its
     amplitude and the maxima would tie exactly — two units sharing their heaviest context cannot
     measure a per-context weight. `sat` and `dog` have disjoint contexts, so they can."""
-    from astra.reading import read_basis
+    from agience_chorus.astra.reading import read_basis
     path, C = read_shard
     M, names, _ = read_basis.cloud(_ro(path), C)
     sat = np.abs(_row(M, names, C, "sat")).max()      # only para-0, which holds 3 units
@@ -141,7 +141,7 @@ def test_a_CROWDED_context_arrives_QUIETER_and_nothing_is_excluded(read_shard):
 def test_an_empty_read_REFUSES_rather_than_returning_a_basis(tmp_path):
     """[[absence-is-not-an-affirmative-claim]] — a collection nothing was read into has no basis, and
     saying so is not the same as returning an empty one."""
-    from astra.reading import read_basis
+    from agience_chorus.astra.reading import read_basis
     db = sqlite3.connect(str(tmp_path / "e.db"))
     db.execute("CREATE TABLE vertex (id TEXT PRIMARY KEY, ct TEXT, doc TEXT, created_by TEXT)")
     db.execute("CREATE TABLE edge (src TEXT, dst TEXT, label TEXT, props TEXT, edge_key TEXT)")
@@ -155,7 +155,7 @@ def test_an_empty_read_REFUSES_rather_than_returning_a_basis(tmp_path):
 def test_the_coordinate_is_DETERMINISTIC_across_processes(read_shard):
     """No seed, no hash, no dict-order dependence — two observers derive the same cloud. A basis
     nobody else can reproduce is not a corpus property."""
-    from astra.reading import read_basis
+    from agience_chorus.astra.reading import read_basis
     path, C = read_shard
     a, na, ca = read_basis.cloud(_ro(path), C)
     b, nb, cb = read_basis.cloud(_ro(path), C)
@@ -169,7 +169,7 @@ def test_the_cloud_is_read_on_an_INDEXED_range_not_a_table_scan(read_shard):
     full scan of the lattice."""
     import inspect
 
-    from _host_seams import seam
+    from agience_chorus._host_seams import seam
     src = inspect.getsource(seam("projection").read_unit_contexts)
     # The SQL is scanned, not the prose: scanning the whole source would fail on this function's own
     # docstring, which says "never a `LIKE`" — a test that forbids describing the defect would

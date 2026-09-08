@@ -24,8 +24,11 @@ from pathlib import Path
 
 import pytest
 
-SRC = Path(__file__).resolve().parents[1]
-BUNDLES = SRC.parent / "bundles"          # this repository's own; chorus builds them
+SRC = Path(__file__).resolve().parents[1] / "agience_chorus"
+# The chorus PACKAGE root — personas are `agience_chorus.<persona>` subpackages, not bare
+# directories under `src/`.
+
+BUNDLES = SRC / "bundles"                 # this repository's own; chorus builds them
 
 PERSONAS = ("aria", "astra", "iris", "lumen", "ophan", "sage", "seraph")
 
@@ -49,7 +52,8 @@ CONVERTED = {
 
 def _shipped_groups() -> dict:
     if not BUNDLES.is_dir():
-        pytest.skip("no agience-observe checkout beside this repo — the shipped payloads are its")
+        pytest.skip("this repository ships no bundles at %s — the payloads are chorus's own, "
+                    "so their absence is a broken checkout, not a missing sibling" % BUNDLES)
     return {p.stem: json.loads(p.read_text(encoding="utf-8")) for p in BUNDLES.glob("*.json")}
 
 

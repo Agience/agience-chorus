@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pytest
 
-from aria.facets.browse_routes import ROUTES, mount_browse
+from agience_chorus.aria.facets.browse_routes import ROUTES, mount_browse
 
 pytest.importorskip("mcp.server.fastmcp", reason="aria's surface is a FastMCP app")
 from mcp.server.fastmcp import FastMCP                # noqa: E402
@@ -143,7 +143,7 @@ def test_the_shipped_aria_app_carries_the_facet(_chorus_test_identity):
     The app is returned wrapped (`UserTokenMiddleware -> _LifespanWrapper -> Starlette`), so the
     routed application is reached by unwrapping `_app` until something carries `routes`.
     """
-    import aria.server as aria_server
+    import agience_chorus.aria.server as aria_server
 
     app = aria_server.create_aria_app()
     cur = app

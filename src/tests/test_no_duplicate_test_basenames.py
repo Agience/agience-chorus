@@ -20,7 +20,9 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1]          # agience-chorus/src
+SRC = Path(__file__).resolve().parents[1] / "agience_chorus"
+# The package root. Personas are `agience_chorus.<persona>` subpackages now, not bare
+# directories under `src/` — the assertion below caught exactly that move.
 
 assert (SRC / "sage").is_dir(), (
     f"SRC resolved to {SRC}, which holds no personas — this file moved and parents[] is now wrong")
