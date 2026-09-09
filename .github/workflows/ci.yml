@@ -96,6 +96,14 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/agience-observe
           path: .siblings/agience-observe
+      # `build_bundles.py` is only a CLI: the producer is chorus's own
+      # `src/agience_chorus/seraph/bundling.py`, and it is looked for at `.siblings/agience-chorus/`
+      # — deliberately, so there is no second implementation that could drift from the first. The
+      # suite job makes the same link for the same reason. This job needs it too, and did not have
+      # it: the observe checkout failed first for two weeks, so nothing ever reached far enough to
+      # find out.
+      - name: Make .siblings a complete workspace
+        run: ln -s "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/.siblings/agience-chorus"
       # No `cache: pip` here, unlike the suite job. This job pip-installs NOTHING — it runs a
       # checker out of a sibling checkout — so the cache action's post step finds no
       # `~/.cache/pip` to save and fails the job at the very end.
