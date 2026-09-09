@@ -81,31 +81,28 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with: { repository: "${{ github.repository_owner }}/agience-prism-py", path: .siblings/agience-prism-py }
+      # `agience-observe` went public on 2026-09-09, so the default GITHUB_TOKEN reads it and no
+      # secret is involved. It carried `token: ${{ secrets.WORKSPACE_READ_TOKEN }}` while observe was
+      # private, alongside `continue-on-error` and a guard that skipped the check when the checkout
+      # failed — and THAT COMBINATION HID A DEAD JOB FOR TWO WEEKS. `continue-on-error` sets a failed
+      # step's *conclusion* to success while its *outcome* stays failure; the UI shows conclusion, so
+      # the checkout looked green, `steps.builder.outcome == 'success'` was false, the check was
+      # skipped, and the job passed having verified nothing. The token had expired or lost its scope
+      # and nothing said so.
+      #
+      # There is no escape hatch now, deliberately. If this checkout fails the job fails, because a
+      # green run has to mean the payloads were compared.
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/agience-observe
           path: .siblings/agience-observe
-          # agience-observe is private and this repository is public, so a public repo's own
-          # GITHUB_TOKEN cannot read it. Without the secret this job cannot run; it is skipped
-          # rather than reported green, because "the bundles match" is the claim it exists to make.
-          token: ${{ secrets.WORKSPACE_READ_TOKEN }}
-        continue-on-error: true
-        id: builder
       # No `cache: pip` here, unlike the suite job. This job pip-installs NOTHING — it runs a
       # checker out of a sibling checkout — so the cache action's post step finds no
-      # `~/.cache/pip` to save and fails the job at the very end. That turned the deliberate
-      # "observe was unreachable, so say so and move on" path into a red job, which is the
-      # opposite of what the skip below is for.
+      # `~/.cache/pip` to save and fails the job at the very end.
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Bundles match chorus source
-        if: steps.builder.outcome == 'success'
         run: python .siblings/agience-observe/build_bundles.py --check
-      - name: Say so when it could not be checked
-        if: steps.builder.outcome != 'success'
-        run: |
-          echo "::warning::agience-observe was not reachable, so the bundle payloads were NOT" \
-               "checked against source. Set WORKSPACE_READ_TOKEN, or wait until observe is public."
 
   # One web application. `aria/www` — the public site's React front end — is work in progress and
   # is not carried in this repository; only its backend-for-frontend
