@@ -113,11 +113,13 @@ jobs:
       # find out.
       - name: Make .siblings a complete workspace
         run: ln -s "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/.siblings/agience-chorus"
-      # No `cache: pip` here, unlike the suite job. This job pip-installs NOTHING — it runs a
-      # checker out of a sibling checkout — so the cache action's post step finds no
-      # `~/.cache/pip` to save and fails the job at the very end.
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
+      # The producer imports `prism.crystal_model` for the canonical form, so prism has to be
+      # installed and not merely checked out. Base install only: `crystal_model` reaches nothing
+      # outside the standard library and prism declares no base dependencies, so the extras the
+      # suite job needs would only add failure surface here.
+      - run: pip install ./.siblings/agience-prism-py
       - name: Bundles match chorus source
         run: python .siblings/agience-observe/build_bundles.py --check
 
