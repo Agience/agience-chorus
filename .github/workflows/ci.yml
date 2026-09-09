@@ -96,6 +96,15 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/agience-observe
           path: .siblings/agience-observe
+      # `bundle_spec.json` declares module sources workspace-relatively and names two repositories:
+      # this one and `agience-crystal` (for example `agience-crystal/src/crystal/evolution.py`, which
+      # the `arithmetic` bundle carries). The reach deliberately does NOT fall back to a basename
+      # search — that is how the wrong `operators.py` gets shipped — so a missing sibling is a hard
+      # failure rather than a silently different payload.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/agience-crystal
+          path: .siblings/agience-crystal
       # `build_bundles.py` is only a CLI: the producer is chorus's own
       # `src/agience_chorus/seraph/bundling.py`, and it is looked for at `.siblings/agience-chorus/`
       # — deliberately, so there is no second implementation that could drift from the first. The
