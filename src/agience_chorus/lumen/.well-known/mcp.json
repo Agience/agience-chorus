@@ -41,16 +41,6 @@
       "description": "Submit evaluation feedback on an artifact"
     },
     {
-      "name": "transcribe_artifact",
-      "description": "Raises. No-models rule: a hosted speech recognizer is a trained model",
-      "status": "not_implemented"
-    },
-    {
-      "name": "invoke_llm",
-      "description": "Raises. No-models rule, universal and including BYOK. Grounded operators are the reasoning surface",
-      "status": "not_implemented"
-    },
-    {
       "name": "install_package",
       "description": "Install a package into a target workspace"
     },

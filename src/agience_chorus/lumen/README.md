@@ -31,8 +31,6 @@ Declared placeholders (registered, raise `NotImplementedError`):
 |---|---|
 | `schedule_action` | Schedule a deferred action for future execution. Creates a task card that will be executed at the specified time or interval |
 | `evaluate_output` | Evaluate the quality and accuracy of generated output. Scores content against criteria like relevance, completeness, coherence, and factual accuracy |
-| `transcribe_artifact` | Raises. No-models rule: a hosted speech recognizer is a trained model |
-| `invoke_llm` | Raises. No-models rule, universal and including BYOK. Grounded operators are the reasoning surface |
 
 ## Configuration
 

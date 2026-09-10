@@ -80,10 +80,12 @@ no effect, and the published sha then disagrees with the tree.
 
 ## Model-free
 
-Tektons dispatch no LLM completion. Three call sites raise `NotImplementedError` and name the rule
-in the `@mcp.tool` description a caller reads: `invoke_llm` and `transcribe_artifact` in
-[`src/agience_chorus/lumen/server.py`](src/agience_chorus/lumen/server.py), and `resolve_llm_credentials` in
-[`src/agience_chorus/seraph/server.py`](src/agience_chorus/seraph/server.py).
+A tekton's answer path is grounded operators over the artifact graph, so nothing imports a
+judgement made elsewhere that a caller cannot re-derive. Reaching a model stays legitimate as a
+deliberate act through a tekton that offers it, where the call is explicit and the provenance
+records who chose it. `resolve_llm_credentials` in
+[`src/agience_chorus/seraph/server.py`](src/agience_chorus/seraph/server.py) raises and names the
+rule in the `@mcp.tool` description a caller reads.
 
 Security issues: email **connect@agience.ai** rather than opening a public issue.
 

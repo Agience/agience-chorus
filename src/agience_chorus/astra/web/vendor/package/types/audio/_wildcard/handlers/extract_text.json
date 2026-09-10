@@ -1,5 +1,0 @@
-{
-  "capability": "extract_text",
-  "tool": "transcribe_artifact",
-  "server": "lumen"
-}

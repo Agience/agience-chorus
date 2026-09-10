@@ -847,7 +847,7 @@ async def fetch_url(
         result["notice"] = f"Content truncated to {max_length} characters."
 
     # The "extract" agent has no server mapping, so query-driven extraction via
-    # fetch_url is not implemented — callers should use Lumen's invoke_llm
+    # fetch_url is not implemented — a caller wanting model dispatch reaches a tekton that offers it
     # directly with a properly configured connection artifact.
     if query and raw_text:
         log.info("fetch_url: query parameter ignored (extract agent not available)")

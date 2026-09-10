@@ -1,7 +1,7 @@
 mcp[cli]>=1.6.0
 httpx>=0.27
-# amazon-transcribe removed 2026-07-22 — hosted speech recognizer (no-models rule);
-# transcribe_artifact is a tombstone
+# amazon-transcribe removed 2026-07-22; lumen's answer path is grounded operators, and the
+# transcribe tool was removed with it — transcription belongs on a tekton that offers it
 cryptography>=42.0
 python-jose[cryptography]>=3.3
 

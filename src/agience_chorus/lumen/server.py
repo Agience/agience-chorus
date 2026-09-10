@@ -23,12 +23,10 @@ Tools
                             respond {answer, citations, refusal} — cited or refused
   run_workflow           — Execute a defined multi-step workflow
   execute_transform      — Dispatch a Transform artifact by its run.type (mcp-tool/transform-ref/workflow)
-  invoke_llm             — Raises: model dispatch is removed under the no-models rule (incl. BYOK)
   chain_tasks            — Chain MCP tool calls sequentially via /artifacts/{server}/op/invoke
   schedule_action        — Stub: awaits a live scheduler/executor (nothing fires deferred actions)
-  evaluate_output        — Stub: awaits a grounded verifier (LLM judge barred; overlap ≠ quality)
+  evaluate_output        — Stub: awaits a grounded verifier (a judge model would grade from inside; overlap ≠ quality)
   submit_feedback        — Record a human judgment as an append-only feedback artifact
-  transcribe_artifact    — Raises: a hosted speech recognizer is a trained model (no-models rule)
   install_package        — Install a package artifact's contents and server deps into a workspace
   export_package         — Populate a package manifest's contents from workspace artifacts
 
@@ -267,9 +265,9 @@ async def synthesize(
         input: Question, prompt, or synthesis instruction.
         artifact_ids: Optional list of card IDs to use as explicit grounding context.
         workspace_id: Optional workspace for scoping cited-artifact fetches.
-        model: Retained for signature stability; ignored (no-models rule).
+        model: Retained for signature stability; ignored — synthesis is grounded.
     """
-    _ = model  # no-models rule: there is no model to dispatch to
+    _ = model  # synthesis assembles its answer from grounded operators
     findings: list[str] = []   # computed facts about legs that could not run
     evidence: list[dict] = []
     reasoning_read: Optional[dict] = None
@@ -921,13 +919,16 @@ async def execute_transform(
             params=json.dumps(workflow_params) if workflow_params else None,
         )
 
-    # --- llm: no-models rule (universal, incl. BYOK) ---
+    # --- llm: a transform step runs inside the answer path, which stays grounded ---
     elif run_type == "llm":
         # Transforms with run.type == "llm" fail loudly rather than silently
         # skipping the step.
         raise NotImplementedError(
-            "Transform run type 'llm': model dispatch removed 2026-07-22 — "
-            "no-models rule; grounded operators only."
+            "Transform run type 'llm': model dispatch removed 2026-07-22. A "
+            "transform step executes inside Lumen's answer path, and that path is "
+            "grounded operators over the artifact graph. Reach a model deliberately "
+            "through its own tekton, where the call is explicit and the provenance "
+            "records that a caller chose it."
         )
 
     elif run_type == "webhook":
@@ -1086,8 +1087,9 @@ async def evaluate_output(
         workspace_id: Optional workspace context.
     """
     # Quality/accuracy judgment needs an oracle — execution results, agreement with verified
-    # triples, or human confirmation (the verification-mass loop). The LLM-judge leg is barred by
-    # the no-models rule, and lexical-overlap scores are bookkeeping, not capability
+    # triples, or human confirmation (the verification-mass loop). A judge model would grade this
+    # answer path from inside it, which is the thing the path exists to avoid; and lexical-overlap
+    # scores are bookkeeping, not capability
     # (metrics-are-not-capability): reporting them as "quality" would be a fabricated evaluation.
     # Human judgments are recorded via submit_feedback instead.
     raise NotImplementedError(
@@ -1177,67 +1179,8 @@ async def submit_feedback(
 
 
 # ---------------------------------------------------------------------------
-# Tool: transcribe_artifact
-# ---------------------------------------------------------------------------
-
-@mcp.tool(
-    description=(
-        "Raises. No-models rule: a hosted speech recognizer is a trained model."
-    )
-)
-async def transcribe_artifact(
-    workspace_id: str,
-    artifact_id: str,
-    credential_artifact_id: Optional[str] = None,
-    language_code: str = "en-US",
-    title: Optional[str] = None,
-) -> str:
-    """
-    Args:
-        workspace_id: Workspace containing the media artifact.
-        artifact_id: The video/mp4 or audio/* artifact to transcribe.
-        credential_artifact_id: Unused; retained for signature stability.
-        language_code: Unused; retained for signature stability.
-        title: Optional title for the output transcript artifact.
-    """
-    raise NotImplementedError(
-        "transcribe_artifact: no-models rule; grounded operators only."
-    )
-
-
-# ---------------------------------------------------------------------------
 # Resource: Transform HTML View
 # ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Tool: invoke_llm
-# ---------------------------------------------------------------------------
-
-@mcp.tool(
-    description=(
-        "Raises. No-models rule, universal and including BYOK. Grounded "
-        "operators are the reasoning surface."
-    )
-)
-async def invoke_llm(
-    connection_artifact_id: str,
-    workspace_id: str,
-    messages: str,
-    temperature: float = 0.7,
-    max_output_tokens: int = 2048,
-) -> str:
-    """
-    Args:
-        connection_artifact_id: ID of the LLM Connection artifact in the workspace.
-        workspace_id: Workspace containing the connection artifact.
-        messages: JSON-encoded array of message objects [{role, content}, ...].
-        temperature: Sampling temperature (0.0-2.0).
-        max_output_tokens: Maximum tokens to generate.
-    """
-    raise NotImplementedError(
-        "invoke_llm: no-models rule; grounded operators only."
-    )
-
 
 
 # ---------------------------------------------------------------------------

@@ -123,18 +123,8 @@
   },
   "operations": {
     "invoke": {
-      "enabled": true,
+      "enabled": false,
       "requires_grant": "invoke",
-      "dispatch": {
-        "kind": "mcp_tool",
-        "server_ref": "lumen",
-        "tool_ref": "invoke_llm",
-        "arguments": {
-          "connection_artifact_id": "$.root_id",
-          "workspace_id": "$.body.workspace_id",
-          "messages": "$.body.params.messages"
-        }
-      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -161,7 +151,8 @@
           "event": "llm.invoke.failed",
           "phase": "error"
         }
-      ]
+      ],
+      "note": "Model dispatch belongs on a tekton outside the core, invoked deliberately, so the call is explicit and the provenance records who chose it. Disabled until that dispatch target exists; it previously pointed at lumen, whose answer path is grounded operators."
     }
   },
   "ui": {

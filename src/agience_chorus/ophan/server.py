@@ -1893,7 +1893,7 @@ async def run_licensing_report(
 # The shape matches seraph's `resolve_llm_credentials` (`seraph/server.py:597`): a tombstone that
 # raises, naming the rule and what is absent, so an exercised path fails loudly rather than quietly
 # succeeding. One deliberate difference: seraph's tombstone keeps its `@mcp.tool` registration because
-# it has a real caller (lumen's `invoke_llm`) that needs an addressed raise. These two have no caller
+# it had a real caller that needed an addressed raise. These two have no caller
 # anywhere in the tree, so they are unregistered as well as tombstoned — keeping `@mcp.tool` would go
 # on advertising two LLM metering tools in `tools/list`. The functions are kept, rather than deleted
 # outright, so that a re-add is a conflict rather than a blank line, and so

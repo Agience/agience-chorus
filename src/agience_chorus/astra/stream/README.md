@@ -27,5 +27,5 @@ OBS -> RTMP -> SRS (1936) -> HLS output (/var/stream/)
            -> on unpublish: ffmpeg HLS->MP4, upload to S3
 ```
 
-Lumen's `transcribe_artifact` raises `NotImplementedError` (no-models rule) — there is no
+Lumen carries no transcription tool — its answer path is grounded operators — so there is no
 transcription step. AWS credentials are stored as Seraph Secrets (not env vars).
