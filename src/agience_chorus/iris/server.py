@@ -50,10 +50,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html
 import json
 import logging
 import os
 import pathlib
+import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -288,11 +290,28 @@ async def send_email(
 # Tool: notify_inbound
 # ---------------------------------------------------------------------------
 
-def _inbound_subject(content: dict, source: str, artifact_id: str) -> str:
-    """Lead-aware subject line: prefer the submitter's email/name + source."""
+#: An address, by shape. Used only to recover `who` from an artifact whose body is TEXT rather
+#: than a dict — the same fact `content["email"]` supplies for a dict, read the only way available.
+#: Deliberately a shape and not a judgement: no scoring, no guessing at names, nothing that could
+#: decide one submission is more interesting than another.
+_EMAIL_IN_TEXT = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+
+def _inbound_subject(content, source: str, artifact_id: str) -> str:
+    """Lead-aware subject line: prefer the submitter's email/name + source.
+
+    ⚠ `content` IS NOT ALWAYS A DICT. An artifact whose body is plain text — which is what every
+    artifact of a `+json` vendor type renders as, and what the website leads actually store —
+    arrives here as a string. Reading `content["email"]` off that yields nothing, and the subject
+    silently degraded to `[Agience] Contact form (11111111)`: the operator gets an artifact id
+    where the person's address should be, on every single text-bodied lead.
+    """
     who = ""
     if isinstance(content, dict):
         who = (content.get("email") or content.get("name") or "").strip()
+    elif isinstance(content, str):
+        found = _EMAIL_IN_TEXT.search(content)
+        who = found.group(0) if found else ""
     label = {
         "website-contact": "Contact form",
         "website-subscribe": "Newsletter signup",
@@ -349,10 +368,24 @@ async def notify_inbound(
     content_str = artifact.get("content", "")
     context_str = artifact.get("context", "{}")
 
-    try:
-        content = json.loads(content_str) if content_str else {}
-    except (json.JSONDecodeError, TypeError):
-        content = {"raw": content_str[:500]}
+    # ⛔ A TEXT BODY IS NOT A MALFORMED JSON BODY, and treating it as one THREW AWAY THE LEAD.
+    #
+    # This read `content = {"raw": content_str[:500]}` on a parse failure. Every artifact of a
+    # `+json` vendor type renders as plain text by design, and the website leads store exactly
+    # that — so the fallback was not an edge case, it was the normal path, and it silently cut the
+    # body at 500 characters. Measured 2026-09-10 against the live corpus: 1 of 20 leads is 709
+    # characters, and the ones that run long are the ones with something to say.
+    #
+    # Text is kept WHOLE and rendered as text. JSON still renders as a table.
+    content = None
+    if content_str:
+        try:
+            parsed = json.loads(content_str)
+            content = parsed if isinstance(parsed, dict) else content_str
+        except (json.JSONDecodeError, TypeError):
+            content = content_str
+    if content is None:
+        content = {}
 
     try:
         ctx = json.loads(context_str) if context_str else {}
@@ -362,19 +395,31 @@ async def notify_inbound(
     source = ctx.get("source", "unknown")
     subject = _inbound_subject(content, source, artifact_id)
 
-    rows = "".join(
-        f"<tr><td style='padding:4px 8px;font-weight:bold;'>{k}</td>"
-        f"<td style='padding:4px 8px;'>{v}</td></tr>"
-        for k, v in (content.items() if isinstance(content, dict) else [("content", str(content))])
-    )
+    # A dict becomes a table; text is shown as written. `<pre>` because the body it carries is
+    # laid out in lines — collapsing that into a paragraph is how a readable record turns into a
+    # run-on. Everything is escaped: this is a stranger's submission being put into HTML.
+    if isinstance(content, dict):
+        detail = (
+            "<table border='1' cellpadding='0' cellspacing='0' style='border-collapse:collapse;'>"
+            + "".join(
+                f"<tr><td style='padding:4px 8px;font-weight:bold;'>{html.escape(str(k))}</td>"
+                f"<td style='padding:4px 8px;'>{html.escape(str(v))}</td></tr>"
+                for k, v in content.items()
+            )
+            + "</table>"
+        )
+    else:
+        detail = (
+            "<pre style='font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;"
+            "white-space:pre-wrap;margin:0;'>"
+            f"{html.escape(str(content))}</pre>"
+        )
     body_html = (
         "<html><body style='font-family:sans-serif;'>"
-        f"<h2 style='color:#333;'>Inbound: {source}</h2>"
-        "<table border='1' cellpadding='0' cellspacing='0' style='border-collapse:collapse;'>"
-        f"{rows}"
-        "</table>"
+        f"<h2 style='color:#333;'>Inbound: {html.escape(str(source))}</h2>"
+        f"{detail}"
         f"<p style='color:#888;font-size:12px;margin-top:16px;'>"
-        f"artifact_id: {artifact_id} | workspace: {workspace_id}"
+        f"artifact_id: {html.escape(str(artifact_id))} | workspace: {html.escape(str(workspace_id))}"
         "</p></body></html>"
     )
 
