@@ -126,8 +126,26 @@ def create_server_app():
 
 
 async def server_startup() -> None:
-    """Run Astra startup tasks. The trust map is on disk; nothing to fetch."""
+    """Run Astra startup tasks. The trust map is on disk; nothing to fetch.
+
+    ⛔ THERE IS EXACTLY ONE OF THESE, AND IT MUST STAY THAT WAY. `personas.PersonaBinding` reads
+    `getattr(mod, "server_startup", None)`, so a second definition later in this file silently
+    replaces this one and `_auth.startup()` never runs — the host boots, the persona mounts, and
+    its authentication was never initialised. A second definition was appended once while adding
+    the lead watcher; `test_startup_astra.py` caught it. New startup work goes HERE.
+    """
     await _auth.startup()
+
+    # The lead watcher subscribes to Mantle's change feed and reacts to inbound artifacts. Off
+    # unless `LEADS_WATCH_ENABLED` is set, and it refuses to start half-configured — see
+    # `lead_watch.start`. Never allowed to stop chorus booting: a watcher is not worth a failed
+    # boot, so any failure here is logged and swallowed.
+    try:
+        from agience_chorus.astra import lead_watch
+
+        lead_watch.start()
+    except Exception:  # noqa: BLE001
+        log.warning("astra: lead watcher failed to start", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
