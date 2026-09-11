@@ -168,11 +168,25 @@ async def _session(token_fn) -> None:
 
 
 async def run() -> None:
-    """The watch loop. Reconnects with backoff; never raises."""
-    from prism.trust.service_identity import sign_service_jwt
+    """The watch loop. Reconnects with backoff; never raises.
 
+    ⛔ THE FEED IS SUBSCRIBED WITH THE GRANT KEY, NOT WITH ASTRA'S SERVICE TOKEN, and the
+    difference is invisible at connect time. Measured 2026-09-11, both connected and both were
+    acked; an artifact was then created in the watched container:
+
+        [service]  subscribed -> received NOTHING
+        [grantkey] subscribed -> EVENT artifact.created id=ae274f1d collection=b1fefeae
+
+    Mantle delivers the change feed per-ACL — that is exactly why `_SYSTEM_EVENT_CONSUMERS` exists
+    for crystal — and a service principal holds no grant on the container, so it is told nothing.
+    The failure mode is the worst kind: a healthy connection, a successful subscribe, and silence
+    forever.
+
+    One credential, one scope: the key that can READ the container is the key that SEES its
+    events. Nothing here needs astra's service identity at all.
+    """
     def token_fn() -> str:
-        return sign_service_jwt(audience="mantle")
+        return _grant_key()
 
     delay = _BACKOFF_START
     while True:

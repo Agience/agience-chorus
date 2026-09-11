@@ -157,3 +157,37 @@ def test_the_startup_hook_still_initialises_auth():
     body = inspect.getsource(astra_server.server_startup)
     assert "_auth.startup()" in body
     assert "lead_watch" in body
+
+
+def test_the_subscription_uses_the_grant_key(monkeypatch):
+    """⛔ THE REGRESSION. Subscribing with astra's service token connects, acks, and then receives
+    NOTHING — mantle filters the change feed per-ACL and a service principal holds no grant on the
+    container. Measured: the service token got zero frames for an artifact.created the grant key
+    received. A healthy-looking subscription that is told nothing forever.
+    """
+    monkeypatch.setenv("LEADS_GRANT_KEY", "the-container-key")
+    monkeypatch.setenv("LEADS_COLLECTION_ID", "container-A")
+    monkeypatch.setenv("MANTLE_URI", "http://mantle.test")
+
+    used = {}
+
+    async def _fake_session(token_fn):
+        used["token"] = token_fn()
+        raise asyncio.CancelledError  # end the loop after one attempt
+
+    monkeypatch.setattr(lead_watch, "_session", _fake_session)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(lead_watch.run())
+    assert used["token"] == "the-container-key", (
+        "the watcher subscribed with something other than the container grant key"
+    )
+
+
+def test_run_does_not_reach_for_a_service_identity(monkeypatch):
+    """Guard on the guard: if the service-token import came back, the test above could still pass
+    while the connection used it. The function must not depend on service identity at all."""
+    import inspect
+
+    src = inspect.getsource(lead_watch.run)
+    assert "sign_service_jwt" not in src
+    assert "_grant_key()" in src
