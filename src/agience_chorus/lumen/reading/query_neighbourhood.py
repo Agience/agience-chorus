@@ -214,9 +214,10 @@ def recognition(ro, query, *, draws: int = 20, seed: int = 0):
 def query_vector(seeds, idx, coord, dim):
     """The query as a point in the neighbourhood's coordinate — and which seeds it could not use.
 
-    Sums `coord[idx[unit_id(s)]]` only over seeds the neighbourhood's neighbourhood actually holds,
-    since the neighbourhood opens on the rarest seed's contexts and a seed held by no context in that
-    neighbourhood has no coordinate to sum.
+    Sums `coord[idx[unit_id(s)]]` only over seeds the neighbourhood actually holds. The
+    neighbourhood is the intersection of every seed's contexts, backing off by dropping the
+    highest-degree seed when nothing observed them all, so a seed held by no context that survived
+    the intersection has no coordinate to sum.
 
     Returns `(qv, used, unseen)`. `unseen` is measured against the collection's index, so it means
     "this seed is not in the reading's coordinate at all" — NOT "held by no context in this
@@ -270,9 +271,9 @@ def widen(ro, ctx, held):
     frontier = {u for us in held.values() for u in us}
     deg = []
     for uid in frontier:
-        # Degree is measured on the unbounded result — see `reach`, which measures rarity the
-        # same way and for the same reason: a capped count flattens every hub onto one value and
-        # the order stops being an order exactly where it matters most.
+        # Degree is measured on the unbounded result — see `_reach_from`, which orders the seeds
+        # by the same measure and for the same reason: a capped count flattens every hub onto one
+        # value and the order stops being an order exactly where it matters most.
         rows = ro.execute(
             "SELECT src FROM edge WHERE dst = ? AND label IN ('observed','observed_alone')",
             (uid,)).fetchall()

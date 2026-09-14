@@ -1,22 +1,18 @@
 """`notify_inbound` must deliver the whole artifact, whatever shape its body is.
 
-⛔ WHAT WAS WRONG. The tool advertises itself as notifying about "any inbound artifact", but it
-assumed the body was JSON:
+The tool notifies about "any inbound artifact", and an artifact body arrives in one of two shapes.
+Every artifact of a `+json` vendor type renders as plain text by design, and that is what the
+website leads store, so text is the normal path rather than an edge case. Text is kept whole and
+rendered as text; a JSON object still renders as a table. Neither may be cut at 500 characters:
+measured against the live corpus, 20 leads, one of them 709 characters — and the long ones are the
+ones with something to say.
 
-    content = json.loads(content_str)          # a dict -> a table
-    except: content = {"raw": content_str[:500]}   # anything else -> CUT AT 500
+The subject carries the same two shapes. `_inbound_subject` reads `content["email"]` only when the
+content is a dict, and finds the address inside the text otherwise, so a text-bodied lead is
+announced by the submitter's address and not as `[Agience] Contact form (11111111)`, an artifact id
+where the person's address belongs.
 
-Every artifact of a `+json` vendor type renders as plain TEXT by design, and that is exactly what
-the website leads store. So the exception branch was not an edge case, it was the normal path.
-Measured against the live corpus on 2026-09-10: 20 leads, one of them **709 characters** — over
-the cap, and the long ones are the ones with something to say.
-
-The subject degraded the same way: `_inbound_subject` read `content["email"]`, which a string
-does not have, so every text-bodied lead was announced as `[Agience] Contact form (11111111)` —
-an artifact id where the person's address belongs.
-
-Both are the same mistake — one shape assumed for a field that carries two — so both are pinned
-here together.
+Both are one property — a single field that carries two shapes — so both are pinned here together.
 """
 from __future__ import annotations
 
@@ -34,10 +30,10 @@ LEAD_TEXT = (
     "received  2026-09-10T12:00:00+00:00\n"
     "\n"
     "company   Northgate Supply\n"
-    # ⛔ THE TAIL MUST BE UNIQUE. This padding was a single phrase repeated 14 times, so
-    # `LEAD_TEXT[-40:]` also occurred inside the first 500 characters — and the "was it
-    # truncated?" assertion passed on truncated output, because it found the tail earlier in
-    # the body. A repetitive fixture silently disarms a substring check.
+    # The tail has to be unique. Padding of one phrase repeated 14 times puts `LEAD_TEXT[-40:]`
+    # inside the first 500 characters as well, so the "was it truncated?" assertion finds the tail
+    # early and passes on truncated output. A repetitive fixture silently disarms a substring
+    # check, so every phrase here is distinct.
     "message   " + " ".join(f"point-{n} about the deployment." for n in range(1, 22))
     + " FINAL-MARKER-9c3f1e"
 )
@@ -49,9 +45,9 @@ def test_the_sample_is_actually_over_the_old_cap():
 
 
 def test_the_samples_tail_is_unique():
-    """⛔ AND THE TAIL MUST NOT APPEAR EARLIER. With a repetitive body, "is the tail present?"
-    finds it inside the first 500 characters and reports success on truncated output. That is
-    exactly what happened, and it made the truncation test pass against the broken code."""
+    """And the tail must not appear earlier. With a repetitive body, "is the tail present?" finds
+    it inside the first 500 characters and reports success on truncated output, which lets the
+    truncation test pass against code that truncates."""
     assert LEAD_TEXT.count("FINAL-MARKER-9c3f1e") == 1
     assert LEAD_TEXT[:500].find(LEAD_TEXT[-40:]) == -1, "the tail also occurs before the cap"
 
@@ -85,9 +81,9 @@ class _FakeClient:
 def _run_notify(monkeypatch, content, context=None):
     """Drive the actual tool and capture what it hands to `send_email`.
 
-    ⛔ THE POINT. An earlier version of this file asserted against `html.escape(...)` called by the
-    TEST — which is the test proving its own arithmetic. It passed identically whether or not
-    `notify_inbound` truncated anything. The rendering is only pinned if the tool does it.
+    The rendering is only pinned if the tool does it. A test that renders the body itself — say by
+    calling `html.escape(...)` and asserting on its own output — proves its own arithmetic and
+    passes identically whether or not `notify_inbound` truncates.
     """
     import asyncio
 
@@ -112,7 +108,7 @@ def _run_notify(monkeypatch, content, context=None):
 
 
 def test_a_text_body_is_not_truncated(monkeypatch):
-    """⛔ THE REGRESSION, through the real tool. The tail of the message must reach the email."""
+    """The tail of the message reaches the email, through the real tool."""
     seen = _run_notify(monkeypatch, LEAD_TEXT)
     import html as _html
     assert "FINAL-MARKER-9c3f1e" in seen["body_html"], "the end of the lead was lost"
@@ -134,7 +130,7 @@ def test_the_real_tool_subjects_a_text_lead_with_the_address(monkeypatch):
 
 
 def test_a_dict_body_still_renders_as_a_table(monkeypatch):
-    """The JSON path is unchanged — fixing text must not break dicts."""
+    """A dict body renders as a table: keeping text whole must not cost the JSON path."""
     seen = _run_notify(monkeypatch, json.dumps({"email": "someone@example.com", "company": "Acme"}))
     assert "<table" in seen["body_html"]
     assert "someone@example.com" in seen["body_html"]
@@ -149,7 +145,7 @@ def test_the_subject_names_the_person_not_the_artifact():
 
 
 def test_a_dict_body_still_behaves_as_before():
-    """The JSON path is unchanged — this change must not fix text by breaking dicts."""
+    """A dict body still takes its subject from `content["email"]`."""
     subject = server._inbound_subject(
         {"email": "someone@example.com", "name": "Someone"}, "website-contact", "abcdef12")
     assert "someone@example.com" in subject

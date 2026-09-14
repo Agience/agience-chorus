@@ -1,20 +1,20 @@
 """Astra watches the lattice for inbound artifacts and reacts to them.
 
-An artifact arriving in a watched container is an INGESTION event, which is why this lives in
+An artifact arriving in a watched container is an ingestion event, which is why this lives in
 astra rather than in the store: Mantle emits the change, a tekton subscribes, and the workflow
 happens in the tekton. Mantle initiates nothing outbound — `services/peer_signing` refuses to sign
-for a direction it never initiates, and that stays true.
+for a direction it never initiates.
 
-HOW IT SEES THE LEADS, AND WHY IT IS NOT A SYSTEM CONSUMER
+How it sees the leads, and why it is not a system consumer
 ----------------------------------------------------------
 `_SYSTEM_EVENT_CONSUMERS` in mantle holds `{"crystal"}` and is documented as "a standing exception
 to README invariant #2 ... keep this list tight". This does not join it. Instead the container
 carries an ordinary grant and this holds the key to it:
 
     depositor  →  add/write on the container   (a lead can be dropped in without reading any)
-    astra      →  READ on the container        (so it sees everything inside)
+    astra      →  read on the container        (so it sees everything inside)
 
-⛔ THE KEY IS A GRANT KEY, NOT A GRANT ON THE SERVICE PRINCIPAL. Measured 2026-09-11: granting
+The key is a grant key, not a grant on the service principal. Granting
 `grantee_type=service, grantee_id=chorus` returns **201** and is **inert** — `check_access` serves
 "a user's [grants] ... looked up by user_id, a grant key's [already resolved]", and a service
 principal has no `user_id`, so that row is never consulted and every read still answers 404.
@@ -22,13 +22,14 @@ principal has no `user_id`, so that row is never consulted and every read still 
 about that row. A grant key holds no `user_id` by design, is scoped to the one container, and is
 revocable without touching an account.
 
-OFF BY DEFAULT
+Off by default
 --------------
 `LEADS_WATCH_ENABLED` must be set. A watcher that starts itself on every node would subscribe from
 every host that happens to run chorus, and the same lead would be handled once per host.
 
-It never raises into the host: the task is created detached, every exception is caught, and a
-failure to reach the feed becomes a retry rather than a boot failure.
+It does not raise into the host: the task is created detached, every failure to reach the feed
+becomes a retry rather than a boot failure, and the one exception that propagates is cancellation,
+which is how the host stops it.
 """
 from __future__ import annotations
 
@@ -77,7 +78,7 @@ def _ws_url() -> str:
 
 
 async def _read_artifact(artifact_id: str) -> Optional[dict]:
-    """Read the artifact with the CONTAINER's grant key, not with astra's service identity.
+    """Read the artifact with the container's grant key, not with astra's service identity.
 
     The service identity can subscribe to the feed but cannot read a lead — that is the whole
     reason the key exists. Using the wrong credential here fails as a 404, which reads as "the
@@ -114,14 +115,13 @@ async def _handle(artifact: dict) -> None:
 async def notify(artifact_id: str, doc: dict) -> None:
     """Hand the inbound artifact to the operator notification.
 
-    ⚠ DELIBERATELY SEPARATE, AND CURRENTLY UNRESOLVED. `iris:send_email` resolves the Gmail
-    credentials under the CALLER's delegation, and the principals that hold `can_read` on them are
-    the platform operator and the platform system principal — not chorus. A call from here would
-    reach `send_email` and fail on the authorizer read, which is the isolation working rather than
-    a bug to route around.
+    Deliberately separate, and the sending identity is unresolved. `iris:send_email` resolves the
+    Gmail credentials under the caller's delegation, and the principals that hold `can_read` on
+    them are the platform operator and the platform system principal — not chorus. A call from
+    here would reach `send_email` and fail on the authorizer read.
 
-    So this records the intent and says precisely what is missing, instead of pretending. When the
-    sending identity is settled, this is the one function that changes.
+    This records the intent and names what is missing. When the sending identity is settled, this
+    is the one function that changes.
     """
     log.info(
         "lead_watch: notification deferred for %s — chorus holds no read on the platform email "
@@ -168,21 +168,20 @@ async def _session(token_fn) -> None:
 
 
 async def run() -> None:
-    """The watch loop. Reconnects with backoff; never raises.
+    """The watch loop. Reconnects with backoff; the only exception it propagates is cancellation.
 
-    ⛔ THE FEED IS SUBSCRIBED WITH THE GRANT KEY, NOT WITH ASTRA'S SERVICE TOKEN, and the
-    difference is invisible at connect time. Measured 2026-09-11, both connected and both were
-    acked; an artifact was then created in the watched container:
+    The feed is subscribed with the grant key, not with astra's service token, and the difference
+    is invisible at connect time. Measured with both connected and both acked, an artifact was
+    then created in the watched container:
 
         [service]  subscribed -> received NOTHING
         [grantkey] subscribed -> EVENT artifact.created id=ae274f1d collection=b1fefeae
 
     Mantle delivers the change feed per-ACL — that is exactly why `_SYSTEM_EVENT_CONSUMERS` exists
     for crystal — and a service principal holds no grant on the container, so it is told nothing.
-    The failure mode is the worst kind: a healthy connection, a successful subscribe, and silence
-    forever.
+    The failure mode is a healthy connection, a successful subscribe, and silence forever.
 
-    One credential, one scope: the key that can READ the container is the key that SEES its
+    One credential, one scope: the key that can read the container is the key that sees its
     events. Nothing here needs astra's service identity at all.
     """
     def token_fn() -> str:

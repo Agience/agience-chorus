@@ -275,8 +275,8 @@ function AuthenticationTab({ values, onChange, loaded }: SettingsTabProps) {
         <h3 className="text-sm font-semibold text-foreground mb-1">Access Control</h3>
         <SettingsForm
           fields={[
-            { key: 'auth.allowed_domains', label: 'Allowed email domains', type: 'text', placeholder: 'yourdomain.com, partner.com', help: 'Comma-separated. Leave empty to allow all domains.' },
-            { key: 'auth.allowed_emails', label: 'Allowed emails', type: 'text', placeholder: 'specific@email.com', help: 'Comma-separated. Leave empty to allow all emails.' },
+            { key: 'auth.allowed_domains', label: 'Allowed email domains', type: 'text', placeholder: 'example.com, partner.com', help: 'Comma-separated. Leave empty to allow all domains.' },
+            { key: 'auth.allowed_emails', label: 'Allowed emails', type: 'text', placeholder: 'specific@example.org', help: 'Comma-separated. Leave empty to allow all emails.' },
           ]}
           values={values} onChange={onChange} onSave={handleSave} saving={saving}
         />
@@ -338,7 +338,7 @@ function EmailTab({ values, onChange, loaded }: SettingsTabProps) {
             { key: 'email.smtp.port', label: 'Port', type: 'text', placeholder: '587' },
             { key: 'email.smtp.username', label: 'Username', type: 'text' },
             { key: 'email.smtp.password', label: 'Password', type: 'password', is_secret: true },
-            { key: 'email.from_address', label: 'From address', type: 'email', placeholder: 'noreply@yourdomain.com' },
+            { key: 'email.from_address', label: 'From address', type: 'email', placeholder: 'noreply@example.com' },
             { key: 'email.from_name', label: 'From name', type: 'text', placeholder: 'Agience' },
           ]}
           values={values} onChange={onChange} onSave={handleSave} saving={saving}
@@ -349,7 +349,7 @@ function EmailTab({ values, onChange, loaded }: SettingsTabProps) {
         <SettingsForm
           fields={[
             { key: `email.${provider}.api_key`, label: 'API key', type: 'password', is_secret: true },
-            { key: 'email.from_address', label: 'From address', type: 'email', placeholder: 'noreply@yourdomain.com' },
+            { key: 'email.from_address', label: 'From address', type: 'email', placeholder: 'noreply@example.com' },
             { key: 'email.from_name', label: 'From name', type: 'text', placeholder: 'Agience' },
           ]}
           values={values} onChange={onChange} onSave={handleSave} saving={saving}
@@ -362,7 +362,7 @@ function EmailTab({ values, onChange, loaded }: SettingsTabProps) {
             { key: 'email.ses.region', label: 'Region', type: 'text', placeholder: 'us-east-1' },
             { key: 'email.ses.access_key_id', label: 'Access key ID', type: 'text' },
             { key: 'email.ses.secret_access_key', label: 'Secret access key', type: 'password', is_secret: true },
-            { key: 'email.from_address', label: 'From address', type: 'email', placeholder: 'noreply@yourdomain.com' },
+            { key: 'email.from_address', label: 'From address', type: 'email', placeholder: 'noreply@example.com' },
             { key: 'email.from_name', label: 'From name', type: 'text', placeholder: 'Agience' },
           ]}
           values={values} onChange={onChange} onSave={handleSave} saving={saving}

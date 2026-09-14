@@ -1,7 +1,7 @@
 {
   "name": "agience-facet",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.3.2",
   "description": "The human-conduit render runtime — facets are a crystal's faces (OPERATOR-ARCHITECTURE §12)",
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -9,7 +9,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "lint": "eslint \"src/**/*.{ts,tsx}\" --max-warnings=0"
+    "lint": "eslint \"src/**/*.{ts,tsx}\" --max-warnings=0",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.12",
@@ -49,6 +51,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",
+    "@playwright/test": "^1.63.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
     "@testing-library/user-event": "^14.6.1",

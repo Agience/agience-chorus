@@ -2,9 +2,10 @@
 
 Split out of `src/junction/tekton_colimit.py` on 2026-08-25 under John's ruling. That module could
 not import (`mantle_common` was never tracked), nothing referenced it, and it had no test. This is
-its PURE half, which the original had already isolated behind an explicit banner: *"Everything with
-side effects lives in the organon half below."* The organon half is at
-`_scratch/lab/tekton-colimit/`, where it stays until its missing dependency is written.
+its pure half, which the original had already isolated behind an explicit banner: *"Everything with
+side effects lives in the organon half below."* The organon half is not in the tree; it is set down
+at `_archive/2026-08-27-orphaned-lab-threads/tekton-colimit/`, and writing the dependency it needs
+would mean bringing it back rather than resuming it in place.
 
 **Not the same operation as `sage/condense.py`, which shares the vocabulary.** Both cite
 *"Facet conducts, tekton condenses"* and both speak of a colimit, and they act at different times

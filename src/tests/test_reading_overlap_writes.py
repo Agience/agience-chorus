@@ -35,9 +35,9 @@ TEXT = "\n\n".join([
     "bitcoin bitcoin and nothing else here",
 ])
 META = [
-    {"published_at": "2026-08-07T10:00:00Z", "source": "a.com", "feed": "test"},
-    {"published_at": "2026-08-07T10:15:00Z", "source": "b.com", "feed": "test"},
-    {"published_at": "2026-08-07T10:30:00Z", "source": "c.com", "feed": "test"},
+    {"published_at": "2026-08-07T10:00:00Z", "source": "a.example", "feed": "test"},
+    {"published_at": "2026-08-07T10:15:00Z", "source": "b.example", "feed": "test"},
+    {"published_at": "2026-08-07T10:30:00Z", "source": "c.example", "feed": "test"},
 ]
 
 
@@ -213,7 +213,7 @@ def test_meta_lands_on_the_paragraph(store):
     _read(store, meta=META)
     paras = sorted(_arts(store, "read:t", overlap.PARA_CT), key=lambda a: a["name"])
     assert [p.get("published_at") for p in paras] == [m["published_at"] for m in META]
-    assert paras[0].get("source") == "a.com"
+    assert paras[0].get("source") == "a.example"
 
 
 def test_meta_CANNOT_overwrite_what_the_reading_measured(store):

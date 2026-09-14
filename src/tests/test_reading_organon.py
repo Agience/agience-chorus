@@ -93,8 +93,9 @@ def shard(tmp_path):
             db.execute("INSERT OR REPLACE INTO edge VALUES (?,?,?,?,?)",
                        (pid, unit(u), label, "{}", pid + "|" + unit(u)))
 
-    # `far` sits only in para-2; `near` only in para-0/1 — a query of "nearfar" seeds both, and the
-    # instrument opens on whichever is rarer, leaving the other outside it.
+    # `far` sits only in para-2; `near` only in para-0/1 — a query of "nearfar" seeds both, and no
+    # context observed them together. The intersection is empty, so the backoff drops the
+    # highest-degree seed and reads on what is left, leaving the other outside the neighbourhood.
     ctx(0, ["near", "alpha", "beta"])
     ctx(1, ["near", "alpha", "gamma"])
     ctx(2, ["far", "delta"], label="observed_alone")

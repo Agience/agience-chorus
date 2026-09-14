@@ -28,16 +28,21 @@ Tools
   proxy_tool        — Proxy an MCP tool call through a registered endpoint
   fetch_url         — Fetch content from a URL and return it inline
   ask_human         — Ask a question to the human operator (async-capable)
+  notify_inbound    — Render an inbound message and notify the operator
+  send_templated_email — Send an email built from a named template
 
 Auth
 ----
   Service identity loaded once by the chorus host (chorus.private.pem).
-  Persona signs its own platform JWTs via _auth.sign_self_jwt() — no token
-  exchange with Origin, no PLATFORM_INTERNAL_SECRET.
+  Every call this module makes runs as the caller: `_require_user_headers` is the one
+  header-resolution path and there is no platform-JWT fallback. See the note above
+  `_require_user_headers` for why a fallback would be unsafe here.
 
   MANTLE_URI                ⬩ Base URI of the Mantle backend
   IRIS_AUTHORIZER_ARTIFACT_ID   ⬩ Artifact ID of the email Authorizer transform
-  IRIS_AUTHORIZER_WORKSPACE_ID  ⬩ Workspace ID where the Authorizer artifact lives
+  IRIS_AUTHORIZER_WORKSPACE_ID  ⬩ Reserved. Bound at import and read by nothing; the Authorizer
+                                  is resolved by artifact id alone
+  IRIS_NOTIFY_EMAIL             ⬩ Recipient fallback for notify_inbound
 
 Transport
 ---------
@@ -145,12 +150,10 @@ async def _fetch_secret_material(client: httpx.AsyncClient, secret_artifact_id: 
     never returns to the original caller — only into this (trusted) persona process for the exchange
     below.
 
-    Changed 2026-08-25 under John's ruling that chorus adopts Mantle's position — an authorized
-    reader fetches plaintext over TLS, and a credential is an ordinary artifact with its value in
-    `content`. This previously POSTed `/artifacts/{id}/op/fetch`, which could not work for two
-    independent reasons: the op surface **relocated from Mantle to Crystal**, so `MANTLE_URI` served
-    no such route; and that operation dispatched to `secrets_service.fetch_secret_material`, deleted
-    with Mantle's `/secrets` surface. `fetch` is what `read` already does.
+    Chorus holds Mantle's position here: an authorized reader fetches plaintext over TLS, and a
+    credential is an ordinary artifact carrying its value in `content`. A `read` is the whole fetch.
+    There is no op to call instead: the op surface lives in Crystal, so `MANTLE_URI` serves no
+    `/artifacts/{id}/op/fetch`, and Mantle has no `/secrets` surface for such an op to dispatch to.
     """
     resp = await client.get(
         artifact_url(MANTLE_URI, secret_artifact_id),
@@ -300,11 +303,11 @@ _EMAIL_IN_TEXT = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 def _inbound_subject(content, source: str, artifact_id: str) -> str:
     """Lead-aware subject line: prefer the submitter's email/name + source.
 
-    ⚠ `content` IS NOT ALWAYS A DICT. An artifact whose body is plain text — which is what every
-    artifact of a `+json` vendor type renders as, and what the website leads actually store —
-    arrives here as a string. Reading `content["email"]` off that yields nothing, and the subject
-    silently degraded to `[Agience] Contact form (11111111)`: the operator gets an artifact id
-    where the person's address should be, on every single text-bodied lead.
+    `content` is not always a dict. An artifact whose body is plain text — which is what every
+    artifact of a `+json` vendor type renders as, and what the website leads store — arrives here
+    as a string, so the address is recovered by shape from the text rather than by key. With no
+    address in either shape the subject falls back to the artifact id, `[Agience] Contact form
+    (11111111)`, which tells the operator nothing about who wrote in.
     """
     who = ""
     if isinstance(content, dict):
@@ -368,15 +371,13 @@ async def notify_inbound(
     content_str = artifact.get("content", "")
     context_str = artifact.get("context", "{}")
 
-    # ⛔ A TEXT BODY IS NOT A MALFORMED JSON BODY, and treating it as one THREW AWAY THE LEAD.
+    # A text body is not a malformed JSON body. Every artifact of a `+json` vendor type renders as
+    # plain text by design, and the website leads store exactly that, so a text body is the normal
+    # path here rather than an edge case.
     #
-    # This read `content = {"raw": content_str[:500]}` on a parse failure. Every artifact of a
-    # `+json` vendor type renders as plain text by design, and the website leads store exactly
-    # that — so the fallback was not an edge case, it was the normal path, and it silently cut the
-    # body at 500 characters. Measured 2026-09-10 against the live corpus: 1 of 20 leads is 709
-    # characters, and the ones that run long are the ones with something to say.
-    #
-    # Text is kept WHOLE and rendered as text. JSON still renders as a table.
+    # Text is kept whole and rendered as text; a JSON object renders as a table. Measured against
+    # the live corpus, 1 of 20 leads is 709 characters, so a 500-character cut would land on the
+    # leads that have the most to say.
     content = None
     if content_str:
         try:
@@ -387,10 +388,9 @@ async def notify_inbound(
     if content is None:
         content = {}
 
-    try:
-        ctx = json.loads(context_str) if context_str else {}
-    except (json.JSONDecodeError, TypeError):
-        ctx = {}
+    # `_context_view`, not a bare parse: the caller's keys sit under `caller` on any artifact
+    # mantle minted, so a bare parse reads `source` as "unknown" for 58 of 67 live leads.
+    ctx = _context_view(context_str)
 
     source = ctx.get("source", "unknown")
     subject = _inbound_subject(content, source, artifact_id)
@@ -452,6 +452,45 @@ def _as_dict(raw) -> dict:
         except (json.JSONDecodeError, TypeError):
             return {}
     return {}
+
+
+def _context_view(raw) -> dict:
+    """An artifact's context as the caller wrote it, wherever the store put it.
+
+    Mantle nests the caller's context under `caller` on every create, so a read that asks for a
+    caller-supplied key at the top level answers nothing. `artifacts_router._mint_context` stamps
+    `{addressing, caller, minted, minted_by, provenance, …}` onto the write and, by its own
+    contract, keeps the caller's own "verbatim under `caller`". Nothing is lost — it sits one level
+    down. A `PATCH` does not mint, so a patched artifact keeps its keys flat, and both shapes are
+    live in the same corpus.
+
+    Measured against production:
+
+        newest lead 08c6538d   ctx.source        -> None              (a top-level read)
+                               ctx.caller.source -> 'website-contact' (where the value is)
+
+        58 lead artifacts carry a minted context, 9 carry a flat one. Across the whole lattice:
+        129 minted, 417 unminted, and every lead field — company, role, interest, email_domain,
+        lead_id, marketing_opt_in, received_at, status, type — counts 58 nested against 9 flat.
+
+    Without this view the operator notification reports the source of those 58 leads as "unknown",
+    and every other field the website records — company, role, interest, email_domain, lead_id,
+    marketing_opt_in — is equally invisible. `_resolve_field` reads the same way, which is how a
+    templated email resolves its recipient: the same nesting answers "No valid recipient resolved".
+
+    `notify_inbound` has no production caller — the operator's lead email comes from
+    `www.agience.ai/bff/_email_lead`, which reads the BFF's own flat record — so the nesting is a
+    latent defect rather than a live one. The tool is reachable by any authenticated MCP caller,
+    which is reason enough to read the context correctly.
+
+    Top level wins, so a deliberate PATCH still overrides what the mint recorded, and an artifact
+    that was never minted reads flat.
+    """
+    ctx = _as_dict(raw)
+    caller = ctx.get("caller")
+    if not isinstance(caller, dict) or not caller:
+        return ctx
+    return {**caller, **ctx}
 
 
 def _resolve_field(spec: str, content: dict, context: dict):
@@ -521,7 +560,7 @@ async def send_templated_email(
 
     artifact = resp.json()
     content = _as_dict(artifact.get("content"))
-    context = _as_dict(artifact.get("context"))
+    context = _context_view(artifact.get("context"))
 
     to = _resolve_field(recipient, content, context)
     if not to or "@" not in str(to):
@@ -642,12 +681,7 @@ async def get_messages(
     cards = resp.json() or []
     filtered = []
     for card in cards:
-        raw_context = card.get("context") or {}
-        if isinstance(raw_context, str):
-            try:
-                raw_context = json.loads(raw_context)
-            except Exception:
-                raw_context = {}
+        raw_context = _context_view(card.get("context"))
 
         card_channel = raw_context.get("channel") or raw_context.get("inbound", {}).get("channel")
         if card_channel != channel:

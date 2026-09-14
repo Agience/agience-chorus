@@ -20,14 +20,15 @@ Seraph has two distinct roles:
 
 Tools
 -----
-  provide_access_token      — Exchange stored refresh token for a fresh access token
-  complete_authorizer_oauth — Complete OAuth code exchange and store refresh token
+  complete_authorizer_bearer — Store a bearer credential against an authorizer
+  provide_aws_credentials    — Resolve stored AWS credentials
   resolve_llm_credentials   — Raises: no-models rule
   audit_access              — Query the access audit log
   check_permissions         — Check access grants
   grant_access              — Grant collection access
   revoke_access             — Revoke access
-  verify_token              — Verify JWT or API key
+  verify_token              — Verify a JWT and say which class it is. JWTs only; API keys
+                              are checked by a different mechanism
   enforce_policy            — Evaluate policies
   list_policies             — List governance policies
   check_compliance          — Check compliance
@@ -307,15 +308,11 @@ async def _list_secrets_metadata(
     authorizer_id: str | None = None,
     secret_type: str | None = None,
 ) -> dict | None:
-    """Fetch secret metadata (no plaintext) from Core using the delegation JWT."""
-    params: dict[str, str] = {}
-    if secret_id:
-        params["id"] = secret_id
-    if authorizer_id:
-        params["authorizer_id"] = authorizer_id
-    if secret_type:
-        params["type"] = secret_type
+    """Fetch secret metadata (no plaintext) from Mantle using the delegation JWT.
 
+    The three selectors are passed to `_list_credentials`, which narrows the caller-readable
+    artifacts; there is no query string and no server-side filter endpoint behind this.
+    """
     headers = _require_user_headers()
     async with httpx.AsyncClient(timeout=10) as client:
         found = await _list_credentials(

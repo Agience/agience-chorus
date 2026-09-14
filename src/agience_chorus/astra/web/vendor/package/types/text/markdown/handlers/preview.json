@@ -1,7 +1,0 @@
-{
-  "capability": "preview",
-  "implementation": {
-    "kind": "builtin",
-    "id": "markdown.preview"
-  }
-}

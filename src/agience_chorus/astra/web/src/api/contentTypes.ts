@@ -1,9 +1,14 @@
 // api/contentTypes.ts
 //
-// Runtime content-type discovery. The platform (Mantle) is the single source of
-// resolved type definitions — it aggregates core (package/types) + every server's
-// own types and serves them merged (core < server overrides). Facet fetches them
-// at runtime and hydrates its registry; it never compiles server types in.
+// Runtime content-type discovery. Crystal — the gateway — is the single source of resolved type
+// definitions: personas register the types they own through `POST /register`, and `GET /types/all`
+// is the bulk read of that registry. Facet hydrates from it at runtime and compiles no server type
+// in, so a persona that publishes a new type needs no Facet rebuild.
+//
+// ⚠ THE CALL IS ROUTED BY `api.ts`, NOT BY THIS MODULE'S BASE URL. `isCrystalTypePath` sends
+// `/types/*` to `CRYSTAL_URI`; the axios default is Mantle, which carries a `types_service` of its
+// own that nothing populates. Routed there this returns `{types: []}` on every node — an empty
+// catalogue that looks like a node with no types rather than a call to the wrong service.
 
 import { get } from './api';
 

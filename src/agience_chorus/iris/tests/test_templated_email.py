@@ -19,14 +19,14 @@ _server = _persona.load("server", __file__)
 
 
 def test_resolve_field_content_path():
-    content = {"email": "jane@x.com", "name": "Jane"}
+    content = {"email": "jane@example.com", "name": "Jane"}
     context = {"source": "website-contact"}
-    assert _server._resolve_field("$.content.email", content, context) == "jane@x.com"
+    assert _server._resolve_field("$.content.email", content, context) == "jane@example.com"
     assert _server._resolve_field("$.context.source", content, context) == "website-contact"
 
 
 def test_resolve_field_bare_path_prefers_content():
-    assert _server._resolve_field("$.email", {"email": "a@x.com"}, {"email": "b@x.com"}) == "a@x.com"
+    assert _server._resolve_field("$.email", {"email": "a@example.com"}, {"email": "b@example.com"}) == "a@example.com"
     assert _server._resolve_field("$.source", {}, {"source": "web"}) == "web"
 
 

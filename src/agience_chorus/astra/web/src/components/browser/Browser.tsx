@@ -19,7 +19,8 @@ import { ArtifactCreate, ArtifactUpdate } from "../../api/types";
 import { addArtifactToWorkspace, importCollectionArtifactToWorkspace, initiateUpload, updateUploadStatus, getWorkspaceArtifactsBatchGlobal } from "../../api/workspaces";
 import { addArtifactToCollection, getCollectionArtifactsBatchGlobal } from "../../api/collections";
 import { midKey } from "../../utils/fractional-index";
-import { uploadWithProgress, uploadMultipart } from "../../utils/upload";
+import { uploadWithProgress } from "../../utils/upload";
+import { mantleUrl } from "../../api/api";
 import type { ActiveSource } from "../../types/workspace";
 import { getCollectionArtifacts, subscribeCollectionEvents } from "../../api/collections";
 import { getContentTypeCategory } from "../../utils/search";
@@ -1149,7 +1150,7 @@ export default function Browser({
     const uploadTasks: Array<{
       file: File;
       artifactId: string;
-      mode: 'inline' | 'put' | 'multipart';
+      mode: 'inline' | 'put';
       url?: string;
     }> = [];
     
@@ -1204,10 +1205,17 @@ export default function Browser({
         addExistingArtifact(init.artifact as unknown as Artifact);
 
         // Queue upload task for phase 2
-        if (init.mode === "put" && init.url) {
-          uploadTasks.push({ file, artifactId, mode: 'put', url: init.url });
-        } else if (init.mode === "multipart") {
-          uploadTasks.push({ file, artifactId, mode: 'multipart' });
+        // ⛔ `proxied` IS THE ONLY MODE THE PLATFORM RETURNS, AND THIS BRANCH USED TO REJECT IT.
+        // `workspace_service.initiate_upload` sets it unconditionally — Mantle envelope-encrypts
+        // on the byte path, so no presigned-URL mode exists to branch to. Against `"put"` and
+        // `"multipart"` every upload fell to the throw below and the user was told to contact
+        // support. Measured against a live node 2026-09-13.
+        //
+        // ⚠ `init.url` IS RELATIVE TO MANTLE (`/artifacts/{id}/content`). Handed to XHR unresolved
+        // it addresses this app's own origin, where the SPA fallback answers 200 — an upload that
+        // reports success and stores nothing.
+        if (init.mode === "proxied" && init.url) {
+          uploadTasks.push({ file, artifactId, mode: 'put', url: mantleUrl(init.url) });
         } else {
           throw new Error(
             `Unexpected upload mode: ${init.mode}. Please contact support.`
@@ -1242,38 +1250,6 @@ export default function Browser({
 
           // Notify backend that upload is complete
           const completedArtifact = await updateUploadStatus(workspaceId, task.artifactId, { status: "complete" });
-          if (updateArtifact) {
-            updateArtifact(completedArtifact);
-          }
-        } else if (task.mode === 'multipart') {
-          // Multipart upload for files > 100MB
-          await uploadMultipart(workspaceId, task.artifactId, task.file, (progress) => {
-            // Update local artifact state
-            if (updateArtifact) {
-              const ctx = latestArtifactsRef.current.find(c => c.id === task.artifactId)?.context;
-              if (ctx) {
-                try {
-                  const parsed = JSON.parse(ctx);
-                  parsed.upload = { ...parsed.upload, status: "uploading", progress };
-                  updateArtifact({ id: task.artifactId, context: JSON.stringify(parsed) });
-                } catch { /* ignore */ }
-              }
-            }
-          });
-
-          // Get latest artifact context for upload metadata
-          const artifact = latestArtifactsRef.current.find(c => c.id === task.artifactId);
-          let context_patch = undefined;
-          if (artifact && artifact.context) {
-            try {
-              const parsed = JSON.parse(artifact.context);
-              if (parsed.upload) {
-                context_patch = { upload: parsed.upload };
-              }
-            } catch { /* ignore */ }
-          }
-          // Update local state with completed artifact
-          const completedArtifact = await updateUploadStatus(workspaceId, task.artifactId, { status: "complete", context_patch });
           if (updateArtifact) {
             updateArtifact(completedArtifact);
           }

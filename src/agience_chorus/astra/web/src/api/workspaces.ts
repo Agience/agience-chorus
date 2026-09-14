@@ -13,7 +13,6 @@ import {
   type WorkspaceCommitRequest,
   type WorkspaceCommitResponse,
 } from './types/workspace_commit';
-import type { ArtifactKeyResponse } from './types/workspace_card';
 
 // list all workspaces accessible to the caller
 export function listWorkspaces(): Promise<WorkspaceResponse[]> {
@@ -184,14 +183,6 @@ export function updateUploadStatus(
   return patch(`/artifacts/${uploadId}/upload-status`, input);
 }
 
-// Get presigned URL for a specific part in multipart upload
-export function getMultipartPartUrl(
-  _workspaceId: string,
-  uploadId: string,
-  partNumber: number
-): Promise<{ url: string; part_number: number }> {
-  return get(`/artifacts/${uploadId}/multipart-part-url?part_number=${partNumber}`);
-}
 
 // Get signed content URL for an artifact's file
 export function getArtifactContentUrl(
@@ -201,15 +192,6 @@ export function getArtifactContentUrl(
   return get(`/artifacts/${artifactId}/content-url`);
 }
 
-// Artifact-scoped key rotation
-/** Generate or rotate an artifact-scoped API key. Shown once — save immediately. */
-export function rotateArtifactKey(
-  _workspaceId: string,
-  artifactId: string,
-  keyContext: string,
-): Promise<ArtifactKeyResponse> {
-  return post(`/artifacts/${artifactId}/key?key_context=${encodeURIComponent(keyContext)}`, {});
-}
 
 // === Workspace Change Events (SSE) ===
 

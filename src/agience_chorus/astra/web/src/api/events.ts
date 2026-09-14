@@ -38,7 +38,7 @@ type PendingSub = {
 type ConnectionState = 'idle' | 'connecting' | 'open' | 'closing';
 
 function buildWsUrl(): string {
-  const http = (getRuntimeConfig().mantleUri || 'http://localhost:8081').replace(/\/$/, '');
+  const http = (getRuntimeConfig().mantleUri || 'http://localhost:8082').replace(/\/$/, '');
   const wsBase = http.replace(/^http/, 'ws');
   return `${wsBase}/events`;
 }

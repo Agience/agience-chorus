@@ -1,71 +1,99 @@
+// Grant keys — the platform's bearer credentials for non-interactive callers.
+//
+// ⛔ THIS SPOKE `/api-keys`, AND NO SERVICE HAS EVER SERVED IT. Mantle publishes `/grants/keys`;
+// `/api-keys` answered 404 on mantle, origin and crystal alike, so every function here failed.
+// Measured 2026-09-13. The suite did not notice because it mocks the transport: `apiKeys.test.ts`
+// asserts which URL was passed, which is a claim about intent rather than about the server.
+//
+// ⚠ IT IS NOT A RENAME — THE MODEL CHANGED. An API key carried `scopes[]`, `resource_filters{}`
+// and `is_active`; a grant key carries CAPABILITY FLAGS (`can_read`, `can_update`, `can_admin`, …),
+// a `state`, and a `resource_id` naming what it is a grant OVER. A scope list cannot be translated
+// field-for-field into capabilities, so nothing here pretends to: callers name the capabilities
+// they want.
+//
+// ⚠ THERE IS NO UPDATE. Mantle serves POST, GET, GET/{id} and DELETE/{id} on `/grants/keys` and no
+// PATCH, so the `updateAPIKey` that used to live here described an operation the platform does not
+// offer. A grant is revoked and reissued rather than edited — `key` is shown once and cannot be
+// re-read, so editing one in place would have no way to return a usable credential.
+
 import api from './api';
 
-export interface APIKey {
+/** Capabilities a grant may carry. Absent means "not granted" — there is no inherited default. */
+export interface GrantCapabilities {
+  can_create?: boolean | null;
+  can_read?: boolean | null;
+  can_update?: boolean | null;
+  can_delete?: boolean | null;
+  can_evict?: boolean | null;
+  can_invoke?: boolean | null;
+  can_add?: boolean | null;
+  can_share?: boolean | null;
+  can_admin?: boolean | null;
+}
+
+export interface GrantKey extends GrantCapabilities {
   id: string;
-  user_id: string;
   name: string;
-  client_id?: string | null;
-  host_id?: string | null;
-  server_id?: string | null;
-  agent_id?: string | null;
-  display_label?: string | null;
-  scopes: string[];
-  resource_filters: Record<string, unknown>;
+  /** What the grant is over. Null for a grant not scoped to one artifact. */
+  resource_id?: string | null;
+  grantee_id?: string | null;
+  grantee_type?: string | null;
+  /** `active`, `revoked`, … — this replaces the old `is_active` boolean. */
+  state: string;
+  /** A non-secret fragment, for recognising a key whose secret is unrecoverable. */
+  key_hint?: string | null;
+  notes?: string | null;
+  expires_at?: string | null;
   created_time: string;
   modified_time?: string | null;
-  expires_at?: string | null;
   last_used_at?: string | null;
-  is_active: boolean;
+  revoked_at?: string | null;
+  revoked_by?: string | null;
+  max_claims?: number | null;
+  claims_count?: number | null;
+  members?: unknown[];
 }
 
-export interface APIKeyCreateRequest {
+export interface GrantKeyCreateRequest extends GrantCapabilities {
   name: string;
-  scopes?: string[];
-  resource_filters?: Record<string, unknown>;
+  resource_id?: string | null;
+  role?: string | null;
   expires_at?: string | null;
-  client_id?: string;
-  host_id?: string;
-  server_id?: string;
-  agent_id?: string;
-  display_label?: string;
+  notes?: string | null;
 }
 
-export interface APIKeyUpdateRequest {
-  name?: string;
-  scopes?: string[];
-  resource_filters?: Record<string, unknown>;
-  is_active?: boolean;
-  client_id?: string;
-  host_id?: string;
-  server_id?: string;
-  agent_id?: string;
-  display_label?: string;
+export interface GrantKeyCreated extends GrantKey {
+  /**
+   * The credential itself.
+   *
+   * ⚠ RETURNED ONCE, AT CREATION, AND NEVER AGAIN — the server's own words. A caller that does not
+   * surface it here has lost it; `key_hint` is all that survives.
+   */
+  key?: string | null;
 }
 
-export interface APIKeyCreateResponse extends APIKey {
-  key: string;
+export interface GrantKeyRevoked {
+  id: string;
+  state: string;
 }
 
-export async function createAPIKey(payload: APIKeyCreateRequest): Promise<APIKeyCreateResponse> {
-  const response = await api.post<APIKeyCreateResponse>('/api-keys', payload);
+export async function createAPIKey(payload: GrantKeyCreateRequest): Promise<GrantKeyCreated> {
+  const response = await api.post<GrantKeyCreated>('/grants/keys', payload);
   return response.data;
 }
 
-export async function listAPIKeys(): Promise<APIKey[]> {
-  const response = await api.get<APIKey[]>('/api-keys');
+export async function listAPIKeys(): Promise<GrantKey[]> {
+  const response = await api.get<GrantKey[]>('/grants/keys');
   return response.data;
 }
 
-export async function getAPIKey(keyId: string): Promise<APIKey> {
-  const response = await api.get<APIKey>(`/api-keys/${keyId}`);
+export async function getAPIKey(keyId: string): Promise<GrantKey> {
+  const response = await api.get<GrantKey>(`/grants/keys/${encodeURIComponent(keyId)}`);
   return response.data;
 }
 
-export async function deleteAPIKey(keyId: string): Promise<void> {
-  await api.delete(`/api-keys/${keyId}`);
-}
-
-export async function updateAPIKey(keyId: string, payload: APIKeyUpdateRequest): Promise<APIKey> {
-  const response = await api.patch<APIKey>(`/api-keys/${keyId}`, payload);
+/** Revoke a key. The record survives in `state: revoked`; the credential stops working. */
+export async function deleteAPIKey(keyId: string): Promise<GrantKeyRevoked> {
+  const response = await api.delete<GrantKeyRevoked>(`/grants/keys/${encodeURIComponent(keyId)}`);
   return response.data;
 }

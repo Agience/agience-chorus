@@ -52,10 +52,27 @@
       favicon: '/favicon.png',
     };
   } else {
-    // Local dev: `npm run dev` on :5173 against services on loopback.
+    // Local dev: `npm run dev` on :5173, reaching the loopback services THROUGH the dev server's
+    // proxy rather than addressing them directly (`vite.config.ts` -> `server.proxy`).
+    //
+    // ⛔ THESE ARE SAME-ORIGIN ON PURPOSE, AND ABSOLUTE LOOPBACK URLS HERE DO NOT WORK.
+    // Measured 2026-09-13: with `originUri: 'http://localhost:8080'` the browser blocked every
+    // call the app makes on boot — `/setup/status` and `/auth/providers`, four requests, all
+    // "No 'Access-Control-Allow-Origin' header is present" — while `/login` still rendered a
+    // plausible sign-in form, because the fallback for "cannot reach /auth/providers" looks like
+    // a working page. Neither service sends CORS headers, and neither should have to: the
+    // deployed arrangement (`_fleet/conf.d/my.agience.ai.caddy`) keeps these URIs on the app's own
+    // host and proxies outward, so no cross-origin request is ever made. This mirrors it.
+    //
+    // ⚠ `/api` IS MANTLE AND CARRIES ITS PREFIX; the proxy strips it, exactly as Caddy's
+    // `handle_path` does. Deployed, this same key reads `https://my.agience.ai/api`.
+    //
+    // ⚠ CRYSTAL IS DELIBERATELY NOT PROXIED, matching the deployed block, which has no route for
+    // it either. An op call fails at its own address instead of being quietly rerouted somewhere
+    // that would answer with the wrong thing — see the note above about a derived URI.
     config = {
-      originUri: 'http://localhost:8080',
-      mantleUri: 'http://localhost:8081',
+      originUri: '/',
+      mantleUri: '/api',
       crystalUri: 'http://localhost:8085',
       clientId: CLIENT_ID,
       title: 'Agience',

@@ -222,7 +222,7 @@ def test_news_dispersion_is_the_instruments_entropy_not_a_local_copy():
     """The column must be `entropy_bits` itself, not a local re-implementation, so a caller's entropy
     and the instrument's own cannot drift into two definitions. Fails if the arithmetic is restated
     locally."""
-    items = _news((60, "a.com"), (120, "b.com"), (180, "c.com"), (240, "d.com"))
+    items = _news((60, "a.example"), (120, "b.example"), (180, "c.example"), (240, "d.example"))
     p = mp.news_counts_plane(items, cadence_seconds=HOUR, conservation=INSTRUMENT)
     assert p["rows"][0][2] == pytest.approx(INSTRUMENT.entropy_bits([1, 1, 1, 1]))
     assert p["rows"][0][2] == pytest.approx(2.0)             # four flat sources = log2(4)
@@ -233,7 +233,7 @@ def test_news_plane_refuses_without_the_conservation_slot():
     dispersion or a narrower plane under the same name: a frame whose width depends on which host
     filled it is not a frame anything can join against."""
     from prism.instrument import InstrumentRequired
-    items = _news((60, "a.com"))
+    items = _news((60, "a.example"))
     with pytest.raises(InstrumentRequired) as e:
         mp.news_counts_plane(items, cadence_seconds=HOUR, conservation=object())
     assert e.value.member == "entropy_bits"
@@ -242,7 +242,7 @@ def test_news_plane_refuses_without_the_conservation_slot():
 def test_news_plane_refuses_an_all_undated_batch():
     """An item with no publish time cannot be placed in time, and a plane built from none of them is
     an observation of nothing — which must not be reported as an observation of quiet."""
-    items = [{"title": "h", "source": "a.com", "published_at": ""}]
+    items = [{"title": "h", "source": "a.example", "published_at": ""}]
     with pytest.raises(mp.PlaneError) as e:
         mp.news_counts_plane(items, cadence_seconds=HOUR, conservation=INSTRUMENT)
     assert "observation of nothing" in str(e.value)
@@ -251,7 +251,7 @@ def test_news_plane_refuses_an_all_undated_batch():
 def test_news_plane_cannot_be_silently_resampled():
     """The plane declares itself unresamplable, so a caller who joins it against a coarser price
     series is told to rebuild it rather than handed a summed distinct-count."""
-    items = _news((60, "a.com"), (900, "b.com"), (3700, "c.com"))
+    items = _news((60, "a.example"), (900, "b.example"), (3700, "c.example"))
     p = mp.news_counts_plane(items, cadence_seconds=900.0, conservation=INSTRUMENT)
     with pytest.raises(mp.PlaneError) as e:
         mp.rebucket(p, HOUR)
@@ -279,7 +279,7 @@ def test_split_planes_returns_row_aligned_blocks():
     """`joint_entropies` needs two frames on the same ordered axis and raises on a mismatch. The only
     honest way to get them is to cut them out of one join."""
     price = mp.returns_plane({"A": _bars(9)})
-    news = mp.news_counts_plane(_news((900, "a.com"), (1800, "b.com"), (1800, "c.com")),
+    news = mp.news_counts_plane(_news((900, "a.example"), (1800, "b.example"), (1800, "c.example")),
                                 cadence_seconds=900.0, observed=(_ts(0), _ts(7200)),
                                 conservation=INSTRUMENT)
     frame = mp.co_register([price, news])

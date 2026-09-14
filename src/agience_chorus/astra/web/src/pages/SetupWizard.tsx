@@ -605,7 +605,7 @@ const SetupWizard: React.FC = () => {
             </div>
             <div className="space-y-1.5">
               <label htmlFor="smtp-from-address" className="block text-xs font-medium text-gray-600">From address</label>
-              <input id="smtp-from-address" type="email" value={emailConfig.from_address || ''} onChange={e => setEmailConfig(p => ({ ...p, from_address: e.target.value }))} placeholder="noreply@yourdomain.com" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              <input id="smtp-from-address" type="email" value={emailConfig.from_address || ''} onChange={e => setEmailConfig(p => ({ ...p, from_address: e.target.value }))} placeholder="noreply@example.com" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
             </div>
             <button
               onClick={() => handleTestConnection('smtp', emailConfig)}
@@ -631,7 +631,7 @@ const SetupWizard: React.FC = () => {
             </div>
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-gray-600">From address</label>
-              <input type="email" value={emailConfig.from_address || ''} onChange={e => setEmailConfig(p => ({ ...p, from_address: e.target.value }))} placeholder="noreply@yourdomain.com" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              <input type="email" value={emailConfig.from_address || ''} onChange={e => setEmailConfig(p => ({ ...p, from_address: e.target.value }))} placeholder="noreply@example.com" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
             </div>
             <button
               onClick={() => handleTestConnection(emailProvider, emailConfig)}
@@ -659,7 +659,7 @@ const SetupWizard: React.FC = () => {
             </div>
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-gray-600">From address</label>
-              <input type="email" value={emailConfig.from_address || ''} onChange={e => setEmailConfig(p => ({ ...p, from_address: e.target.value }))} placeholder="noreply@yourdomain.com" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+              <input type="email" value={emailConfig.from_address || ''} onChange={e => setEmailConfig(p => ({ ...p, from_address: e.target.value }))} placeholder="noreply@example.com" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
             </div>
             <button
               onClick={() => handleTestConnection('ses', emailConfig)}

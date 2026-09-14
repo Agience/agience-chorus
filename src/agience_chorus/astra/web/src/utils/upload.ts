@@ -1,46 +1,22 @@
+// Uploading bytes to Mantle.
+//
+// ⛔ THERE IS ONE UPLOAD PATH, AND IT IS A SINGLE PROXIED PUT. Mantle envelope-encrypts on the
+// byte path (`workspace_service.initiate_upload`), so the object store never receives plaintext
+// and cannot issue a presigned URL — there is no chunked or direct-to-store mode to fall back to
+// while content is encrypted at rest.
+//
+// ⚠ A CHUNKED PATH LIVED HERE AND COULD NEVER RUN. It fetched a per-part presigned URL from an
+// artifact sub-resource no service has ever served, and was reached only when `upload-initiate`
+// returned a chunked mode, which it never does.
+// Its tests passed throughout by mocking the call — they pinned the shape its author intended,
+// not the one the server has. Removed 2026-09-13 with the endpoint measured absent (404).
+
 // Upload utility functions for file handling
 
-import { updateUploadStatus, getMultipartPartUrl } from '../api/workspaces';
+import { updateUploadStatus } from '../api/workspaces';
 
 /**
- * Upload single part with progress tracking
- */
-export async function uploadPart(
-  url: string,
-  chunk: Blob,
-  onProgress?: (loaded: number, total: number) => void
-): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url);
-    
-    if (onProgress) {
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          onProgress(e.loaded, e.total);
-        }
-      };
-    }
-    
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        const etag = xhr.getResponseHeader("ETag");
-        if (!etag) {
-          reject(new Error("No ETag in response"));
-        } else {
-          resolve(etag.replace(/"/g, "")); // Remove quotes from ETag
-        }
-      } else {
-        reject(new Error(`PUT ${xhr.status}`));
-      }
-    };
-    xhr.onerror = () => reject(new Error("PUT network error"));
-    xhr.send(chunk);
-  });
-}
-
-/**
- * Upload with progress tracking (single PUT)
+ * PUT a file to Mantle, reporting progress to the caller and to the server.
  */
 export async function uploadWithProgress(
   workspaceId: string,
@@ -54,6 +30,14 @@ export async function uploadWithProgress(
     xhr.open("PUT", url);
     xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
     xhr.setRequestHeader("Cache-Control", "private, max-age=31536000, immutable");
+
+    // ⛔ THE BEARER IS REQUIRED NOW, AND IT WAS NOT WHEN THIS WAS WRITTEN. The URL used to be a
+    // presigned S3 link that carried its own authorization; it is a Mantle route today, and Mantle
+    // answers 401 without a token. This is raw XHR — it does not pass through the axios instance,
+    // so the request interceptor that attaches the header never sees it. Measured 2026-09-13: the
+    // proxied PUT returned 401 until this was added.
+    const token = localStorage.getItem("access_token");
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     
     // Send progress updates to backend
     xhr.upload.onprogress = (e) => {
@@ -74,57 +58,5 @@ export async function uploadWithProgress(
     xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`PUT ${xhr.status}`)));
     xhr.onerror = () => reject(new Error("PUT network error"));
     xhr.send(file);
-  });
-}
-
-/**
- * Multipart upload with progress tracking
- */
-export async function uploadMultipart(
-  workspaceId: string,
-  uploadId: string,
-  file: File,
-  onProgress?: (progress: number) => void
-): Promise<void> {
-  const PART_SIZE = 10 * 1024 * 1024; // 10MB parts (min is 5MB except last part)
-  const totalParts = Math.ceil(file.size / PART_SIZE);
-  const parts: Array<{ PartNumber: number; ETag: string }> = [];
-  let uploadedBytes = 0;
-  
-  for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
-    const start = (partNumber - 1) * PART_SIZE;
-    const end = Math.min(start + PART_SIZE, file.size);
-    const chunk = file.slice(start, end);
-
-    // Get presigned URL for this part
-    const { url } = await getMultipartPartUrl(workspaceId, uploadId, partNumber);
-
-    // Upload the part
-    const etag = await uploadPart(url, chunk, (loaded) => {
-      // Calculate overall progress
-      const currentPartBytes = uploadedBytes + loaded;
-      const progress = currentPartBytes / file.size;
-      
-      // Notify callback for local UI updates
-      onProgress?.(progress);
-      
-      // Send to backend (fire and forget)
-      updateUploadStatus(workspaceId, uploadId, {
-        status: "uploading",
-        progress: progress,
-      }).catch(() => {});
-    });
-    
-    parts.push({ PartNumber: partNumber, ETag: etag });
-    uploadedBytes += chunk.size;
-  }
-  
-  // Complete the multipart upload
-  await updateUploadStatus(workspaceId, uploadId, {
-    status: "complete",
-    parts: parts.map(p => ({
-      part_number: p.PartNumber,
-      etag: p.ETag,
-    })),
   });
 }

@@ -1,13 +1,13 @@
 """The lead watcher: off unless asked, scoped to one container, and reading with the right key.
 
-⛔ THE FIRST TEST IS THE ONE THAT MATTERS. This subscribes to the store's change feed from inside
-the chorus host, and chorus runs on more than one box. A watcher that started itself would handle
-the same lead once per host — duplicate notifications from a component nobody switched on. So it
-is off unless `LEADS_WATCH_ENABLED` says otherwise, and that is pinned here rather than left to
-the default in `os.getenv`.
+Being off by default is the property the first test pins. This subscribes to the store's change
+feed from inside the chorus host, and chorus runs on more than one box. A watcher that started
+itself would handle the same lead once per host — duplicate notifications from a component
+nobody switched on. So it is off unless `LEADS_WATCH_ENABLED` says otherwise, and that is pinned
+here rather than left to the default in `os.getenv`.
 
 The rest pin the properties that keep it from doing damage: it refuses to run half-configured, it
-ignores artifacts outside its container, and it reads with the CONTAINER's grant key rather than
+ignores artifacts outside its container, and it reads with the container's grant key rather than
 astra's service identity — which cannot read a lead at all.
 """
 from __future__ import annotations
@@ -26,12 +26,12 @@ def _clean_env(monkeypatch):
 
 
 def test_it_is_off_unless_enabled(monkeypatch):
-    """⛔ THE REGRESSION THIS PREVENTS: a watcher nobody switched on, running on every host.
+    """Pins that the watcher stays off unless the flag says so: otherwise it would run on every
+    host, switched on by nobody.
 
-    ⚠ EVERYTHING ELSE IS CONFIGURED HERE ON PURPOSE. An earlier version left the container and key
-    unset, so `start()` returned None because it was UNCONFIGURED — and the test passed
-    identically with the flag forced to True. It proved nothing about the flag. The flag is now
-    the only reason this can return None.
+    Everything else is configured here on purpose, so the flag is the only reason `start()` can
+    return None. With the container and key unset it would return None for being unconfigured
+    whatever the flag said, and would prove nothing about the flag.
     """
     monkeypatch.setenv("LEADS_COLLECTION_ID", "container-A")
     monkeypatch.setenv("LEADS_GRANT_KEY", "a-key")
@@ -68,9 +68,9 @@ def test_with_no_container_configured_nothing_is_ours(monkeypatch):
 
 
 def test_the_read_uses_the_grant_key_not_the_service_identity(monkeypatch):
-    """⛔ THE CREDENTIAL MATTERS. astra's service token can subscribe to the feed but cannot read
-    a lead — measured: it answers 404. Reading with the wrong one fails in a way that looks like
-    a missing artifact."""
+    """Pins which credential the read uses. astra's service token can subscribe to the feed but
+    cannot read a lead — measured: it answers 404. Reading with the wrong one fails in a way that
+    looks like a missing artifact."""
     monkeypatch.setenv("LEADS_GRANT_KEY", "the-container-key")
     monkeypatch.setenv("MANTLE_URI", "http://mantle.test")
     seen = {}
@@ -131,12 +131,13 @@ def test_notify_does_not_claim_to_have_sent(caplog):
 
 
 def test_astra_defines_exactly_one_server_startup():
-    """⛔ A SECOND DEFINITION SILENTLY REPLACES THE FIRST.
+    """Pins that astra defines one server startup hook: a second definition silently replaces the
+    first.
 
     `personas.PersonaBinding` takes `getattr(mod, "server_startup", None)` — one attribute, last
-    definition wins. Appending a new `server_startup` to add the watcher shadowed the original and
-    `await _auth.startup()` stopped running: the host booted, astra mounted, and its authentication
-    was never initialised. Nothing in the boot log said so.
+    definition wins. A second `server_startup` shadows the first, so `await _auth.startup()` never
+    runs: the host boots, astra mounts, and its authentication is never initialised, with nothing
+    in the boot log to say so.
     """
     import pathlib
 
@@ -160,10 +161,11 @@ def test_the_startup_hook_still_initialises_auth():
 
 
 def test_the_subscription_uses_the_grant_key(monkeypatch):
-    """⛔ THE REGRESSION. Subscribing with astra's service token connects, acks, and then receives
-    NOTHING — mantle filters the change feed per-ACL and a service principal holds no grant on the
-    container. Measured: the service token got zero frames for an artifact.created the grant key
-    received. A healthy-looking subscription that is told nothing forever.
+    """Pins that the watch loop subscribes with the grant key. Subscribing with astra's service
+    token connects, acks, and then receives nothing — mantle filters the change feed per-ACL and a
+    service principal holds no grant on the container. Measured: the service token got zero frames
+    for an artifact.created the grant key received. A healthy-looking subscription that is told
+    nothing forever.
     """
     monkeypatch.setenv("LEADS_GRANT_KEY", "the-container-key")
     monkeypatch.setenv("LEADS_COLLECTION_ID", "container-A")

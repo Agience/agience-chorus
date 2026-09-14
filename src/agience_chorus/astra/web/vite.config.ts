@@ -10,23 +10,30 @@ import { contentTypesPlugin } from './plugins/content-types-plugin'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-// Resolve a cross-repo build input across layouts so the same config builds in
-// the standalone agience-facet repo and in the monorepo: env override, then
-// vendored under ./vendor (standalone; populated by scripts/vendor-build-inputs.mjs),
-// then monorepo-relative ../.. (facet sits at <repo>/src/facet there).
 function firstExisting(paths: Array<string | undefined>): string | undefined {
   return paths.find((p): p is string => !!p && existsSync(p))
 }
 
-const buildInfoPath = firstExisting([
-  process.env.FACET_BUILD_INFO,
-  resolve(__dirname, 'vendor/build_info.json'),
-  resolve(__dirname, '../../build_info.json'),
-])
+// Where the dev proxy sends what it takes. These are the ports `agience.py start` serves on, not
+// the 8081 that mantle and crystal each declare as their own developer default — that port serves
+// nothing under this installer.
+const DEV_ORIGIN = process.env.VITE_DEV_ORIGIN ?? 'http://127.0.0.1:8080'
+const DEV_MANTLE = process.env.VITE_DEV_MANTLE ?? 'http://127.0.0.1:8082'
 
-const buildInfoRaw = (buildInfoPath ? readFileSync(buildInfoPath, 'utf-8') : '{"version":"0.0.0-dev"}').replace(/^\uFEFF/, '')
-const buildInfo = JSON.parse(buildInfoRaw)
-const APP_VERSION: string = String(buildInfo.version ?? '')
+// ⭐ FACET VERSIONS ON ITS OWN CADENCE, AND `package.json` IS THE ONE PLACE THAT NUMBER IS WRITTEN
+// [John, 2026-09-13]. This tree ships inside agience-chorus but does not follow chorus's release
+// number — the UI is bumped when the UI ships.
+//
+// ⚠ `__APP_VERSION__` IS WHAT THE RUNNING APP DISPLAYS, so a second file carrying a version is a
+// second answer to "what is deployed". There was one: a hand-edited `vendor/build_info.json` that
+// nothing produced and nothing refreshed. It reached 0.3.2 while `package.json` still said 0.0.0,
+// and no gate compared them. 0.3.2 is carried forward here so the displayed version does not walk
+// backwards across this change.
+//
+// Read from disk rather than imported: an import would pull package.json into the module graph and
+// ship its dependency list to the browser.
+const pkgRaw = readFileSync(resolve(__dirname, 'package.json'), 'utf-8').replace(/^\uFEFF/, '')
+const APP_VERSION: string = String(JSON.parse(pkgRaw).version ?? '')
 const APP_BUILD_TIME: string = new Date().toISOString()
 let APP_GIT_SHA = ''
 try { APP_GIT_SHA = (process.env.GIT_SHA || execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()) } catch { /* not a git repo */ }
@@ -34,20 +41,20 @@ try { APP_GIT_SHA = (process.env.GIT_SHA || execSync('git rev-parse --short HEAD
 function discoverContentTypeRoots() {
   // facet/vite.config.ts -> __dirname = <repo>/src/facet
   //
-  // Build-time scope is core primitives only (package/types) — a synchronous
-  // bootstrap so first paint has the platform chrome. Facet does not scan the
-  // chorus persona ui/ trees: server-owned types (and their viewers) are fetched
-  // at runtime from the platform (GET /types/all → ContentTypesProvider). Facet
-  // must not know about specific servers (they live in different instances).
-  // The primitives are owned by agience-crystal (`src/types`).
-  // Standalone they are vendored to ./vendor (scripts/vendor-build-inputs.mjs).
-  // Missing -> [] (no primitives baked in; everything resolves at runtime via GET /types/all).
+  // Build-time scope is core primitives only — a synchronous bootstrap so first paint has the
+  // platform chrome. Facet does not scan the chorus persona ui/ trees: server-owned types (and
+  // their viewers) are fetched at runtime from the platform (GET /types/all →
+  // ContentTypesProvider). Facet must not know about specific servers (they live in different
+  // instances). Missing -> [] — no primitives baked in, everything resolves at runtime.
+  //
+  // ⛔ COUNT THE LEVELS AGAINST THE REAL PATH, NOT AGAINST A REMEMBERED ONE. This tree sits at
+  // `agience-chorus/src/agience_chorus/astra/web`, so the workspace root is FIVE up. A four-up
+  // path resolves to `agience-chorus/agience-crystal`, which exists nowhere — measured 2026-09-13,
+  // both this fallback and `scripts/vendor-build-inputs.mjs` had it wrong in the same way, and the
+  // build quietly used a committed snapshot instead: 57 files against crystal's 59, two
+  // `behaviors.json` already diverged, and no gate anywhere compared them.
   const root = firstExisting([
-    process.env.FACET_TYPES_ROOT,
-    resolve(__dirname, 'vendor/package/types'),
-    // Workspace fallback: <workspace>/agience-crystal/src/types, resolved relative to this
-    // tree's actual location at agience-chorus/src/astra/web.
-    resolve(__dirname, '../../../../agience-crystal/src/types'),
+    resolve(__dirname, '../../../../../agience-crystal/src/types'),
   ])
   return root ? [root] : []
 }
@@ -75,7 +82,7 @@ export default defineConfig({
     globals: true,
     setupFiles: './src/test/setup.ts',
     env: {
-      VITE_MANTLE_URI: 'http://localhost:8081',
+      VITE_MANTLE_URI: 'http://localhost:8082',
       VITE_CLIENT_ID: 'test-client-id',
     },
   },
@@ -99,6 +106,50 @@ export default defineConfig({
   },
   server: {
     host: true,  // bind to 0.0.0.0 so home.agience.ai (→ 127.0.0.1) is reachable
+
+    // ⭐ THE DEV SERVER PROXIES WHAT CADDY PROXIES, AND FOR THE SAME REASON.
+    // `_fleet/conf.d/my.agience.ai.caddy` keeps `originUri` and `mantleUri` on the app's own host
+    // and proxies outward, so the browser never makes a cross-origin request and no service needs
+    // CORS. Without the same arrangement here the browser talks straight to 8080 and 8082 and is
+    // refused: measured 2026-09-13, a fresh `/login` issued four requests and the browser blocked
+    // all four — "No 'Access-Control-Allow-Origin' header is present" — while still rendering a
+    // plausible login form, because the fallback for "cannot reach /auth/providers" looks like a
+    // working page.
+    //
+    // ⚠ THE RULES BELOW MIRROR THAT CADDY BLOCK AND MUST KEEP MIRRORING IT. `/api` strips its
+    // prefix and everything else does not, exactly as `handle_path` and `handle` do there. A dev
+    // proxy that routes differently from production is a dev environment that cannot reproduce a
+    // production bug — and worse, one that manufactures bugs of its own.
+    //
+    // ⚠ `/auth/authorizer/*` IS NOT EXCEPTED HERE, and must not be. Facet's own client decides that
+    // split before the request leaves the browser (`src/api/api.ts:isOriginAuthPath`), so such a
+    // call is already addressed to `/api/…` and never matches `/auth`. The Caddy block carries this
+    // same warning: an exception here would be a second, silently diverging copy of the rule.
+    // ⛔ EVERY KEY IS A REGEX, AND THE TRAILING SLASH IN IT IS LOAD-BEARING. A plain string key is
+    // a PREFIX match, so `'/setup'` also captures the SPA's own `/setup` route and hands it to
+    // Origin, which answers 404 — measured here 2026-09-13, the wizard route died the moment the
+    // proxy was added. Caddy's `handle /setup/*` does not match bare `/setup`, so the app keeps it;
+    // these anchored patterns reproduce that, and `/version` is exact because Caddy's `handle
+    // /version` is exact.
+    proxy: {
+      '^/auth/': { target: DEV_ORIGIN, changeOrigin: true },
+      '^/setup/': { target: DEV_ORIGIN, changeOrigin: true },
+      // ⭐ `/system/*` AT THE ROOT IS ORIGIN'S HALF OF IT. Both services serve `/system/*`, which
+      // is why `api.ts` exports `onOrigin`/`onMantle` instead of deriving it from the path — but
+      // once both are reached through one host the distinction survives anyway: mantle's half
+      // arrives under `/api/system/…` and is handled by the rule below, so anything still at the
+      // root is origin's. Measured 2026-09-13: without this, `GET /system/settings` answered 200
+      // with `index.html`, and the deployed block has the same gap.
+      '^/system/': { target: DEV_ORIGIN, changeOrigin: true },
+      '^/\\.well-known/': { target: DEV_ORIGIN, changeOrigin: true },
+      '^/version$': { target: DEV_ORIGIN, changeOrigin: true },
+      '^/api/': {
+        target: DEV_MANTLE,
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/api/, ''),
+      },
+    },
+
     watch: {
       // Ignore common directories that shouldn't trigger reloads
       ignored: [
@@ -113,5 +164,3 @@ export default defineConfig({
     },
   },
 })
-
-

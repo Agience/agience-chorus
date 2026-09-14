@@ -33,9 +33,11 @@ Tools
 Auth
 ----
   Service identity loaded once by the chorus host (chorus.private.pem).
-  Persona signs its own platform JWTs via _auth.sign_self_jwt() — no token
-  exchange with Origin, no PLATFORM_INTERNAL_SECRET. Inbound delegation JWTs
-  verified against Mantle's inline JWKS in the platform authority manifest.
+  Every outbound call here runs as the caller: `_auth.require_user_headers` is the
+  only header path and this persona never signs a platform JWT of its own — the
+  siblings that do reach it through `_auth.headers()`. No token exchange with
+  Origin, no PLATFORM_INTERNAL_SECRET. Inbound delegation JWTs verified against
+  Mantle's inline JWKS in the platform authority manifest.
 
   MANTLE_URI ⬩ Base URI of the Mantle backend
 
@@ -1187,6 +1189,34 @@ async def submit_feedback(
 # Tool: install_package
 # ---------------------------------------------------------------------------
 
+def _package_block(pkg_ctx: dict) -> dict:
+    """The `package` manifest out of an artifact's context, wherever the store put it.
+
+    ⛔ IT SITS UNDER `caller` ON ANYTHING CREATED NORMALLY, and reading only the top level made
+    `install_package` unusable for every package a user could actually make.
+
+    Mantle mints a context onto EVERY create (`artifacts_router._mint_context`) and, by its own
+    stated contract, "the caller's context is preserved verbatim under `caller` and never merged
+    into the facets the store observed". So `POST /artifacts` carrying `{"package": {...}}` is
+    stored as `{addressing, caller: {package: {...}}, minted, minted_by, provenance}` — the block
+    is intact, one level down. `PATCH` does not mint, so a patched artifact keeps `package` flat.
+
+    ⚑ Measured 2026-09-11 against production: create -> `install_package` answered "Artifact is not
+    a package (missing context.package)" for an artifact whose context DID carry the block. Only
+    create-then-PATCH worked, which nothing documents and no caller would guess.
+
+    The flat form wins, so a deliberate PATCH still overrides what the mint recorded.
+    """
+    if not isinstance(pkg_ctx, dict):
+        return {}
+    flat = pkg_ctx.get("package")
+    if isinstance(flat, dict) and flat:
+        return flat
+    caller = pkg_ctx.get("caller")
+    nested = caller.get("package") if isinstance(caller, dict) else None
+    return nested if isinstance(nested, dict) and nested else {}
+
+
 @mcp.tool(
     description=(
         "Install a package into a target workspace. "
@@ -1223,9 +1253,10 @@ async def install_package(
             except json.JSONDecodeError:
                 return json.dumps({"error": "Package context is not valid JSON"})
 
-        pkg_block = pkg_ctx.get("package") or {}
+        pkg_block = _package_block(pkg_ctx)
         if not pkg_block:
-            return json.dumps({"error": "Artifact is not a package (missing context.package)"})
+            return json.dumps({"error": "Artifact is not a package (missing context.package "
+                                        "or context.caller.package)"})
 
         pkg_id = pkg_block.get("id") or "unknown"
         pkg_version = pkg_block.get("version") or "0.0.0"

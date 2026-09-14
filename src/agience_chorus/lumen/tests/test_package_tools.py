@@ -119,3 +119,47 @@ class TestInferPackageRole:
             "application/vnd.agience.transform+json",
             {"type": "docs"},  # should be ignored
         ) == "transform"
+
+
+# ---------------------------------------------------------------------------
+#  _package_block — where the store actually put the manifest
+# ---------------------------------------------------------------------------
+
+class TestPackageBlock:
+    """`install_package` read only the TOP level and so could not install anything a user made.
+
+    Mantle mints a context onto every create and nests the caller's own under `caller`, verbatim,
+    by documented contract. A `POST /artifacts` carrying `{"package": {...}}` therefore lands as
+    `context.caller.package`, not `context.package`. Measured against production 2026-09-11: the
+    tool answered "Artifact is not a package (missing context.package)" for an artifact whose
+    context carried the block one level down, and only create-then-PATCH worked — which nothing
+    documents and no caller would guess.
+    """
+
+    def test_the_minted_shape_a_create_produces_is_found(self):
+        ctx = {"addressing": {}, "minted": {}, "minted_by": "mantle.mint_context",
+               "provenance": "unknown", "caller": {"package": {"id": "probe.demo"}}}
+        assert _server._package_block(ctx) == {"id": "probe.demo"}
+
+    def test_the_flat_shape_a_patch_produces_is_found(self):
+        assert _server._package_block(
+            {"collections": [], "package": {"id": "probe.demo"}}) == {"id": "probe.demo"}
+
+    def test_an_explicit_patch_overrides_what_the_mint_recorded(self):
+        """Flat wins: a PATCH is a deliberate statement, the mint is a record of the create."""
+        ctx = {"package": {"id": "patched"}, "caller": {"package": {"id": "minted"}}}
+        assert _server._package_block(ctx)["id"] == "patched"
+
+    def test_an_artifact_that_is_not_a_package_still_reads_as_one_that_is_not(self):
+        """The negative case, or the two lookups above would just always find something."""
+        assert _server._package_block({"addressing": {}, "caller": {}}) == {}
+        assert _server._package_block({}) == {}
+
+    def test_a_non_dict_context_does_not_raise(self):
+        """Context is caller-supplied and may be an opaque string; a reader must not explode."""
+        assert _server._package_block("not a dict") == {}
+        assert _server._package_block(None) == {}
+
+    def test_an_empty_package_block_is_not_a_package(self):
+        """`{}` is falsy for the caller's purposes — it carries no id, version or contents."""
+        assert _server._package_block({"package": {}, "caller": {"package": {"id": "x"}}}) == {"id": "x"}

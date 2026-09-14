@@ -43,7 +43,7 @@ describe('runtime config branding', () => {
     (window as { __AGIENCE_CONFIG__?: unknown }).__AGIENCE_CONFIG__ = {
       title: 'Custom Local',
       favicon: '/custom-favicon.png',
-      mantleUri: 'http://localhost:8081',
+      mantleUri: 'http://localhost:8082',
       clientId: 'local-client',
     };
 

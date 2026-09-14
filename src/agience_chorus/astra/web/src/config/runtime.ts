@@ -18,7 +18,7 @@
 const DEFAULT_CONFIG: RuntimeConfig = {
   mantleUri:
     import.meta.env.VITE_MANTLE_URI ||
-    'http://localhost:8081',
+    'http://localhost:8082',
   originUri: import.meta.env.VITE_ORIGIN_URI || 'http://localhost:8080',
   crystalUri: import.meta.env.VITE_CRYSTAL_URI || 'http://localhost:8085',
   clientId: import.meta.env.VITE_CLIENT_ID || 'agience-client',

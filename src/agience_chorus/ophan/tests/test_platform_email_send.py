@@ -49,7 +49,7 @@ class _FakeResp:
 
 
 class _FakeClient:
-    def __init__(self, calls, *, email="jane@x.com", token="sys-jwt", invoke_status=200):
+    def __init__(self, calls, *, email="jane@example.com", token="sys-jwt", invoke_status=200):
         self.calls = calls
         self._email = email
         self._token = token
@@ -96,7 +96,7 @@ async def test_send_account_email_acts_as_system_principal(monkeypatch):
     invoke = next(c for c in calls if "/op/invoke" in c[1])
     assert "op-123" in invoke[1]                                     # invoked the email operator
     assert invoke[3]["Authorization"] == "Bearer sys-jwt"           # as the system principal
-    assert invoke[2]["params"]["to"] == "jane@x.com"                # delivered to the customer
+    assert invoke[2]["params"]["to"] == "jane@example.com"                # delivered to the customer
     assert invoke[2]["params"]["subject"] == "Hi"
 
 

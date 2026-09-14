@@ -1,7 +1,0 @@
-{
-  "capability": "thumbnail",
-  "implementation": {
-    "kind": "builtin",
-    "id": "text.thumbnail"
-  }
-}

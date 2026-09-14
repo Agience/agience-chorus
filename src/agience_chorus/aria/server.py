@@ -21,9 +21,11 @@ Tools
 Auth
 ----
   Service identity loaded once by the chorus host (chorus.private.pem).
-  Persona signs its own platform JWTs via _auth.sign_self_jwt() — no token
-  exchange with Origin, no PLATFORM_INTERNAL_SECRET. Inbound delegation JWTs
-  verified against Mantle's inline JWKS in the platform authority manifest.
+  Every outbound call here runs as the caller: `_auth.require_user_headers` is the
+  only header path and this persona never signs a platform JWT of its own — the
+  siblings that do reach it through `_auth.headers()`. No token exchange with
+  Origin, no PLATFORM_INTERNAL_SECRET. Inbound delegation JWTs verified against
+  Mantle's inline JWKS in the platform authority manifest.
 
   MANTLE_URI ⬩ Base URI of the Mantle backend
 

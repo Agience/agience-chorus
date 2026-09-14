@@ -6,7 +6,7 @@ import { getRuntimeConfig } from '../config/runtime';
 // instance is kept, and the request interceptor below rewrites baseURL to
 // ORIGIN_URI for /auth/* calls — except /auth/authorizer/*, which stays on
 // Mantle.
-const MANTLE_URI = getRuntimeConfig().mantleUri || 'http://localhost:8081';
+const MANTLE_URI = getRuntimeConfig().mantleUri || 'http://localhost:8082';
 const ORIGIN_URI = getRuntimeConfig().originUri;
 const CRYSTAL_URI = getRuntimeConfig().crystalUri;
 
@@ -26,6 +26,19 @@ const api = axios.create({
 // rule below may match `/system`.
 export const onOrigin = { baseURL: ORIGIN_URI };
 export const onMantle = { baseURL: MANTLE_URI };
+
+/**
+ * Resolve a Mantle-relative path a response handed us into a URL the browser can fetch.
+ *
+ * ⚠ FOR URLS THAT DO NOT GO THROUGH THIS AXIOS INSTANCE. A path like `/artifacts/{id}/content`,
+ * returned by `upload-initiate`, is relative to MANTLE — but `XMLHttpRequest` and `fetch` resolve
+ * it against the PAGE's origin, where no proxy rule matches and the SPA fallback answers
+ * `index.html` at 200. An upload would report success and store nothing.
+ */
+export function mantleUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${MANTLE_URI.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+}
 
 // Path-derived routing, valid only for prefixes ONE service owns end to end.
 // Adding a prefix here that both services serve reintroduces the guess that
@@ -47,6 +60,14 @@ function isOriginAuthPath(url: string): boolean {
   return false;
 }
 
+// The content-type catalogue is Crystal's, because the REGISTRY is Crystal's: personas publish
+// what they own through `POST /register` (see `crystal/type_registry.py`), and `/types/all` is the
+// bulk read of exactly that cache. Mantle carries a `types_service` of its own whose runtime
+// registry nothing populates, so a call routed there answers `{types: []}` for every node.
+function isCrystalTypePath(url: string): boolean {
+  return url === '/types/all' || url.startsWith('/types/');
+}
+
 function isCrystalOpPath(url: string): boolean {
   // Content-type operations dispatch through Crystal, the gateway
   // (`POST /artifacts/{id}/op/{name}`). Mantle does not mount the op surface,
@@ -65,7 +86,7 @@ api.interceptors.request.use(config => {
   const url = config.url || '';
   if (isOriginAuthPath(url)) {
     config.baseURL = ORIGIN_URI;
-  } else if (isCrystalOpPath(url)) {
+  } else if (isCrystalOpPath(url) || isCrystalTypePath(url)) {
     config.baseURL = CRYSTAL_URI;
   }
   const token = localStorage.getItem('access_token');
@@ -73,9 +94,49 @@ api.interceptors.request.use(config => {
   return config;
 });
 
+// ⛔ A 200 CARRYING HTML IS A ROUTING FAILURE, AND IT IS THE QUIETEST ONE THERE IS.
+// Every host that serves this app ends in an SPA fallback — `try_files {path} /index.html` in
+// `_fleet/conf.d/my.agience.ai.caddy`, the equivalent in the dev server — so a request to a path
+// with no proxy rule does not 404. It returns `index.html` at 200. Axios then fails to parse it,
+// leaves `data` as a string, and the caller reads `undefined` off it.
+//
+// ⚠ THAT TURNS A DEAD ENDPOINT INTO AN EMPTY RESULT, WHICH NO ERROR PATH EVER SEES. Measured
+// 2026-09-13: `GET /types/all` is served by no service, and `ContentTypesProvider` — which has a
+// `.catch` written to log and fall back to the build-time primitives — logged nothing at all, on
+// either the dev server or a deployed host. Its response was a 200, so the catch was unreachable
+// and 39 persona-owned type definitions silently did not load.
+//
+// Nothing on this instance expects HTML: artifact bytes are fetched through `/content-url`, and
+// MCP blobs arrive base64-encoded inside JSON. So this is unambiguous, and it fails loudly.
+type JsonResponse = {
+  data: unknown;
+  status: number;
+  headers?: Record<string, unknown>;
+  config?: { baseURL?: string; url?: string };
+};
+
+// ⚠ STRUCTURAL, NOT `AxiosResponse`. The deprecated `@types/axios` stub in `dependencies`
+// shadows axios's own typings, so that name does not resolve here.
+function refuseHtml<T extends JsonResponse>(response: T): T {
+  const contentType = String(response.headers?.['content-type'] ?? '');
+  const looksLikeMarkup =
+    typeof response.data === 'string' && /^\s*<(?:!doctype|html)\b/i.test(response.data);
+  if (contentType.includes('text/html') || looksLikeMarkup) {
+    // Join the way axios does, so the message names the URL that was actually requested
+    // rather than a doubled slash nobody can grep for.
+    const base = (response.config?.baseURL ?? '').replace(/\/+$/, '');
+    const where = `${base}/${(response.config?.url ?? '').replace(/^\/+/, '')}`;
+    throw new Error(
+      `${where} returned HTML, not JSON — no service routes this path, and an SPA fallback ` +
+        `answered it at ${response.status}.`,
+    );
+  }
+  return response;
+}
+
 // On 401, clear token and redirect to login
 api.interceptors.response.use(
-  response => response,
+  refuseHtml,
   error => {
     const originalRequest = error.config;
     if (error.response?.status === 401 && !originalRequest._retry) {
