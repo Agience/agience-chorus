@@ -1,10 +1,11 @@
 // src/components/common/__tests__/CardGridItem.test.jsx
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { CardGridItem } from '../CardGridItem';
 import { mockArtifact } from '../../../../tests/utils/helpers';
 import { addArtifactToCollection } from '@/api/collections';
+import { CONTENT_TYPES, setRuntimeContentTypes } from '@/registry/content-types';
 
 // Spy on the membership API so member-drop tests can assert the edge add.
 vi.mock('@/api/collections', () => ({
@@ -508,6 +509,32 @@ describe('CardGridItem', () => {
     // `application/x-agience-artifact` MIME, so drags from the sidebar / floating
     // windows / list view / palette (which use the shared `agienceDrag` MIME)
     // silently fell through to a workspace-add.
+
+    // ⛔ THE PRECONDITION IS STATED HERE, NOT INHERITED FROM THE FILESYSTEM. The drop target is
+    // gated on `contentType.isContainer` (`CardGridItem.tsx`: `isMemberDropTarget`), and that flag
+    // comes from the registry. The registry's build-time seed is `virtual:content-types`, which
+    // `vite.config.ts::discoverContentTypeRoots` fills from `<workspace>/agience-crystal/src/types`
+    // — a SIBLING CHECKOUT, and deliberately `[]` when it is absent, because the real app hydrates
+    // the registry at runtime instead.
+    //
+    // So these two tests passed on any machine with crystal checked out beside chorus and failed
+    // everywhere else. Measured 2026-09-16: green locally, and on CI — where the `web` job checks
+    // out chorus alone — `isContainer` was false, the handler returned at its first line, and both
+    // assertions read "Number of calls: 0". Nothing was broken; the tests were asking the
+    // filesystem a question they should have been answering themselves.
+    //
+    // `setRuntimeContentTypes` is the app's OWN runtime-hydration path, so this states the
+    // precondition the same way the platform does rather than by mocking the registry out.
+    let _seeded;
+    beforeAll(() => { _seeded = CONTENT_TYPES.slice(); });
+    afterAll(() => { CONTENT_TYPES.splice(0, CONTENT_TYPES.length, ..._seeded); });
+
+    beforeEach(() => {
+      setRuntimeContentTypes([{
+        content_type: 'application/vnd.agience.collection+json',
+        definition: { ui: { label: 'Collection', is_container: true } },
+      }]);
+    });
     function dropOnto(testId, dataTransfer) {
       const card = screen.getByTestId(testId);
       fireEvent.dragOver(card, { dataTransfer });
