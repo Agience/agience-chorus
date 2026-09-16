@@ -93,8 +93,48 @@ exclude = ["*.tests", "*.tests.*", "*.www*", "*.web*"]
 # The operator payloads ship WITH the package. They are what the runtime executes — it reads
 # the payload, never the source file — so a wheel without them installs a chorus that cannot
 # discharge an operator, and `AGIENCE_BUNDLE_ROOT` would have to point back at a checkout.
+#
+# ⛔ AND SO DO THE `ui/` TREES, FOR THE SAME REASON AND WITH A WORSE FAILURE. Each persona's owned
+# content types are read from `<persona>/ui/<category>/<subtype>/type.json` by
+# `crystal.type_registration.collect_server_types`, at registration time, off the installed
+# package. Undeclared, setuptools ships none of them: measured 2026-09-15, 39 `type.json` in the
+# source tree and 0 in the wheel.
+#
+# ⚠ THE FAILURE IS TOTAL AND IT IS SILENT. `push_server_types` returns before it posts when the
+# server ships no types (`if not types: return 0`), so a persona with no `ui/` tree does not
+# register a WEAKENED record — it registers NOTHING. The host still boots, mounts all seven
+# personas and answers `/healthz`; the gateway logs "awaiting persona registration" for ever and
+# `/types/all` stays empty, so every client silently falls back to its build-time primitives. A
+# node installed from this distribution looked healthy from every angle and had no types at all.
+#
+# ⚠ WHY A CHECKOUT NEVER SHOWED IT: the fleet runs the host with `--app-dir …/agience-chorus/src`,
+# where the `ui/` trees are simply present on disk. Only an INSTALLED node is affected — which is
+# every `get.agience.ai` install, and the one path nobody was testing.
+#
+# `ui/**/*` rather than a list of extensions: the tree holds `type.json`, `schema.json`,
+# `frontend.json`, viewer `.html` and `.tsx`, at depths from one to six, and a pattern per shape is
+# a pattern to forget when a new shape appears. Recursive globs need setuptools>=62.3; this project
+# already requires >=77.
+
+# ⛔ AND OPHAN'S LICENSING POLICY, WHICH ITS OWN CODE SAYS ALREADY SHIPS. `licensing.py`'s
+# `_packaging_root()` reads `ophan/policy/` and its docstring states: "It ships with ophan, in the
+# chorus image — ophan is the runtime consumer, so its data must be present in the same container."
+# It did not. Measured 2026-09-16 from a freshly built wheel: 13 tracked files under
+# `ophan/policy/`, 0 entries in the distribution. `policy/` is not a package (no `__init__.py`), so
+# its JSON travels only as declared package-data, and no pattern above reached it.
+#
+# ⚠ IT FAILS CLOSED, AND MISDIAGNOSES ITSELF. `server.py::_load_profile` raises
+# `OphanToolError("Unknown profile '<name>'")` when the file is absent — so an installed node
+# refuses every licensing operation rather than permitting one, which is the right direction, but
+# the message blames the profile name when the whole tree is missing.
+#
+# Scoped to `agience_chorus.ophan` rather than `"*"`: this is one persona's data, and the narrow key
+# says so. `LICENSING_POLICY_ROOT` still overrides for mounted-config deployments — that is an
+# escape hatch for out-of-tree policy, never the reason the in-tree copy may be absent.
 [tool.setuptools.package-data]
 "agience_chorus" = ["bundles/*.json", "seraph/bundle_spec.json"]
+"agience_chorus.ophan" = ["policy/**/*"]
+"*" = ["ui/**/*"]
 
 # NO PER-TEKTON EXTRAS TODAY. A tekton's requirements are CAPABILITY DECLARATIONS, resolved at
 # runtime by `prism.crystal_model.activates_on` against what the host advertises — not by a

@@ -12,12 +12,13 @@
 
 import { get } from './api';
 
-/** One resolved type definition as served by Mantle's GET /types/all. */
+/** One resolved type definition, as Crystal's `GET /types/all` serves it. */
 export interface ServerTypeEntry {
   content_type: string;
-  /** Merged type definition (carries the nested `ui` block). Opaque to transport. */
+  /** The definition the owning persona pushed, carrying its nested `ui` block. Opaque here. */
   definition: Record<string, unknown>;
-  validation_errors?: string[];
+  /** Slug of the persona that registered it — `aria`, `lumen`, … */
+  server?: string | null;
 }
 
 /** Fetch every resolved type definition from the platform. */

@@ -20,6 +20,14 @@ export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.e2e.ts',
 
+  // ⛔ REFUSES TO RUN AGAINST A COLD PLATFORM. Twice on 2026-09-15, within a minute of restarting
+  // the stack, five of these tests went red naming things in the browser — `no service call is
+  // answered with HTML`, `the console is clean on load` — while the actual cause was crystal
+  // answering /health with an empty registry because the personas had not finished registering.
+  // Re-running passed both times, which is the worse half: it teaches you to re-run rather than to
+  // look. This checks the platform once, up front, and fails naming the service that is not ready.
+  globalSetup: './e2e/platform-ready.ts',
+
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

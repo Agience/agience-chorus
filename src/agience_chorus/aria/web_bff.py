@@ -31,7 +31,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from crystal.evolution import OPERATOR_CONTENT_TYPE  # one home for the operator content type
 
@@ -60,7 +60,19 @@ def _bff_main_path() -> Optional[Path]:
     here = globals().get("__file__")
     if here is None:                      # exec'd from a bundle — there is no file, and no beside
         return None
-    return Path(here).resolve().parent / "www" / "bff" / "main.py"
+    # ⛔ AND THE SECOND WAY IT IS ABSENT, WHICH IS THE COMMONER ONE. An INSTALLED copy has a
+    # perfectly good `__file__`, so the branch above does not fire — but `www/` does not travel:
+    # `packages.find.exclude` names `*.www*` and no `package-data` pattern covers it. Measured
+    # 2026-09-16 against a freshly built wheel: it carries 0 entries under `aria/www/`. (`build/lib`
+    # shows the same thing and is NOT the evidence — setuptools reuses that directory, so it
+    # describes the last build rather than this one.)
+    #
+    # Without this check the path was returned anyway and `exec_module` raised a bare
+    # `FileNotFoundError`, so the RuntimeError below — which names the seam and the call that binds
+    # it — never fired in the one situation a reader most needs it. `personas.py` swallows either
+    # into `log.warning("Aria web facet not loaded: %s")`, so the message IS the diagnosis.
+    candidate = Path(here).resolve().parent / "www" / "bff" / "main.py"
+    return candidate if candidate.is_file() else None
 
 
 #: Kept as a module attribute because it reads as documentation of where the app lives; ``None`` under

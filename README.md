@@ -50,6 +50,23 @@ capability gate's answer, not the installer's.
 For a checkout, `pip install -e ".[all,dev]"` — which is what [`requirements.txt`](requirements.txt)
 resolves to.
 
+### Running the tests
+
+```bash
+pytest -q src tests --rootdir=src
+```
+
+**Both paths, and `--rootdir=src`, are load-bearing.** Each tekton carries its own `pyproject.toml`,
+so without the flag pytest picks one of them as the rootdir and [`src/conftest.py`](src/conftest.py)
+— which wires the organons — never loads; the symptom is a phantom `_op_retrieve is None` rather
+than an error naming the cause.
+
+`pytest tests/` on its own does **not** work, and the way it fails is misleading: it stops at a
+collection error on `import seraph.server`, which reads like a broken test. The import is correct
+(`seraph` is its own distribution, `agience-server-seraph`); what is missing is the environment the
+invocation above sets up. Verified 2026-09-16 — under the full command that file collects and its
+twenty tests pass. Reach for the whole command before concluding anything from a subset that fails.
+
 ## The bundles
 
 [`src/agience_chorus/bundles/`](src/agience_chorus/bundles/) holds the operator payloads, one JSON
@@ -76,6 +93,7 @@ no effect, and the published sha then disagrees with the tree.
 | [`src/agience_chorus/personas.py`](src/agience_chorus/personas.py) | tekton discovery and host binding: module loading, service-identity boot, and the roster the host consumes |
 | `src/agience_chorus/`​`corpus_fts.py` · `corpus_stats.py` · `live_service.py` | the corpus and live-service surfaces shared across tektons |
 | [`src/conftest.py`](src/conftest.py) · [`src/tests/`](src/tests/) | the test process's environment, and the cross-tekton suite — outside the package, so neither ships |
+| [`tests/`](tests/) | the repo-level invariants, one file per property: that every persona transport verifies its caller, that no persona shells out, that the runtime data a node reads is declared package-data, and that the Facet source tree stays out of the distribution. Each names the incident it exists for |
 | [`pyproject.toml`](pyproject.toml) | the distribution: dependencies, per-tekton extras, and what goes in the wheel |
 
 ## Model-free

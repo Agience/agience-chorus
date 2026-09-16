@@ -76,6 +76,35 @@ export default defineConfig({
     // Reads types/**/{type.json,presentation.json}, resolves inheritance,
     // exposes as the virtual module `virtual:content-types`.
     contentTypesPlugin(discoverContentTypeRoots()),
+    // ⭐ `/version.json` IS GENERATED, BECAUSE THE HAND-MAINTAINED ONE WAS A THIRD ANSWER TO "WHAT
+    // IS DEPLOYED" AND HAD BEEN WRONG FOR SIX MONTHS. `public/version.json` was copied verbatim
+    // into every build; measured 2026-09-15 it said `0.1.23` / `2026-03-16` while `package.json`
+    // said 0.3.2, and it was live at `https://my.agience.ai/version.json`. It is the same failure
+    // the `__APP_VERSION__` note above describes for `vendor/build_info.json` — a second file
+    // carrying a version that nothing regenerates — in a third place.
+    //
+    // ⚠ NOTHING IN THIS TREE READS IT, which is exactly why it rotted: no screen went blank and no
+    // test failed. It stays published rather than deleted because it is a public URL and this
+    // repository cannot prove what outside it polls that URL; generated, it is at worst harmless
+    // and at best correct.
+    //
+    // ⛔ THERE MUST BE NO `public/version.json`. Vite copies `public/` over the build output, so a
+    // file there would silently win and restore the stale value with no warning anywhere.
+    {
+      name: 'agience-version-json',
+      apply: 'build',
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'version.json',
+          source: JSON.stringify(
+            { version: APP_VERSION, build_time: APP_BUILD_TIME, git_sha: APP_GIT_SHA },
+            null,
+            2,
+          ) + '\n',
+        })
+      },
+    },
   ],
   test: {
     environment: 'jsdom',

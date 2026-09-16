@@ -21,12 +21,19 @@ import {
 //   - 'create' — only collections the caller can assign artifacts into; this
 //     excludes read-only platform collections (which are never assignable to
 //     regular users — only the platform admin holds create/add on them).
+// ⚠ THE PATH IS SPELLED AT THE CALL, NOT ASSEMBLED INTO A VARIABLE FIRST. It used to be built
+// across four lines and passed as `getList(url)`, which reads fine and is invisible to the check
+// that asks whether every endpoint this app calls exists: `deploy/facet_contract_drift.py` can
+// only follow a literal, so this one call site was reported as unverifiable on every run — the
+// single blind spot in a gate that otherwise covers the whole api layer. A path a tool cannot read
+// is a path nobody is checking.
 export function listCollections(action: string = 'read'): Promise<CollectionResponse[]> {
-  let url = '/artifacts/visible?content_type=' + encodeURIComponent('application/vnd.agience.collection+json');
-  if (action !== 'read') {
-    url += '&action=' + encodeURIComponent(action);
-  }
-  return getList(url);
+  // `encodeURIComponent`, not `URLSearchParams`: the latter is form-encoding and would be a
+  // different encoder over the same values. This keeps the bytes on the wire identical.
+  const scope = action === 'read' ? '' : `&action=${encodeURIComponent(action)}`;
+  return getList(
+    `/artifacts/visible?content_type=${encodeURIComponent(COLLECTION_CONTENT_TYPE)}${scope}`,
+  );
 }
 
 // get a single collection

@@ -370,9 +370,21 @@ const SetupWizard: React.FC = () => {
             autoFocus
             autoComplete="off"
           />
+          {/*
+            ⛔ THIS POINTED THE OPERATOR AT A CONTAINER LOG, AND THERE IS NO CONTAINER TO READ.
+            A node installs into a virtualenv — agience-observe's README states it outright, "no
+            container, no image to pull" — so the instruction named a command that cannot work on
+            any installation, at the one moment a new operator is stuck and following it literally.
+
+            The installer prints the token once, at the end of `agience.py install`, and also
+            writes it to the path below (mode 0400). That file is the durable copy: the terminal
+            scrollback is not.
+          */}
           <p className="text-xs text-gray-400">
-            Admins can find the setup URL in backend startup logs or run{' '}
-            <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">docker logs agience-backend</code>
+            The installer prints this token once, when the node is installed. It is also saved to{' '}
+            <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">
+              ~/.agience/.data/keys/bootstrap.token
+            </code>
           </p>
         </div>
       </div>

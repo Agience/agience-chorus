@@ -562,8 +562,19 @@ def create_server_app() -> Any:
 
     async def app(scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope.get("type") == "http":
-            path = scope.get("path", "")
-            if path == "/webhooks/stripe" and scope.get("method", "").upper() == "POST":
+            # ⛔ MATCHED BY SUFFIX, BECAUSE THIS APP IS MOUNTED AND THE EQUALITY NEVER HELD. The
+            # host mounts each persona at `/<name>` and the path this app is handed is not the bare
+            # `/webhooks/stripe` the old comparison expected — so the branch never ran and every
+            # webhook fell through to the MCP app instead. Measured 2026-09-15: a POST with a
+            # `Stripe-Signature` header still did not reach `_handle_stripe_webhook_http`, which
+            # answers 400 for a missing signature and would therefore never answer 401.
+            #
+            # ⚠ IT WAS INVISIBLE WHILE THE TRANSPORT WAS PERMISSIVE. The fall-through hit an MCP
+            # app that answered 404/406 — a wrong answer that reads like a malformed webhook rather
+            # than an unrouted one. Closing the transport turned it into a 401, which is what
+            # finally made it visible. The bug is older than that change.
+            path = scope.get("path", "") or ""
+            if path.rstrip("/").endswith("/webhooks/stripe") and scope.get("method", "").upper() == "POST":
                 await _handle_stripe_webhook_http(scope, receive, send)
                 return
         await mcp_app(scope, receive, send)
@@ -574,16 +585,31 @@ def create_server_app() -> Any:
 def streamable_http_app() -> Any:
     """Wrap the MCP ASGI app with optional operator token extraction.
 
-    Auth is permissive at the transport level — if a valid operator JWT is
-    present it is verified and stored in ``_CURRENT_OPERATOR_CLAIMS``;
-    otherwise the request proceeds without claims.  Individual tools gate
-    access via ``_current_operator_claims()`` which raises if claims are
-    absent.
+    The delegation JWT is verified at the transport by ``_auth.create_app`` — the same wrapper
+    aria, astra, sage, iris, seraph and lumen use — so an unauthenticated request is refused here
+    rather than reaching a tool. On top of that, an operator JWT is extracted when present and
+    stored in ``_CURRENT_OPERATOR_CLAIMS``; the tools that need operator-scoped claims for
+    entitlement checks gate on ``_current_operator_claims()``, which raises when they are absent.
+    Both layers are real: the first says *who is calling*, the second says *what they may license*.
 
-    This matches the other persona servers' pattern and allows MCP protocol
-    calls (e.g. type discovery at startup) to succeed without a token.
+    ⛔ THE TRANSPORT USED TO BE PERMISSIVE, AND THE COMMENT HERE CLAIMED IT "matches the other
+    persona servers' pattern". It did not. Measured 2026-09-15: the other six answered 401 to an
+    unauthenticated MCP request while ophan issued a session and served ``tools/list`` — to no
+    token and to an invalid one. A comment asserting a parity that does not exist is how a
+    deliberate-looking difference stops being questioned.
+
+    ⚠ THE STATED JUSTIFICATION WAS VESTIGIAL, WHICH IS WHY THIS COULD CHANGE. It read "allows MCP
+    protocol calls (e.g. type discovery at startup) to succeed without a token", and nothing needs
+    that: discovery is answered by ``.well-known/mcp.json`` at the host (see
+    ``iris/comms/mcp_tekton.py``), type registration is a PUSH to crystal's ``POST /register``, and
+    op dispatch arrives through ``crystal.main:run_operation``, which calls ``_require_bearer`` and
+    401s without one before forwarding the caller's token.
+
+    ⚠ ``/webhooks/stripe`` IS UNAFFECTED, AND MUST STAY SO. It is handled in ``create_server_app``
+    ahead of this app and authenticates by Stripe signature, which is the only credential an
+    inbound webhook carries.
     """
-    inner_app = mcp.streamable_http_app()
+    inner_app = _auth.create_app(mcp)
 
     async def app(scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope.get("type") != "http":

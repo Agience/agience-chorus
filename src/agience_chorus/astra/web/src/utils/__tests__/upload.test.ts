@@ -132,5 +132,44 @@ describe('uploadWithProgress', () => {
     
     await expect(promise).rejects.toThrow('PUT 403');
   });
+
+  // ── the bearer ────────────────────────────────────────────────────────────────────────────
+  //
+  // ⛔ WITHOUT THIS HEADER EVERY PROXIED UPLOAD IS REJECTED, AND NOTHING ELSE HERE NOTICES. The
+  // URL used to be a presigned S3 link carrying its own authorization; it is a Mantle route now,
+  // and Mantle answers 401 without a token. This is raw XHR, so the axios request interceptor that
+  // attaches the header never sees it — measured 2026-09-13, the proxied PUT returned 401 until
+  // `upload.ts` set it explicitly.
+  //
+  // ⚠ THE OTHER ASSERTIONS IN THIS FILE DO NOT COVER IT. They check `Content-Type` and
+  // `Cache-Control`, so deleting the Authorization line leaves this suite entirely green while
+  // every upload in the product fails. That is the whole reason these two exist.
+
+  it('sends the bearer token, because the PUT goes to Mantle and not to a presigned link', async () => {
+    localStorage.setItem('access_token', 'a-test-token');
+    const file = new File(['x'], 'probe.txt', { type: 'text/plain' });
+    mockXHR.status = 200;
+
+    const promise = uploadWithProgress('workspace-1', 'upload-1', 'https://example.com/u', file);
+    if (mockXHR.onload) mockXHR.onload();
+    await promise;
+
+    expect(mockXHR.setRequestHeader).toHaveBeenCalledWith('Authorization', 'Bearer a-test-token');
+  });
+
+  it('sends no Authorization header when there is no token, rather than an empty bearer', async () => {
+    // `if (token)` is deliberate: `Bearer null` is a malformed credential, and a service that
+    // rejects it reports an auth failure rather than the absence of one.
+    localStorage.removeItem('access_token');
+    const file = new File(['x'], 'probe.txt', { type: 'text/plain' });
+    mockXHR.status = 200;
+
+    const promise = uploadWithProgress('workspace-1', 'upload-1', 'https://example.com/u', file);
+    if (mockXHR.onload) mockXHR.onload();
+    await promise;
+
+    const sent = mockXHR.setRequestHeader.mock.calls.map((c: unknown[]) => c[0]);
+    expect(sent).not.toContain('Authorization');
+  });
 });
 
