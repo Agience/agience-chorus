@@ -377,17 +377,6 @@ export default function AdvancedSearch({
                   </div>
                 </div>
                 
-                {/* State Filter */}
-                <div>
-                  <label className="text-xs font-medium text-gray-700 mb-2 block">State</label>
-                  <select className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500">
-                    <option value="">All states</option>
-                    <option value="draft">Draft</option>
-                    <option value="committed">Committed</option>
-                    <option value="archived">Archived</option>
-                  </select>
-                </div>
-                
                 {/* MIME Type Filter */}
                 <div>
                   <label className="text-xs font-medium text-gray-700 mb-2 block">Type</label>

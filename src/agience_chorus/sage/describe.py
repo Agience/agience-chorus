@@ -124,7 +124,7 @@ def _describe_python(bundle, artifact: dict) -> None:
     path, text = _split(bundle, artifact)
     symbols, imports = code_index.extract(path, text)
     docs = [{
-        "id": s.id(), "content_type": code_index.SYMBOL_CONTENT_TYPE, "state": "committed",
+        "id": s.id(), "content_type": code_index.SYMBOL_CONTENT_TYPE, "state": "live",
         "context": s.offer(), "content": s.offer(), "created_by": "ember-local",
         "via": "op.describe.python",                  # the operator that produced this (fitness)
         "lemmas": list(dict.fromkeys([s.name.lower(), s.qualname.lower()])),
@@ -178,17 +178,17 @@ register_handler("text/x-wordnet", _noop)
 
 
 def describe_dark(bundle, *, limit: Optional[int] = None) -> int:
-    """Illuminate dark matter: describe committed artifacts that have a handler but no lemmas yet.
+    """Illuminate dark matter: describe live artifacts that have a handler but no lemmas yet.
     Deterministic — the corpus-side of 'always improving.'
 
     Runs every worker tick (improve.improve_cycle), bounded by `limit`: at most `limit` artifacts
-    described per call. The scan itself streams the committed set through the store's typed
+    described per call. The scan itself streams the live set through the store's typed
     iterator and stops as soon as the budget is spent.
     """
     store = bundle.artifacts
     n = 0
     skipped_sealed = 0
-    for a in store.list_artifacts(state="committed"):
+    for a in store.list_artifacts(state="live"):
         # A FALLBACK IS NOT A DESCRIPTION. Skipping on `lemmas` alone made one unreadable body a
         # permanently unreadable one: the fallback wrote `['document']`, and this line then never
         # looked at the artifact again. Retrying costs a re-read of something already cheap to

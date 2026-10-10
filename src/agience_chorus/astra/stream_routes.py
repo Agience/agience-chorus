@@ -9,7 +9,7 @@ Endpoints:
   POST /stream/publish      — SRS on_publish webhook
   POST /stream/unpublish    — SRS on_unpublish webhook
   GET  /stream/session      — Resolve stream key to active session
-  GET  /stream/sessions     — List active sessions (optional source filter)
+  GET  /stream/sessions     — List one source's active sessions (Bearer token that reads it)
 """
 
 from __future__ import annotations
@@ -77,6 +77,11 @@ async def _headers(bearer: str | None = None) -> dict[str, str]:
 
 # Validate stream key characters — alphanumeric, hyphens, underscores, colons.
 _SAFE_STREAM_RE = re.compile(r"^[a-zA-Z0-9\-_:]+$")
+
+
+def _invalid_stream_key() -> HTTPException:
+    """The one answer for a key that does not open its source — whatever the reason."""
+    return HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid stream key")
 
 
 def _is_session_active(entry: Dict[str, Any], now: datetime) -> bool:
@@ -291,8 +296,8 @@ async def _get_or_create_session(
     Must be called under ``_SESSION_LOCK``.
 
     On creation:
-      1. Look up the source artifact via Core API (global batch).
-      2. Validate the API key by calling Core with it as Bearer.
+      1. Validate the API key by calling Core with it as Bearer — before any platform lookup.
+      2. Look up the source artifact via Core API (global batch).
       3. Read target_content_type from the source artifact context.
       4. Create a session artifact of the configured content type.
       5. Append the session ID to the source artifact's sessions[] list.
@@ -308,8 +313,30 @@ async def _get_or_create_session(
             logger.debug("Reusing session for stream %s", stream)
             return entry
 
+    # The stream key is checked before anything runs on Astra's platform authority. The key must
+    # read the source artifact at Mantle as itself; until it has, nothing here looks the source up
+    # with the platform token, so a caller without a working key learns nothing about whether the
+    # artifact exists. Missing, incomplete and unreadable all answer the same 401.
+    if not api_key.startswith("agc_"):
+        raise _invalid_stream_key()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            verify_resp = await client.get(
+                artifact_url(MANTLE_URI, source_artifact_id),
+                headers=await _headers(bearer=api_key),
+            )
+    except httpx.RequestError:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Core API unreachable")
+    if verify_resp.status_code != 200:
+        raise _invalid_stream_key()
+
     # Look up the source artifact.
-    source = await _lookup_artifact_global(source_artifact_id)
+    try:
+        source = await _lookup_artifact_global(source_artifact_id)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            raise _invalid_stream_key()
+        raise
     workspace_id = source.get("workspace_id")
     owner_id = source.get("owner_id") or source.get("user_id")
     if not workspace_id or not owner_id:
@@ -317,7 +344,7 @@ async def _get_or_create_session(
             "Source artifact %s missing required fields: workspace_id=%s owner_id=%s",
             source_artifact_id, workspace_id, owner_id,
         )
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Source artifact incomplete")
+        raise _invalid_stream_key()
 
     # Parse source artifact context.
     source_ctx: dict = {}
@@ -331,21 +358,6 @@ async def _get_or_create_session(
         source_ctx = raw_ctx
 
     stream_cfg: dict = source_ctx.get("stream") or {}
-
-    # Validate the API key: must be agc_* format and resolve against Core.
-    if not api_key.startswith("agc_"):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid stream key")
-
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            verify_resp = await client.get(
-                artifact_url(MANTLE_URI, source_artifact_id),
-                headers=_headers(bearer=api_key),
-            )
-    except httpx.RequestError:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Core API unreachable")
-    if verify_resp.status_code != 200:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid stream key")
 
     target_content_type: str = stream_cfg.get("target_content_type") or "video/mp4"
 
@@ -539,20 +551,40 @@ def get_session(stream: str):
 
 
 @router.get("/sessions", status_code=status.HTTP_200_OK)
-def list_sessions(source_artifact_id: Optional[str] = None):
-    """List active stream sessions.
+async def list_sessions(request: Request, source_artifact_id: Optional[str] = None):
+    """List the active stream sessions of one source (the stream viewer's live-status check).
 
-    If ``source_artifact_id`` is provided, returns sessions for that specific
-    source (used by the stream viewer to check live status).
+    Authenticated as the caller: the request's Bearer token must read ``source_artifact_id`` at
+    Mantle, and only that source's sessions are listed. With no token the answer is 401; a source
+    the token cannot read answers 404 whether or not it exists. There is no unfiltered listing —
+    it would enumerate every live stream's workspace and artifact ids across tenants.
     """
+    auth = request.headers.get("authorization") or ""
+    scheme, _, bearer = auth.partition(" ")
+    bearer = bearer.strip()
+    if scheme.lower() != "bearer" or not bearer:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentication required",
+                            headers={"WWW-Authenticate": "Bearer"})
+    if not source_artifact_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "source_artifact_id is required")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                artifact_url(MANTLE_URI, source_artifact_id),
+                headers=await _headers(bearer=bearer),
+            )
+    except httpx.RequestError:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Core API unreachable")
+    if resp.status_code != 200:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Source artifact not found")
+
     now = _utcnow()
     sessions = []
     for _stream_key, entry in _ACTIVE_SESSIONS.items():
         if not _is_session_active(entry, now):
             continue
-        if source_artifact_id is not None:
-            if entry.get("source_artifact_id") != source_artifact_id:
-                continue
+        if entry.get("source_artifact_id") != source_artifact_id:
+            continue
         sessions.append({
             "workspace_id": entry.get("workspace_id"),
             "source_artifact_id": entry.get("source_artifact_id"),

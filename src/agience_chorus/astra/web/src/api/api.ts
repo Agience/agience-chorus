@@ -1,6 +1,7 @@
 ﻿// api/api.ts
 import axios from 'axios';
 import { getRuntimeConfig } from '../config/runtime';
+import { isArtifactEndpoint, normalizeArtifactStates } from '../utils/artifactState';
 
 // Base URLs. Origin owns identity; Mantle owns artifacts. A single axios
 // instance is kept, and the request interceptor below rewrites baseURL to
@@ -135,8 +136,15 @@ function refuseHtml<T extends JsonResponse>(response: T): T {
 }
 
 // On 401, clear token and redirect to login
+// Legacy artifact states (`committed`, `draft`) become `live` here, once, for Mantle's artifact
+// endpoints only (see `isArtifactEndpoint`). Every other response, `/op/` payloads included, is
+// passed through untouched.
 api.interceptors.response.use(
-  refuseHtml,
+  response => {
+    refuseHtml(response);
+    if (isArtifactEndpoint(response.config?.url)) normalizeArtifactStates(response.data);
+    return response;
+  },
   error => {
     const originalRequest = error.config;
     if (error.response?.status === 401 && !originalRequest._retry) {
@@ -145,7 +153,9 @@ api.interceptors.response.use(
       const isAuthEndpoint =
         url.startsWith('/auth/password/') ||
         url.startsWith('/auth/otp/') ||
-        url.startsWith('/auth/passkey/');
+        url.startsWith('/auth/passkey/') ||
+        // Confirming an email with a mistyped password answers 401; the verify page says so.
+        url.startsWith('/auth/email/');
       if (!isAuthEndpoint) {
         originalRequest._retry = true;
         localStorage.removeItem('access_token');

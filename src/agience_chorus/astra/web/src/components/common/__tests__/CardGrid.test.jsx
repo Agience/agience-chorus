@@ -29,7 +29,7 @@ function renderWithWorkspace(ui) {
 
 // Mock CardGridItem to simplify testing the grid logic
 vi.mock('../CardGridItem', () => ({
-  CardGridItem: ({ artifact, onMouseDown, onEdit, onRemove, onRevert, forceHover, editable = true }) => {
+  CardGridItem: ({ artifact, onMouseDown, onEdit, onRemove, onRestore, forceHover, editable = true }) => {
     const artifactId = artifact.id ?? artifact.root_id ?? 'missing';
     return (
       <div 
@@ -40,7 +40,7 @@ vi.mock('../CardGridItem', () => ({
         <span>{artifact.title || artifact.description?.substring(0, 20) || 'Untitled'}</span>
         {onEdit && editable !== false && <button onClick={() => onEdit(artifact)}>Edit</button>}
         {onRemove && <button onClick={() => onRemove(artifact)}>Remove</button>}
-        {onRevert && <button onClick={() => onRevert(artifact)}>Revert</button>}
+        {onRestore && <button onClick={() => onRestore(artifact)}>Restore</button>}
         {onMouseDown && (
           <button
             data-testid={`select-${artifactId}`}
@@ -60,7 +60,7 @@ describe('CardGrid', () => {
       mockArtifact({
         id: `artifact-${i + 1}`,
         title: `Artifact ${i + 1}`,
-        state: 'committed',
+        state: 'live',
         order_key: String(i + 1).padStart(10, '0')
       })
     );
@@ -102,15 +102,15 @@ describe('CardGrid', () => {
 
     it('passes artifact state to grid items', () => {
       const artifacts = [
-        mockArtifact({ id: '1', state: 'draft' }),
-        mockArtifact({ id: '2', state: 'draft' }),
+        mockArtifact({ id: '1', state: 'live' }),
+        mockArtifact({ id: '2', state: 'live' }),
         mockArtifact({ id: '3', state: 'archived' })
       ];
       
       renderWithWorkspace(<CardGrid artifacts={artifacts} />);
       
-      expect(screen.getByTestId('artifact-1')).toHaveAttribute('data-state', 'draft');
-      expect(screen.getByTestId('artifact-2')).toHaveAttribute('data-state', 'draft');
+      expect(screen.getByTestId('artifact-1')).toHaveAttribute('data-state', 'live');
+      expect(screen.getByTestId('artifact-2')).toHaveAttribute('data-state', 'live');
       expect(screen.getByTestId('artifact-3')).toHaveAttribute('data-state', 'archived');
     });
   });
@@ -128,16 +128,15 @@ describe('CardGrid', () => {
       expect(onRemove).toHaveBeenCalledWith(artifacts[0]);
     });
 
-    it('calls onRevert when revert button clicked', async () => {
+    it('Restore sends state "live"', async () => {
       const user = userEvent.setup();
-      const onRevert = vi.fn();
-      const artifacts = [mockArtifact({ id: '1', state: 'draft' })];
-      
-      renderWithWorkspace(<CardGrid artifacts={artifacts} onRevert={onRevert} />);
-      
-      await user.click(screen.getByText('Revert'));
-      
-      expect(onRevert).toHaveBeenCalledWith(artifacts[0]);
+      const artifacts = [mockArtifact({ id: '1', state: 'archived' })];
+
+      const { workspace } = renderWithWorkspace(<CardGrid artifacts={artifacts} />);
+
+      await user.click(screen.getByText('Restore'));
+
+      expect(workspace.updateArtifact).toHaveBeenCalledWith({ id: '1', state: 'live' });
     });
 
     it('calls onEditArtifactOpen when artifact double-clicked for edit', async () => {

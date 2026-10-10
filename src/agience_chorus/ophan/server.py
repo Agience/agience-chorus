@@ -31,7 +31,10 @@ The registered surface, and nothing else:
   run_licensing_report — produce licensing or entitlement report cards
   create_checkout_session / create_portal_session / create_vu_topup — registered, but raise (see the
     Stripe outbound-writes note above the three tools)
-  activate_subscription / update_subscription — subscription state
+
+`activate_subscription` and `update_subscription` are not tools. They set a person's plan limits on
+ophan's platform identity, so they are reached only from the signature-verified Stripe webhook
+(`_dispatch_stripe_event`), never by an MCP caller.
 
 Ophan meters no model invocation: the platform's no-models rule applies to this persona too,
 including BYOK. `check_llm_allowance` and `record_llm_usage` are unregistered tombstones that raise
@@ -975,11 +978,8 @@ async def _update_workspace_artifact(
 
 
 async def _list_workspace_artifacts(workspace_id: str) -> list[dict[str, Any]]:
-    # A workspace is a container artifact, so "its artifacts" are its children. `workspace_id` is passed
-    # again as the query param on purpose: that is what makes draft children visible, and a draft is
-    # workspace-private, so omitting it silently hides uncommitted rows (which is how a retry ends up
-    # duplicating an interrupted write).
-    response = await _request("GET", f"/artifacts/{workspace_id}/children?workspace_id={workspace_id}")
+    # A workspace is a container artifact, so "its artifacts" are its children.
+    response = await _request("GET", f"/artifacts/{workspace_id}/children")
     # `/children` returns a bare list; a dict with an `items` list is accepted too rather than guessed
     # at, because an unexpected shape here silently becomes "this workspace is empty", and an empty
     # list is exactly the answer that makes a licensing tool mint a duplicate instead of finding the
@@ -2036,9 +2036,10 @@ async def _add_vu_to_core(person_id: str, vu_amount: int) -> None:
 # vendor SDK call inside a persona server, on a credential read from the process environment.
 #
 # External operators in this platform are GET-only, and astra makes that structural rather than
-# conventional (`astra/fetch.py`): the method is hard-locked at `Request(url, method="GET")` with no
-# code path that sends a body and no parameter that can change the verb; scheme and host are
-# re-validated on every redirect hop; responses are size- and time-capped. Everything world-touching
+# conventional (`astra/fetch.py` over the shared egress guard `agience_chorus/_egress.py`): the
+# method is hard-locked to GET with no code path that sends a body and no parameter that can change
+# the verb; scheme and resolved address are re-validated on every redirect hop; responses are size-
+# and time-capped. Everything world-touching
 # there is an organon — a registered operator artifact declaring the capability it needs — so it
 # passes the prism junction and the discharge gate. These three tools have none of that: no organon,
 # no declared capability, no gate, and so nothing that a prism could withhold or a grant could deny.
@@ -2141,7 +2142,10 @@ async def create_vu_topup(
     raise OphanToolError(f"create_vu_topup {_STRIPE_WRITE_REFUSAL}")
 
 
-@mcp.tool(description="Activate a subscription after Stripe checkout. Creates artifacts and syncs limits to Core.")
+# Not an MCP tool, and must not become one. This and `update_subscription` write a person's plan
+# limits through `_platform_request` — ophan's own platform identity — for a `person_id` they are
+# handed. Registered, any MCP caller could grant any person any plan. The only caller is
+# `_dispatch_stripe_event`, where `person_id` comes from HMAC-verified Stripe event metadata.
 async def activate_subscription(
     person_id: str,
     plan: str,
@@ -2207,7 +2211,7 @@ async def activate_subscription(
     return _json_result({"status": "activated", "person_id": person_id, "plan": plan})
 
 
-@mcp.tool(description="Update a subscription (plan change or cancellation). Syncs new limits to Core.")
+# Not an MCP tool: see `activate_subscription`. Reached only from `_dispatch_stripe_event`.
 async def update_subscription(
     person_id: str,
     new_plan: str,
@@ -2306,13 +2310,46 @@ async def _dispatch_stripe_event(event_type: str, event_data: str) -> str:
 _processed_stripe_events: set[str] = set()
 _PROCESSED_EVENTS_MAX = 10_000
 
+#: The largest webhook body read. The endpoint is unauthenticated until the signature is checked, and
+#: the check needs the whole body, so the read itself is bounded: a larger body is refused with 413
+#: and the rest of it is never read. A Stripe event is a few kilobytes.
+_STRIPE_WEBHOOK_MAX_BYTES = 256 * 1024
+
+
+async def _webhook_reply(send: Any, status: int, payload: dict) -> None:
+    body = json.dumps(payload).encode()
+    await send({"type": "http.response.start", "status": status,
+                "headers": [(b"content-type", b"application/json"),
+                            (b"content-length", str(len(body)).encode())]})
+    await send({"type": "http.response.body", "body": body})
+
 
 async def _handle_stripe_webhook_http(scope: dict, receive: Any, send: Any) -> None:
-    """Handle POST /webhooks/stripe — validates Stripe-Signature and dispatches."""
-    body_parts = []
+    """Handle POST /webhooks/stripe — validates Stripe-Signature and dispatches.
+
+    Answers carry no exception text: the caller is unauthenticated until the signature verifies,
+    and a secret-resolution or verification error message describes ophan's configuration. The
+    detail goes to the log.
+    """
+    for header_name, header_value in scope.get("headers", []):
+        if header_name == b"content-length":
+            try:
+                declared = int(header_value)
+            except ValueError:
+                await _webhook_reply(send, 400, {"error": "invalid content-length"})
+                return
+            if declared > _STRIPE_WEBHOOK_MAX_BYTES:
+                await _webhook_reply(send, 413, {"error": "request body too large"})
+                return
+    body_parts, size = [], 0
     while True:
         msg = await receive()
-        body_parts.append(msg.get("body", b""))
+        chunk = msg.get("body", b"")
+        size += len(chunk)
+        if size > _STRIPE_WEBHOOK_MAX_BYTES:
+            await _webhook_reply(send, 413, {"error": "request body too large"})
+            return
+        body_parts.append(chunk)
         if not msg.get("more_body", False):
             break
     body = b"".join(body_parts)
@@ -2340,7 +2377,6 @@ async def _handle_stripe_webhook_http(scope: dict, receive: Any, send: Any) -> N
         log.error("Stripe webhook REFUSED — signing secret unresolvable: %s", exc)
         resp_body = json.dumps({
             "error": "Stripe webhook signing secret is not resolvable from stored secrets",
-            "reason": str(exc),
             "refused": "no event is dispatched without a verified signature",
         }).encode()
         await send({"type": "http.response.start", "status": 503,
@@ -2356,7 +2392,8 @@ async def _handle_stripe_webhook_http(scope: dict, receive: Any, send: Any) -> N
         import stripe as _stripe
         event = _stripe.Webhook.construct_event(body, sig_header, webhook_secret)
     except Exception as exc:
-        resp_body = json.dumps({"error": f"Webhook verification failed: {exc}"}).encode()
+        log.warning("Stripe webhook signature verification failed: %s", exc)
+        resp_body = json.dumps({"error": "Webhook verification failed"}).encode()
         await send({"type": "http.response.start", "status": 400,
                      "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(resp_body)).encode())]})
         await send({"type": "http.response.body", "body": resp_body})
@@ -2383,9 +2420,9 @@ async def _handle_stripe_webhook_http(scope: dict, receive: Any, send: Any) -> N
             event_data=json.dumps(event["data"]["object"]),
         )
         resp_body = result.encode() if isinstance(result, str) else json.dumps(result).encode()
-    except Exception as exc:
+    except Exception:
         log.exception("Stripe webhook processing error")
-        resp_body = json.dumps({"error": str(exc)}).encode()
+        resp_body = json.dumps({"error": "webhook processing failed"}).encode()
 
     await send({"type": "http.response.start", "status": 200,
                  "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(resp_body)).encode())]})

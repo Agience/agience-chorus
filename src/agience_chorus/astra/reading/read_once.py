@@ -55,7 +55,6 @@ def _db() -> str:
 
 def read_once(store, collection: str, text: str, say=print) -> dict:
     """Overlap for the vocabulary, then one streaming pass that closes screens and forms junctions."""
-    import math
 
     from agience_chorus._host_seams import seam as _seam
     from agience_chorus.astra.reading import overlap as _ov

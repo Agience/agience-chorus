@@ -158,7 +158,7 @@ def collection_artifacts(arts: List[Dict[str, Any]], *, author: str = "sage-cano
     for f in sorted(folders):
         parent = f.rsplit("/", 1)[0] if "/" in f else ""
         out.append({
-            "id": _COLLECTION_ID_PREFIX + f, "content_type": COLLECTION_CT, "state": "committed",
+            "id": _COLLECTION_ID_PREFIX + f, "content_type": COLLECTION_CT, "state": "live",
             "title": f.rsplit("/", 1)[-1], "context": "canon collection: %s" % f,
             "created_by": author, "created_time": _CANON_TIME,
             "knowledge": CANON_KNOWLEDGE, "license": CANON_LICENSE,
@@ -208,7 +208,7 @@ def canon_artifacts(root: str, *, author: str = "sage-canon") -> List[Dict[str, 
             else:
                 seen[cid] = 1
             arts.append({
-                "id": cid, "content_type": CANON_CT, "state": "committed",
+                "id": cid, "content_type": CANON_CT, "state": "live",
                 "title": "%s — %s" % (stem, ch["heading"]),
                 "content": ch["body"],
                 # ── THE OFFER: what this section is about, in the document's own words ────
@@ -767,7 +767,7 @@ def register_canon_operators(store, *, author: str = "sage-canon") -> int:
     from crystal.evolution import OPERATOR_CONTENT_TYPE
     for name, offer in _CANON_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
-            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "committed",
+            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
             "context": offer, "content": f"sage canon operator {name}: {offer}",
             "created_by": author}))
     return len(_CANON_OPS)

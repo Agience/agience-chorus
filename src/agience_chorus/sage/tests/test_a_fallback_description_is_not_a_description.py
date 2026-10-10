@@ -49,7 +49,7 @@ class _Bundle:
 
 
 def _doc(i="a1", **kw):
-    d = {"id": i, "content_type": "text/markdown", "state": "committed"}
+    d = {"id": i, "content_type": "text/markdown", "state": "live"}
     d.update(kw)
     return d
 

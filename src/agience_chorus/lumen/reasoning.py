@@ -15,7 +15,7 @@ What this module does NOT do is decide whether resolved structure is genuine or 
 trend or a level shift. It has no measurement that separates them: a trend, a level shift and a
 damped sine are all rank-one, and a level shift's dominant mode decays just as a real slow mode
 does. The document that prompted this work names that separation as the valuable thing
-(`agience-pharos/theory/FRACTAL-ENTROPTICS-EVAL.md` §2) and it remains unbuilt here. Do not read `DETERMINISTIC`
+(the fractal evaluation in `agience-pharos/theory/` §2) and it remains unbuilt here. Do not read `DETERMINISTIC`
 as "this structure is real"; read it as "a proper subspace resolved and the operator could be
 rolled".
 
@@ -214,7 +214,7 @@ def _decay_margin(dyn) -> Optional[float]:
     a spurious exponent; that is a different claim from "a trend cannot be forecast", and conflating
     them costs real forecasts.
 
-    What `m` reads on the calibrated series of `agience-pharos/theory/FRACTAL-ENTROPTICS-EVAL.md` §2 (embedded at
+    What `m` reads on the calibrated series of the fractal evaluation in `agience-pharos/theory/` §2 (embedded at
     the measured lag, six seeds) — calibration, not a cut:
 
         genuine fGn H=0.8   m = 0.898       AR(1) φ=0.95   m = 0.943
@@ -443,7 +443,7 @@ class ReasoningRouter:
         The resolved rank gates; it does not shape the forecast. The instrument's propagator is the
         unregularised least-squares operator `A = P_yx · P_xx⁺`, so for a scalar series this is
         AR(lag) OLS and for a panel VAR(lag) OLS, regardless of what `K_signal` resolved
-        (`agience-pharos/theory/FRACTAL-ENTROPTICS-EVAL.md` §4 measures the two identical to four decimals at
+        (the fractal evaluation in `agience-pharos/theory/` §4 measures the two identical to four decimals at
         every horizon, and shows the propagator unchanged for every `rank=` passed). That is worth
         knowing at the call site: OLS overfits where regularisation matters, so a short training
         frame with many features is exactly where this forecast is weakest.
@@ -712,7 +712,7 @@ def register_reasoning_operators(store, *, author: str = "ember-local") -> int:
     from crystal.evolution import OPERATOR_CONTENT_TYPE
     for name, offer in _REASONING_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
-            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "committed",
+            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
             "context": offer, "content": f"lumen tekton operator {name}: {offer}",
             "created_by": author,
             "collection_id": _SYSTEM_COLLECTION, "created_time": _REGISTERED_AT}))

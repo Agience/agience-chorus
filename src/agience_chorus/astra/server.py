@@ -212,14 +212,12 @@ async def _find_child(container_id: str, name: str, content_type: str) -> dict |
     """One child of `container_id` whose title matches `name`, or None.
 
     Used for idempotent ingest: a series that already exists must be reused, never forked, or a
-    re-run would split one symbol's history across two collections. `workspace_id` is passed as the
-    container so draft children are visible too — an uncommitted series from an interrupted run must
-    still be found, otherwise the retry duplicates it.
+    re-run would split one symbol's history across two collections.
     """
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             artifact_url(MANTLE_URI, container_id, "children"),
-            params={"content_type": content_type, "workspace_id": container_id},
+            params={"content_type": content_type},
             # Fails closed on the caller-supplied `container_id`: an absent or unverifiable
             # delegation must not fall back to Astra's platform JWT, or this becomes a cross-tenant
             # listing primitive that returns any named container's children under platform
@@ -1031,20 +1029,8 @@ async def sync_source(workspace_id: str, connector_artifact_id: str) -> str:
     return json.dumps({
         "connector_type": kind, "series_id": series_id, "chunk_id": chunk_id,
         "bars_fetched": len(rows), "payload": "pending",
-        # `committed`/`indexed` are reported rather than assumed true, because an uncommitted series
-        # is not indexed and is therefore invisible to retrieval — a silent half-ingest that looks
-        # like a write succeeded. `market_ingest.commit_series` is not wired here because mantle
-        # exposes no commit mutation route: the only `commits` route is the read-only
-        # `GET /artifacts/{container_id}/commits`, and the sole state mutation is
-        # `POST /artifacts/{id}/revert`. The honest move is to report the state and let the caller
-        # see that a market sync currently produces data no retrieval can reach.
-        "committed": False,
-        "indexed": False,
         "note": "series + chunk metadata written; OHLCV bytes NOT uploaded (no parquet writer in "
-                "chorus). Numbers are deliberately not embedded — see market_ingest.push_bars_chunk. "
-                "⚠ The series is NOT committed and therefore NOT indexed, so it is invisible to "
-                "retrieval: mantle exposes no commit route (only GET .../commits and POST .../revert), "
-                "so market_ingest.commit_series cannot be wired. This write is real but unreachable.",
+                "chorus). Numbers are deliberately not embedded — see market_ingest.push_bars_chunk.",
     })
 
 

@@ -5,30 +5,43 @@ import { claimInvite } from '../api/artifacts';
 import { get } from '../api/api';
 import { toast } from 'sonner';
 
+/** `GET /grants/invite-details`: what an invite grants, read without claiming it. */
+type InviteDetails = {
+  valid?: boolean;
+  identity_mismatch?: boolean;
+  resource_id?: string;
+  granted_by?: string;
+  name?: string;
+};
+
 /**
  * /invite/:token -- public invite claim page.
  *
  * PII rules:
  * - Pre-auth: show only "You've been invited to collaborate." No inviter
  *   name, no resource name, no email hint.
- * - Post-auth + target match: full context is handled by the backend via
- *   /grants/invite-details and is not rendered here — the claim call
- *   succeeds and redirects to the resource.
+ * - Post-auth: show what `/grants/invite-details` returns without claiming
+ *   (the invite's name, the resource id, the granting user's id; or that the
+ *   invite is addressed to someone else) and claim only on an explicit
+ *   Accept click. Opening the link never claims anything by itself, so a
+ *   crafted link cannot attach a grant to a signed-in account unasked.
  */
 export default function InviteClaimPage() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
   const { isAuthenticated, loading: authLoading, login } = useAuth();
 
-  const [status, setStatus] = useState<'loading' | 'awaiting_auth' | 'claiming' | 'success' | 'error'>('loading');
+  const [status, setStatus] = useState<'loading' | 'awaiting_auth' | 'confirm' | 'claiming' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
   const [inviteContext, setInviteContext] = useState<{
     valid?: boolean;
     has_target?: boolean;
     target_type?: string;
   } | null>(null);
+  const [details, setDetails] = useState<InviteDetails | null>(null);
 
   const claimedRef = useRef(false);
+  const detailsRequestedRef = useRef(false);
 
   // Pre-auth: fetch non-PII invite context.
   useEffect(() => {
@@ -62,7 +75,7 @@ export default function InviteClaimPage() {
       });
   }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Claim once authenticated.
+  // Claim, only from the Accept button.
   const doClaim = useCallback(async () => {
     if (!token || claimedRef.current) return;
     claimedRef.current = true;
@@ -89,13 +102,33 @@ export default function InviteClaimPage() {
     }
   }, [token, navigate]);
 
+  // Once signed in, read what the invite grants (a read; nothing is claimed) and ask.
   useEffect(() => {
-    if (isAuthenticated && !authLoading && token && !claimedRef.current && status !== 'error') {
-      doClaim();
-    }
-  }, [isAuthenticated, authLoading, token, status, doClaim]);
+    if (!isAuthenticated || authLoading || !token || status === 'error' || detailsRequestedRef.current) return;
+    detailsRequestedRef.current = true;
+    get<InviteDetails>(`/grants/invite-details?token=${encodeURIComponent(token)}`)
+      .then((d) => {
+        setDetails(d ?? null);
+        setStatus('confirm');
+      })
+      .catch((err: unknown) => {
+        const code = (err as { response?: { status?: number } })?.response?.status;
+        if (code === 404 || code === 410) {
+          setStatus('error');
+          setMessage('This invite is no longer valid.');
+          return;
+        }
+        setDetails(null);
+        setStatus('confirm');
+      });
+  }, [isAuthenticated, authLoading, token, status]);
 
-  // Stash the token so the post-login flow can auto-claim.
+  const cancel = useCallback(() => {
+    try { sessionStorage.removeItem('pending_invite_token'); } catch { /* storage unavailable */ }
+    navigate('/', { replace: true });
+  }, [navigate]);
+
+  // Stash the token so the post-login flow returns here to ask.
   useEffect(() => {
     if (token && status === 'awaiting_auth') {
       sessionStorage.setItem('pending_invite_token', token);
@@ -127,6 +160,50 @@ export default function InviteClaimPage() {
             >
               Sign in to continue
             </button>
+          </>
+        )}
+
+        {status === 'confirm' && (
+          <>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Accept this invite?</h2>
+            {details?.identity_mismatch ? (
+              <p className="text-gray-600 mb-6">
+                This invite is addressed to a different account than the one you are signed in with.
+              </p>
+            ) : (
+              <>
+                <p className="text-gray-600 mb-4">Accepting gives your account access to a shared resource.</p>
+                {details && (details.name || details.resource_id || details.granted_by) && (
+                  <dl className="text-left text-sm text-gray-700 bg-gray-50 border rounded-md p-3 mb-6 space-y-1">
+                    {details.name && (
+                      <div><dt className="inline font-medium">Invite: </dt><dd className="inline">{details.name}</dd></div>
+                    )}
+                    {details.resource_id && (
+                      <div><dt className="inline font-medium">Resource: </dt><dd className="inline font-mono break-all">{details.resource_id}</dd></div>
+                    )}
+                    {details.granted_by && (
+                      <div><dt className="inline font-medium">Shared by: </dt><dd className="inline font-mono break-all">{details.granted_by}</dd></div>
+                    )}
+                  </dl>
+                )}
+              </>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={cancel}
+                className="flex-1 border border-gray-300 text-gray-800 py-2.5 px-4 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              {!details?.identity_mismatch && (
+                <button
+                  onClick={() => { void doClaim(); }}
+                  className="flex-1 bg-gray-900 text-white py-2.5 px-4 rounded-md hover:bg-gray-800 transition-colors"
+                >
+                  Accept invite
+                </button>
+              )}
+            </div>
           </>
         )}
 

@@ -78,6 +78,8 @@ from typing import Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from agience_chorus import _egress
+
 log = logging.getLogger("agience-server-seraph")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(), format="%(asctime)s %(levelname)s - %(name)s - %(message)s")
 
@@ -458,6 +460,10 @@ async def provide_access_token(
 
     if not all([client_id, client_secret_id, token_endpoint]):
         return _json.dumps({"error": "authorizer_config missing required fields (client_id, client_secret_id, token_endpoint)"})
+    try:
+        token_endpoint = _egress.require_token_endpoint(token_endpoint)
+    except _egress.EgressRefused as exc:
+        return _json.dumps({"error": "refused: %s" % exc})
 
     # 1. Decrypt client_secret via JWE
     client_secret = await _fetch_and_decrypt_secret(secret_id=client_secret_id)
@@ -552,6 +558,10 @@ async def complete_authorizer_oauth(
 
     if not all([client_id, client_secret_id, token_endpoint]):
         return _json.dumps({"error": "authorizer_config missing required fields"})
+    try:
+        token_endpoint = _egress.require_token_endpoint(token_endpoint)
+    except _egress.EgressRefused as exc:
+        return _json.dumps({"error": "refused: %s" % exc})
 
     # Decrypt client_secret via JWE
     client_secret = await _fetch_and_decrypt_secret(secret_id=client_secret_id)
@@ -609,9 +619,35 @@ async def complete_authorizer_oauth(
     return _json.dumps({"status": "connected", "authorizer_artifact_id": authorizer_artifact_id})
 
 
+async def _stored_authorizer_config(authorizer_artifact_id: str) -> dict:
+    """The Authorizer artifact's content, read under the caller's delegation.
+
+    The config comes from the stored artifact and never from the caller: it names the token
+    endpoint the exchange POSTs to and the client-secret artifact whose value goes with it, so a
+    caller-supplied config would let a caller choose both. Raises `ValueError` when the artifact
+    cannot be read or its content is not a JSON object.
+    """
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            artifact_url(MANTLE_URI, authorizer_artifact_id),
+            headers=_require_user_headers(),
+        )
+    if resp.status_code != 200:
+        raise ValueError("authorizer %s is not readable (%s)" % (authorizer_artifact_id,
+                                                                 resp.status_code))
+    content = (resp.json() or {}).get("content")
+    if isinstance(content, str):
+        try:
+            content = _json.loads(content)
+        except (TypeError, ValueError):
+            content = None
+    if not isinstance(content, dict):
+        raise ValueError("authorizer %s content is not a JSON object" % authorizer_artifact_id)
+    return content
+
+
 @mcp.tool(description="Complete a bearer-token-only authorization code exchange (no refresh token)")
 async def complete_authorizer_bearer(
-    authorizer_config: str,
     authorizer_artifact_id: str,
     authorization_code: str,
     redirect_uri: str,
@@ -619,12 +655,13 @@ async def complete_authorizer_bearer(
 ) -> str:
     """Exchange an authorization code for a bearer token (no refresh token flow).
 
-    For providers that return only an access_token with no refresh token
-    (e.g. JarvisGPT). The access token is stored as a secret with an
-    expiry timestamp; when it expires the user must re-authenticate.
+    For providers that return only an access_token with no refresh token. The access token is
+    stored as a secret with an expiry timestamp; when it expires the user must re-authenticate.
+
+    The Authorizer's config is read from the stored artifact under the caller's delegation, and
+    its `token_endpoint` must be one of `_egress.OAUTH_TOKEN_ENDPOINTS`.
 
     Args:
-        authorizer_config: JSON content of the Authorizer artifact.
         authorizer_artifact_id: Artifact ID of the Authorizer.
         authorization_code: The authorization code from the callback.
         redirect_uri: The redirect URI used in the original request.
@@ -633,13 +670,14 @@ async def complete_authorizer_bearer(
     User identity is carried at the transport layer via the delegation JWT.
     """
     try:
-        config = _json.loads(authorizer_config) if isinstance(authorizer_config, str) else authorizer_config
-    except Exception:
-        return _json.dumps({"error": "Invalid authorizer_config JSON"})
+        config = await _stored_authorizer_config(authorizer_artifact_id)
+    except ValueError as exc:
+        return _json.dumps({"error": str(exc)})
 
-    token_endpoint = config.get("token_endpoint")
-    if not token_endpoint:
-        return _json.dumps({"error": "authorizer_config missing token_endpoint"})
+    try:
+        token_endpoint = _egress.require_token_endpoint(config.get("token_endpoint"))
+    except _egress.EgressRefused as exc:
+        return _json.dumps({"error": "refused: %s" % exc})
 
     client_id = config.get("client_id")
     provider = config.get("provider", "external")
@@ -928,44 +966,53 @@ async def revoke_access(
 # mechanical translation: guessing there would quietly widen access during a security operation.
 
 
-@mcp.tool(description="Verify a JWT against the platform JWKS and return which class it is, plus claims")
+@mcp.tool(description="Verify a JWT against the platform JWKS and return whether it is a valid access token, and of which class")
 async def verify_token(
     token: str,
 ) -> str:
     """Verify a token and say what it is — not merely that it is "valid".
 
     The platform issues several distinct token classes and they authorize different things: a
-    delegation JWT (a user acting through a server), an origin delegation, a plain user JWT, and a
-    core/service JWT. **"Valid" on its own is not a usable answer — valid as what?** A caller that
-    treats a service token as a user token has been told the truth and still gets it wrong. So this
-    reports the class that verified, and returns claims only for that class.
+    delegation JWT (a user acting through a server), an origin delegation, and a plain user JWT.
+    **"Valid" on its own is not a usable answer — valid as what?** A caller that treats a delegation
+    as a user token has been told the truth and still gets it wrong. So this reports the class that
+    verified.
+
+    Only access tokens are valid here. Origin stamps `token_type` on every special-purpose token it
+    signs — refresh (30 days), email_verify (the link in a confirmation mail), pwd_reset — and never
+    on an access token, so a token carrying `token_type` is refused, exactly as Origin's own bearer
+    dependency refuses it. Reporting such a token as a valid user token would turn a mailed link or a
+    refresh token into a session.
+
+    The claims are not returned. This tool answers "is this an access token, and of which class";
+    echoing the decoded claims would hand any caller the subject, audience, scopes and expiry of a
+    token they only need checked.
 
     Verification uses the same `_auth` verifiers the enforcing paths use (which check against origin's
     published JWKS), so a verdict here cannot drift from a verdict at an enforcing route.
 
     Reports failure without a per-class reason. Saying which check failed and how would help shape a
-    forgery attempt; "did not verify as any known class" is the sufficient answer. API keys are not
-    accepted here — they are not JWTs, are checked by a different mechanism, and treating them as
-    tokens would blur two authorization paths.
+    forgery attempt; "did not verify as an access token of any known class" is the sufficient answer.
+    API keys are not accepted here — they are not JWTs, are checked by a different mechanism, and
+    treating them as tokens would blur two authorization paths.
     """
     checks = (
         ("delegation", _auth.verify_delegation_jwt),
         ("origin_delegation", _auth.verify_origin_delegation),
         ("user", _auth.verify_user_jwt),
-        ("core", _auth.verify_core_jwt),
     )
     for name, fn in checks:
         try:
             claims = fn(token)
         except Exception:                    # a verifier that raises is a refusal, not a crash
             continue
-        if claims:
-            return _json.dumps({"valid": True, "token_class": name, "claims": claims})
+        if claims and not claims.get("token_type"):
+            return _json.dumps({"valid": True, "token_class": name})
     return _json.dumps({
         "valid": False,
         "token_class": None,
-        "detail": "did not verify as any known token class "
-                  "(delegation | origin_delegation | user | core)",
+        "detail": "did not verify as an access token of any known class "
+                  "(delegation | origin_delegation | user)",
     })
 
 

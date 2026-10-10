@@ -42,7 +42,7 @@ export default function Prompts() {
         id,
         context,
         content,
-        state: 'committed',
+        state: 'live',
       };
 
       updatePanelData('prompts', (prev) => ({

@@ -642,7 +642,7 @@ def register_docs_operators(store, *, author: str = "ember-local") -> int:
     from crystal import evolution
     for name, offer in _DOCS_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
-            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "committed",
+            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
             "context": offer, "content": f"docs operator {name}: {offer}  [read-only]",
             "created_by": author}))
     return len(_DOCS_OPS)

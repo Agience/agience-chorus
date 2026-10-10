@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Callable, Dict, Iterable, Optional
 from urllib.parse import urlparse
 
-from prism.source import Observation, Source, _OBSERVED
+from prism.source import Observation, _OBSERVED
 
 #: suffix -> content type. Carried with `_ct_from_response`, its only user: the suffix is what wins
 #: when a server sends a generic `text/plain` for a file whose extension says otherwise.

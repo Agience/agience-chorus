@@ -58,19 +58,24 @@ against. What Ophan offers instead is energy, built and tested in `beam`:
 
 ### Subscriptions & payment
 
-`server.py` also registers five more tools, in the subscriptions-and-payment surface. Two of them are **live** and write:
+`server.py` also registers three tools in the subscriptions-and-payment surface:
 
 | Tool | Status | Description |
 |---|---|---|
-| `activate_subscription` | live | Writes a subscription artifact, pushes `_PLAN_LIMITS` to `/internal/gate/set-limits`, adds VU credits. |
-| `update_subscription` | live | Plan change; same gate + credit path. |
 | `create_checkout_session` | registered, no execution path | Outbound payment write; has no `op.pay.session` organon to execute through yet. |
 | `create_portal_session` | registered, no execution path | As above. |
 | `create_vu_topup` | registered, no execution path | As above. |
 
-Billing is a distinct surface from energy: the subscription tools are live, separate from the
-*financial tool* surface (transfers, ledger, market data) described above, which this workspace
-does not implement.
+Subscription state is written by the Stripe webhook (`POST /webhooks/stripe`), not by a tool. After
+the signature verifies, `_dispatch_stripe_event` calls `activate_subscription` (writes the
+entitlement, subscription and event artifacts and pushes `_PLAN_LIMITS` to
+`/internal/gate/set-limits`) or `update_subscription` (plan change or cancellation, same gate path).
+Neither is registered: both write plan limits on ophan's platform identity for the `person_id` they
+are handed, so an MCP caller must not reach them. The webhook reads at most 256 KiB of body and
+answers without exception text.
+
+Billing is a distinct surface from energy, and separate from the *financial tool* surface
+(transfers, ledger, market data) described above, which this workspace does not implement.
 
 Licensing tools are entitlement-gated. Base installation review and usage flows require an active licensing entitlement; issuance, renewal, revocation, and reporting require advanced licensing-operations entitlement.
 

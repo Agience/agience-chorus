@@ -33,7 +33,7 @@ export async function agentHandler(state: PaletteState, ctx: AgentRunContext): P
         type: 'palette-error',
         title: 'Palette error',
       }),
-      state: 'draft',
+      state: 'live',
     });
   } else if (toolName === 'extract_information') {
     const { sourceArtifactId, contextArtifactIds } = inferSourceAndArtifacts(ctx.selectedArtifactIds);
@@ -46,7 +46,7 @@ export async function agentHandler(state: PaletteState, ctx: AgentRunContext): P
           type: 'palette-error',
           title: 'Palette',
         }),
-        state: 'draft',
+        state: 'live',
       });
     } else {
       const result = await extractInformation(ctx.workspaceId, sourceArtifactId, contextArtifactIds);
@@ -71,7 +71,7 @@ export async function agentHandler(state: PaletteState, ctx: AgentRunContext): P
           context_artifact_ids: contextArtifactIds,
           created_artifact_ids: result.created_artifact_ids,
         }),
-        state: 'draft',
+        state: 'live',
       });
     }
   } else {
@@ -90,7 +90,7 @@ export async function agentHandler(state: PaletteState, ctx: AgentRunContext): P
         type: 'palette-error',
         title: 'Palette',
       }),
-      state: 'draft',
+      state: 'live',
     });
   }
 

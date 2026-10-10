@@ -8,11 +8,8 @@ import { PRODUCT_NOUN, noun } from '@/product/copy';
 // Artifact deletion/removal confirmations
 export const CARD_CONFIRM = {
   DELETE_PERMANENT_TITLE: `Delete ${PRODUCT_NOUN.singular.toLowerCase()} permanently?`,
-  DELETE_PERMANENT_DESCRIPTION: `This ${PRODUCT_NOUN.singular.toLowerCase()} has never been published. Deleting it will permanently remove all content.`,
+  DELETE_PERMANENT_DESCRIPTION: `Deleting this ${PRODUCT_NOUN.singular.toLowerCase()} permanently removes it and all its content.`,
   DELETE_PERMANENT_CONFIRM: 'Delete permanently',
-  REVERT_TITLE: `Revert changes to this ${PRODUCT_NOUN.singular.toLowerCase()}?`,
-  REVERT_DESCRIPTION: 'This will discard local edits and restore the last committed version.',
-  REVERT_CONFIRM: 'Revert changes',
   ARCHIVE_TITLE: `Archive this ${PRODUCT_NOUN.singular.toLowerCase()}?`,
   ARCHIVE_DESCRIPTION: `This will hide the ${PRODUCT_NOUN.singular.toLowerCase()} from active views until restored.`,
   ARCHIVE_CONFIRM: 'Archive',
@@ -21,7 +18,7 @@ export const CARD_CONFIRM = {
 // Bulk operations confirmations
 export const BULK_CONFIRM = {
   DELETE_TITLE: (count: number) => `Delete ${count} ${noun(count).toLowerCase()}?`,
-  DELETE_DESCRIPTION: (count: number) => `${count === 1 ? `This ${PRODUCT_NOUN.singular.toLowerCase()}` : `These ${PRODUCT_NOUN.plural.toLowerCase()}`} ${count === 1 ? 'has' : 'have'} never been published and will be permanently deleted.`,
+  DELETE_DESCRIPTION: (count: number) => `${count === 1 ? `This ${PRODUCT_NOUN.singular.toLowerCase()}` : `These ${PRODUCT_NOUN.plural.toLowerCase()}`} will be permanently deleted.`,
   ARCHIVE_TITLE: (count: number) => `Archive ${count} ${noun(count).toLowerCase()}?`,
   ARCHIVE_DESCRIPTION: (count: number) => `${count === 1 ? `This ${PRODUCT_NOUN.singular.toLowerCase()}` : `These ${PRODUCT_NOUN.plural.toLowerCase()}`} ${count === 1 ? 'will' : 'will'} be moved to archived state and can be restored later.`,
 } as const;
@@ -56,8 +53,7 @@ export const COLLECTION_STATUS = {
 
 // Artifact state labels
 export const CARD_STATE = {
-  DRAFT: 'draft',
-  COMMITTED: 'committed',
+  LIVE: 'live',
   ARCHIVED: 'archived',
 } as const;
 
@@ -94,9 +90,18 @@ export const BUTTON_LABELS = {
   CONFIRM: 'Confirm',
 } as const;
 
-// Workspace/collection copy
-export const WORKSPACE_COPY = {
-  PENDING_CHANGES: 'pending changes',
-  NO_CHANGES: 'No pending changes',
-  COLLECTIONS_READ_ONLY: (count: number) => `${count} collection${count === 1 ? '' : 's'} read-only`,
+// Browser empty states
+export const EMPTY_STATE = {
+  CREATE_WORKSPACE: 'Create a workspace',
+  NEW_CARD: 'New card',
+  NO_SOURCE_TITLE: 'No workspace docked',
+  NO_SOURCE_BODY: 'Add a card to your Inbox or create a workspace. You can also drop search results here, or search for "Inbox" to dock it.',
+  NO_ARTIFACTS_TITLE: 'Nothing here yet',
+  NO_ARTIFACTS_INBOX_BODY: 'This is your Inbox. Create a card right here, drop a file, or double-click an empty space.',
+  NO_ARTIFACTS_BODY: 'Create a card, drop a file, or double-click an empty space.',
+  NO_SEARCH_RESULTS_TITLE: 'No matches',
+  NO_SEARCH_RESULTS_BODY: (query: string) => `Nothing here matches "${query}".`,
+  NO_FILTER_RESULTS_BODY: 'The active filters hide every card here.',
+  CLEAR_SEARCH: 'Clear search',
+  CLEAR_FILTERS: 'Clear filters',
 } as const;

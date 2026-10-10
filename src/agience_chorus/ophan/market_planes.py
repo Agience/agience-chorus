@@ -41,7 +41,7 @@ cadence as an argument instead of being resampled after the fact.
 ## What is deliberately not here
 
 **No normalisation.** The planes come back in their native units, wildly incommensurate (log returns
-~1e-3, article counts ~10¹, entropy ~bits). Normalisation happens on the Screen, by entroptics' own MAD
+~1e-3, article counts ~10¹, entropy ~bits). Normalisation happens on the Screen, by the instrument's own MAD
 whitening, through `optics.screen_normalize` at read time via the injected slot. Scaling columns here
 would be a second, weaker normaliser free to disagree with the instrument's, and per-column division is
 how cosine similarity gets reinvented.
@@ -524,7 +524,7 @@ def read_co_registered(frame: Dict[str, Any], *, draws: int = 200,
     conservation certificate is stated over.
 
     Both a full node and a beacon-backed store fill this contract: `mantle/search/beacon/engine.py::whiten`
-    implements the identical MAD estimator entroptics uses, and beacon's own `noise_floor` already
+    implements the identical MAD estimator the instrument uses, and beacon's own `noise_floor` already
     depends on it, so a multi-plane read runs on either and `isinstance(beacon, Read)` stays True.
 
     `whitening_amplification` is reported straight through when the instrument supplies it. MAD
@@ -595,7 +595,7 @@ def returns_plane(series: Dict[str, Sequence[Dict[str, Any]]], *, name: str = "r
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
 # Everything above this line is one-shot: `read_co_registered` builds a frame, reads it, and throws
 # the screen away, so every read starts from zero samples and the resolved count is a point estimate
-# that cannot say how sure it is. entroptics measures the identical effect in `ember/optics.py`:
+# that cannot say how sure it is. The instrument measures the identical effect in `ember/optics.py`:
 #
 #     one turn        T=34, F=195   band=16.26   interval [2,195]   never certifies
 #     pooled 20 turns T=466         band= 2.13   interval [10,59]   band falls as sqrt(F/T)
@@ -636,7 +636,7 @@ def market_accumulator(frame: Dict[str, Any], *, read: Any = None) -> Dict[str, 
     that merely happen to be the same width is how a spectrum over two coordinate systems gets built
     and then read as one. The column names travel so `accumulate` can refuse a mismatch.
 
-    `whiten=True` is the normalisation, not a second one: entroptics applies its own `normalize` to
+    `whiten=True` is the normalisation, not a second one: the instrument applies its own `normalize` to
     each plane before summing the covariance — the same callable `screen_normalize` exposes — so the
     pooled and one-shot paths share one definition of whitening.
 
@@ -666,7 +666,7 @@ def accumulate(handle: Dict[str, Any], frame: Dict[str, Any]) -> Dict[str, Any]:
     """Pool one more co-registered frame into the living screen. Mutates and returns the handle.
 
     The columns must match exactly — same names, same order — and a mismatch refuses. This is the
-    guard the whole pooling path stands on: entroptics and beacon both check only that `F` is
+    guard the whole pooling path stands on: the instrument and beacon both check only that `F` is
     constant, so a basket that lost `ETHUSDT` and gained `SOLUSDT` between windows would otherwise
     pool cleanly — the covariance well-formed, the read returning a confident certified count that is
     a count of nothing, undetectable downstream. `F` is not the identity of a basis; the names are.

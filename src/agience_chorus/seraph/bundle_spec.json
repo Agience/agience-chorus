@@ -101,6 +101,7 @@
     "entry_module": "fetch",
     "host_seams": [],
     "modules": {
+      "_egress": "agience-chorus/src/agience_chorus/_egress.py",
       "evolution": "agience-crystal/src/crystal/evolution.py",
       "fetch": "agience-chorus/src/agience_chorus/astra/fetch.py"
     },

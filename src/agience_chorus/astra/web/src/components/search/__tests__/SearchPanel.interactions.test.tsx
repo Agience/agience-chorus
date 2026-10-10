@@ -64,8 +64,8 @@ vi.mock('../../common/CardList', () => ({
 
 describe('SearchPanel interactions', () => {
   const artifacts: Artifact[] = [
-    { id: 'v1', root_id: 'root-1', content: 'first', context: '{}', state: 'committed', collection_ids: [] } as Artifact,
-    { id: 'v2', root_id: 'root-2', content: 'second', context: '{}', state: 'committed', collection_ids: [] } as Artifact,
+    { id: 'v1', root_id: 'root-1', content: 'first', context: '{}', state: 'live', collection_ids: [] } as Artifact,
+    { id: 'v2', root_id: 'root-2', content: 'second', context: '{}', state: 'live', collection_ids: [] } as Artifact,
   ];
 
   it('keeps the panel body blue by default', () => {

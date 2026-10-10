@@ -20,7 +20,7 @@ export function toArtifact(input: ArtifactInput, _userId: string = ''): Artifact
         type: input.type || 'unknown',
         name: input.name
       }, null, 2),
-      state: 'draft',
+      state: 'live',
     };
   }
 
@@ -32,7 +32,7 @@ export function toArtifact(input: ArtifactInput, _userId: string = ''): Artifact
         uri: input,
         fetchedAt: new Date().toISOString(),
       }, null, 2),
-      state: 'draft',
+      state: 'live',
     };
   }
 

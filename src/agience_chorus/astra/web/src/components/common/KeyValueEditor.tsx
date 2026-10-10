@@ -32,6 +32,31 @@ const READONLY_SYSTEM_FIELDS = new Set([
   'upload',          // Upload status/progress (transient, removed after completion)
 ]);
 
+// Keys the store owns. Mantle ignores them on write (and never stores `caller`), so they are
+// shown in the read-only section and never offered as editable rows.
+const STORE_OWNED_FIELDS = new Set([
+  'minted_by',
+  'minted',
+  'placement',
+  'addressing',
+  'screen',
+  'enriched',
+  'caller',
+  'provenance',
+  'provenance_history',
+  'provenance_evidence',
+  'content_key',
+  'content_cas_ref',
+  'content_sha256',
+  'upload',
+  'processing',
+  'storage',
+]);
+
+function isReadonlyField(key: string): boolean {
+  return READONLY_SYSTEM_FIELDS.has(key) || STORE_OWNED_FIELDS.has(key);
+}
+
 type PrimitiveKind = 'string' | 'number' | 'boolean' | 'null' | 'json';
 
 type CustomRow = {
@@ -282,7 +307,7 @@ export default function KeyValueEditor({
 
   const toCustomRows = (o: JSONObject): CustomRow[] =>
     Object.entries(o)
-      .filter(([k]) => !STANDARD.some((s) => s.key === k) && !READONLY_SYSTEM_FIELDS.has(k))
+      .filter(([k]) => !STANDARD.some((s) => s.key === k) && !isReadonlyField(k))
       .map(([k, v]) => {
         const kind = inferKindForExisting(v);
         const vv =
@@ -301,6 +326,7 @@ export default function KeyValueEditor({
     for (const r of nextRows) {
       const k = r.key.trim();
       if (!k) continue; // keep empty-row local only
+      if (isReadonlyField(k)) continue; // a custom row cannot set a system or store-owned key
       if (r.kind === 'json') {
         const s = String(r.value ?? '').trim();
         if (s) {
@@ -325,9 +351,9 @@ export default function KeyValueEditor({
     for (const { key } of STANDARD) {
       if (key in nextObj) merged[key] = nextObj[key];
     }
-    // Preserve readonly system fields
-    for (const key of READONLY_SYSTEM_FIELDS) {
-      if (key in nextObj) merged[key] = nextObj[key];
+    // Preserve readonly system and store-owned fields as they arrived
+    for (const key of Object.keys(nextObj)) {
+      if (isReadonlyField(key)) merged[key] = nextObj[key];
     }
     setObj(merged);
     onChange(merged);
@@ -404,7 +430,7 @@ export default function KeyValueEditor({
   const missingStandards = STANDARD.filter(({ key }) => !hasStandard(key));
 
   // Extract readonly system fields
-  const systemFields = Object.entries(obj).filter(([k]) => READONLY_SYSTEM_FIELDS.has(k));
+  const systemFields = Object.entries(obj).filter(([k]) => isReadonlyField(k));
   
   // Check if this artifact has a downloadable file (has 'content_source' field) and we have artifactId
   const hasFile = artifactId && obj.content_source === 'agience-content';

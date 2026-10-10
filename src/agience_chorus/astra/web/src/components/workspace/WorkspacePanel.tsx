@@ -5,7 +5,7 @@
  * browser and all list-management UI.
  *
  * A thin structural wrapper around Browser: Browser owns the upload, filter,
- * and commit-review state, so this component only supplies layout and props.
+ * and selection state, so this component only supplies layout and props.
  */
 import Browser from '../browser/Browser';
 import type { ActiveSource } from '../../types/workspace';

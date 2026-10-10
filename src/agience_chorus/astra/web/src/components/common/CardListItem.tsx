@@ -6,6 +6,7 @@ import { Artifact } from '../../context/workspace/workspace.types';
 import { DragData } from './CardList';
 import { getContentType } from '@/registry/content-types';
 import { getArtifactType, getArtifactIcon, getArtifactColor, shouldShowStateBadge, getStateBadgeLabel } from '@/utils/artifact-visual-helpers';
+import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import { CardContextItems } from './CardContextItems';
 import type { CardActionId } from './CardContextItems';
 
@@ -15,8 +16,9 @@ interface CardListItemProps {
   onMouseDown?: (e: React.MouseEvent | React.DragEvent) => void;
   onEdit?: () => void;
   onOpen?: () => void;
-  onRemove?: () => void;
-  onRevert?: () => void;
+  onRemove?: (mode?: CardRemoveMode) => void;
+  /** The host destroys the artifact on the `delete` action; without it Delete is not offered. */
+  deleteEnabled?: boolean;
   onArchive?: () => void;
   onRestore?: () => void;
   onAddToWorkspace?: () => void;
@@ -62,7 +64,7 @@ export const CardListItem = ({
   onEdit,
   onOpen,
   onRemove,
-  onRevert,
+  deleteEnabled = false,
   onArchive,
   onRestore,
   onAddToWorkspace,
@@ -171,6 +173,8 @@ export const CardListItem = ({
         onEdit?.();
         break;
       case 'delete':
+        onRemove?.('delete');
+        break;
       case 'remove':
         onRemove?.();
         break;
@@ -179,9 +183,6 @@ export const CardListItem = ({
         break;
       case 'restore':
         onRestore?.();
-        break;
-      case 'revert':
-        onRevert?.();
         break;
       case 'add-to-workspace':
         onAddToWorkspace?.();
@@ -322,6 +323,7 @@ export const CardListItem = ({
           onAction={handleAction}
           isSearchResult={isSearchResult}
           removeLabel={removeLabel}
+          deleteEnabled={deleteEnabled}
         />
       </ContextMenuContent>
     </ContextMenu>

@@ -6,22 +6,22 @@ export interface CollectionChipProps {
   /** Collection name to display */
   name?: string;
   /** Collection membership status */
-  status: 'committed' | 'add' | 'remove' | 'targeted';
+  status: 'member' | 'add' | 'remove' | 'targeted';
   /** Additional CSS classes */
   className?: string;
 }
 
 /**
  * CollectionChip component displays collection membership status with visual distinction:
- * - Solid (filled): committed (already published to this collection)
- * - Ghost (outline): targeted/add (will be published to this collection)
- * - Remove: targeted for removal (will be unpublished from this collection)
+ * - Solid (filled): member (the artifact is in this collection)
+ * - Ghost (outline): targeted/add (the artifact will be added to this collection)
+ * - Remove: targeted for removal (the artifact will be removed from this collection)
  */
 export function CollectionChip({ id, name, status, className }: CollectionChipProps) {
   const displayName = name || id;
 
-  // Solid style for committed collections
-  if (status === 'committed') {
+  // Solid style for collections the artifact is in
+  if (status === 'member') {
     return (
       <span
         className={clsx(
@@ -29,7 +29,7 @@ export function CollectionChip({ id, name, status, className }: CollectionChipPr
           'bg-emerald-100 text-emerald-800 border border-emerald-300',
           className
         )}
-        title={`Committed to ${displayName}`}
+        title={`In ${displayName}`}
       >
         {displayName}
       </span>
@@ -45,7 +45,7 @@ export function CollectionChip({ id, name, status, className }: CollectionChipPr
           'bg-transparent text-purple-700 border border-purple-400 border-dashed',
           className
         )}
-        title={`Targeted for ${displayName} (pending publish)`}
+        title={`Will be added to ${displayName}`}
       >
         {displayName}
       </span>
@@ -60,7 +60,7 @@ export function CollectionChip({ id, name, status, className }: CollectionChipPr
         'bg-rose-50 text-rose-700 border border-rose-300 line-through',
         className
       )}
-      title={`Will remove from ${displayName} on publish`}
+      title={`Will be removed from ${displayName}`}
     >
       {displayName}
     </span>

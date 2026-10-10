@@ -92,7 +92,7 @@ def test_with_NO_accountant_the_entropy_REFUSES_at_the_point_of_measurement():
 def test_a_partial_accountant_says_WHICH_member_it_lacks():
     """The constrained host, not the unwired one — a real deployment rather than a hypothetical:
     `prism.conservation` is exactly this shape. It stands on numpy, fills `energy` and `PathLedger`,
-    and cannot fill `entropy_bits`, whose floor is entroptics, which prism may never import. It must
+    and cannot fill `entropy_bits`, whose floor is the instrument, which prism may never import. It must
     be told apart from an empty slot by what `InstrumentRequired` says."""
     from prism.instrument import InstrumentRequired
     from prism import conservation as NUMPY_ONLY

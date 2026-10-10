@@ -33,7 +33,7 @@ from crystal.evolution import OPERATOR_CONTENT_TYPE  # one home for the operator
 
 # ── the one resolution — imported, not copied ───────────────────────────────────────────────────
 #
-# `exact_limit` and `signal_end` need neither numpy nor entroptics, so `prism.resolution` carries
+# `exact_limit` and `signal_end` need neither numpy nor the instrument, so `prism.resolution` carries
 # them in prism's dependency-free base: `agience-prism-py` installs with no dependencies at all,
 # every host that runs a bundle already has it, and this module imports the one definition rather
 # than keeping a standalone copy.
@@ -57,7 +57,7 @@ def register_corpus_operators(store, *, author: str = "ember-local") -> int:
     from crystal import evolution
     for name, offer in _CORPUS_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
-            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "committed",
+            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
             "context": offer, "content": f"corpus operator {name}: {offer}",
             "created_by": author}))
     return len(_CORPUS_OPS)
@@ -83,15 +83,15 @@ def _jaccard(a: set, b: set) -> float:
 
 
 def audit(store) -> Dict:
-    """A deterministic health report over the committed corpus.
+    """A deterministic health report over the live corpus.
 
     A full pass, deliberately: totals, per-content-type counts, and the dark-matter count are
-    defined over every committed artifact, so any bound would change the answer, not just its cost.
+    defined over every live artifact, so any bound would change the answer, not just its cost.
     Not a hot path — on demand only (op.corpus.audit); nothing on the worker tick calls it."""
     by_type: Dict[str, int] = defaultdict(int)
     dark = 0            # content docs with no lemmas (undescribed -> only model-findable)
     total = 0
-    for a in store.list_artifacts(state="committed"):
+    for a in store.list_artifacts(state="live"):
         total += 1
         ct = a.get("content_type", "?")
         by_type[ct] += 1
@@ -128,7 +128,7 @@ def exact_duplicates(store, *, content_types: Optional[Iterable[str]] = None,
     on node 71, 5,657,386 rows: text/markdown timed out at 120s, a 48-row type took 0.12s)."""
     cts = set(content_types) if content_types else None
     groups: Dict[str, List[dict]] = defaultdict(list)
-    for a in store.list_artifacts(state="committed"):
+    for a in store.list_artifacts(state="live"):
         if cts is not None and a.get("content_type") not in cts:
             continue
         key = a.get("content_ref") or _content_hash(_text(bundle, a))
@@ -165,7 +165,7 @@ def near_duplicates(store, *, content_types: Iterable[str], threshold: Optional[
     # exactly the same first `limit` artifacts a full materialize-then-slice would.
     cts = set(content_types)
     arts: List[dict] = []
-    for a in store.list_artifacts(state="committed", content_type=None):
+    for a in store.list_artifacts(state="live", content_type=None):
         if a.get("content_type") not in cts:
             continue
         arts.append(a)

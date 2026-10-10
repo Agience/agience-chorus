@@ -133,10 +133,9 @@ function labelForRunType(runType) {
   return labels[runType] || runType || 'Unspecified';
 }
 
+// Escapes text for element content and for quoted attribute values.
 function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = String(s || '');
-  return d.innerHTML;
+  return String(s || '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 }
 
 function parseTransform(c) {
@@ -171,7 +170,7 @@ function render() {
   /* Run-type specific details */
   let detailRows = [];
   if (run.type) {
-    detailRows.push({ label: 'Runner', value: labelForRunType(run.type) });
+    detailRows.push({ label: 'Runner', value: esc(labelForRunType(run.type)) });
   }
   if (run.type === 'mcp-tool' && run.tool) {
     detailRows.push({ label: 'Tool', value: `${esc(run.server || 'agience-core')}:${esc(run.tool)}` });
@@ -204,18 +203,18 @@ function render() {
         <div class="grid-2">
           ${detailRows.map(row => `
             <div class="stat-box">
-              <div class="stat-label">${row.label}</div>
+              <div class="stat-label">${esc(row.label)}</div>
               <div class="stat-value">${row.value}</div>
             </div>`).join('')}
         </div>` : ''}
 
       ${hasStats ? `
         <div class="grid-5">
-          <div class="stat-box"><div class="stat-label">Input</div><div class="stat-value">${inputCount} artifacts</div></div>
-          <div class="stat-box"><div class="stat-label">Resources</div><div class="stat-value">${resourceCount} refs</div></div>
-          <div class="stat-box"><div class="stat-label">Tools</div><div class="stat-value">${toolCount}</div></div>
-          <div class="stat-box"><div class="stat-label">Knowledge</div><div class="stat-value">${knowledgeCount} artifacts</div></div>
-          <div class="stat-box"><div class="stat-label">Targets</div><div class="stat-value">${targetCount} collections</div></div>
+          <div class="stat-box"><div class="stat-label">Input</div><div class="stat-value">${esc(inputCount)} artifacts</div></div>
+          <div class="stat-box"><div class="stat-label">Resources</div><div class="stat-value">${esc(resourceCount)} refs</div></div>
+          <div class="stat-box"><div class="stat-label">Tools</div><div class="stat-value">${esc(toolCount)}</div></div>
+          <div class="stat-box"><div class="stat-label">Knowledge</div><div class="stat-value">${esc(knowledgeCount)} artifacts</div></div>
+          <div class="stat-box"><div class="stat-label">Targets</div><div class="stat-value">${esc(targetCount)} collections</div></div>
         </div>` : ''}
     </div>
 

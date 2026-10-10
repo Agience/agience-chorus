@@ -516,6 +516,7 @@ const SetupWizard: React.FC = () => {
       <CreateAccountForm
         email={opEmail}
         onEmailChange={setOpEmail}
+        requireEmail={false}
         name={opName}
         onNameChange={setOpName}
         password={opPassword}

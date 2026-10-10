@@ -107,11 +107,10 @@ def index_docs(store, *, content_types=("text/markdown", "text/plain"),
     predicate can be pushed down usefully: `lemmas IS NULL` can never be index-served (LSM
     nullStrategy is SKIP), and the content_types here are bulk values, where an indexed equality
     degenerates to a scan anyway (measured on node 71, 5,657,386 rows: text/markdown timed out at
-    120s vs 0.12s for a 48-row type). state='committed' prunes nothing — nearly every row is
-    committed."""
+    120s vs 0.12s for a 48-row type). state='live' prunes nothing — nearly every row is live."""
     cts = set(content_types)
     n = 0
-    for a in store.list_artifacts(state="committed"):
+    for a in store.list_artifacts(state="live"):
         if a.get("content_type") not in cts:
             continue
         if only_dark and a.get("lemmas"):

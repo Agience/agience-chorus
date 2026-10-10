@@ -1,6 +1,6 @@
 // Tests for upload utility functions
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { uploadWithProgress } from '../upload';
+import { uploadWithProgress, withUploadProgress } from '../upload';
 import * as workspacesApi from '../../api/workspaces';
 
 // Mock the API
@@ -173,3 +173,24 @@ describe('uploadWithProgress', () => {
   });
 });
 
+describe('withUploadProgress', () => {
+  it('sets upload to uploading at the given progress and keeps every other key', () => {
+    const ctx = JSON.stringify({ title: 'file.pdf', upload: { status: 'pending', bytes: 10 }, filename: 'file.pdf' });
+    const next = JSON.parse(withUploadProgress(ctx, 0.4) as string);
+    expect(next).toEqual({
+      title: 'file.pdf',
+      filename: 'file.pdf',
+      upload: { status: 'uploading', bytes: 10, progress: 0.4 },
+    });
+  });
+
+  it('adds upload when the context has none', () => {
+    expect(JSON.parse(withUploadProgress('{"title":"x"}', 1) as string).upload).toEqual({ status: 'uploading', progress: 1 });
+  });
+
+  it('returns null for a missing or unparseable context', () => {
+    expect(withUploadProgress(undefined, 0.5)).toBeNull();
+    expect(withUploadProgress('not json', 0.5)).toBeNull();
+    expect(withUploadProgress('[1,2]', 0.5)).toBeNull();
+  });
+});

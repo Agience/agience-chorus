@@ -12,7 +12,6 @@ are recorded in the modules' own headers where they were measured.
 import json
 import sqlite3
 
-import numpy as np
 import pytest
 
 
@@ -115,7 +114,6 @@ def test_a_junction_is_read_off_bits_saved_NOT_a_typed_label(tmp_path):
     """A typed `colimit` edge label would be a classification stamped at write time, the same defect
     `member_of` and `next` were removed for. What makes a junction a junction is that it explains its
     members for fewer bits, and `bits_saved` already carries that."""
-    import inspect
 
     from agience_chorus.astra.reading import compact
     from agience_chorus.lumen.reading import complete
@@ -146,7 +144,6 @@ def test_the_boundary_is_position_coherence_and_its_zero_is_computed():
     """A boundary invented as a novelty read — `residual > absorbed`, or the incoming residual
     against the screen's mean — would stand in for the published coherence read. This pins that
     `position_coherence` is the one used, and that nothing is compared against a typed level."""
-    import inspect
 
     from agience_chorus.astra.reading import resegment
     src = _code(resegment.resegment)
@@ -159,7 +156,6 @@ def test_too_few_rows_to_measure_does_NOT_close_the_screen():
     """[[absence-is-not-an-affirmative-claim]] — `position_coherence` needs four rows and refuses
     below that. 'Could not measure' must not be read as 'does not belong', which is the same error
     that emptied the completion screen when no decay curve could be fitted."""
-    import inspect
 
     from agience_chorus.astra.reading import resegment
     src = _code(resegment.resegment)
@@ -179,7 +175,6 @@ def test_a_learned_path_is_CONTINUED_not_forecast(tmp_path):
     asserted to be present before their order is compared, because a scan for a name the code has
     stopped using reports the ordering claim as unmeasurable rather than as false — and an
     unmeasured claim is what this file exists to prevent."""
-    import inspect
 
     from agience_chorus.lumen.reading import complete as C
     src = _code(C.complete)
@@ -196,7 +191,6 @@ def test_continuation_walks_the_observation_stream_in_order(tmp_path):
     mid-word.
 
     Read on `walk`, which is the deduction `complete` calls."""
-    import inspect
 
     from agience_chorus.lumen.reading import complete as C
     src = _code(C.walk)
@@ -226,7 +220,6 @@ def test_recurrence_is_required_because_n1_is_degenerate():
     """Not a frequency filter: a pair seen once has `p(b|a) = 1` by construction, so its cost is
     maximal on no evidence — the estimator is degenerate at n=1. The second sighting is what makes
     the ratio a measurement."""
-    import inspect
 
     from agience_chorus.astra.reading import compact, read_once
     for src in (_code(compact.one_pass), _code(read_once.read_once)):

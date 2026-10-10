@@ -118,7 +118,7 @@ export default function MarkdownCardViewer({ artifact, state = 'view' }: Props) 
   useEffect(() => {
     if (!editor || contentLoading) return;
     if (editorInitialized.current) {
-      // External update (e.g. revert) — only apply if the editor is not focused.
+      // External update (e.g. an edit from another window) — only apply if the editor is not focused.
       if (editor.isFocused) return;
       if (resolvedContent !== lastSyncedRef.current) {
         editor.commands.setContent(resolvedContent);

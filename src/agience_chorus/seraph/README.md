@@ -35,7 +35,7 @@ Implemented (live):
 | `check_permissions` | Check what a person or API key can access |
 | `grant_access` | Grant access to a collection for a person or team |
 | `revoke_access` | Revoke access to a collection |
-| `verify_token` | Verify a JWT against the platform JWKS and return which class it is, plus claims |
+| `verify_token` | Verify a JWT against the platform JWKS and return whether it is a valid access token, and of which class |
 | `get_person_preferences` | Read the calling person's stored preferences from Origin |
 | `set_person_preferences` | Update the calling person's preferences in Origin (shallow merge) |
 
@@ -52,8 +52,13 @@ Declared placeholders (registered, raise `NotImplementedError`):
 `_require_user_headers()`. `resolve_llm_credentials` raises — this platform hands out no model API
 keys (no-models rule, universal and including BYOK).
 
-`verify_token`'s registered description is "Verify a JWT against the platform JWKS", and its
-docstring states that API keys are not accepted, since they are not JWTs.
+`verify_token` returns only `valid` and `token_class`, never the claims. A token carrying
+`token_type` (Origin's refresh, email-verification and password-reset tokens) is not an access token
+and does not verify. API keys are not accepted, since they are not JWTs.
+
+`complete_authorizer_bearer` reads the Authorizer's config from the stored artifact
+(`authorizer_artifact_id`, under the caller's delegation) and takes no config argument. Its
+`token_endpoint` must be in `agience_chorus._egress.OAUTH_TOKEN_ENDPOINTS`; any other is refused.
 
 ## Auth
 

@@ -125,7 +125,11 @@ def test_the_horizon_is_read_off_the_operator_and_shortens_as_the_mode_decays_fa
     floor) and pure noise (nothing rises above the floor to decay from) both carry no forecast — so
     "answers everything" fails here just as "answers nothing" would fail above."""
     import numpy as np
-    slow = reasoning.ReasoningRouter().reason([_planted_rotation(0.99)], _planted_rotation(0.99), dt=1.0)
+    # 0.95, not closer to 1: over T=64 a |μ| = 0.99 mode decays only to 0.99**64 ≈ 0.53, its horizon
+    # is hundreds of steps, and the instrument (0.2.8) declines to certify a decay it never
+    # sees reach the floor, reading it non-compact like the undamped control below. 0.95 decays inside
+    # the window and still forecasts further than 0.90 (horizon 13 against 7).
+    slow = reasoning.ReasoningRouter().reason([_planted_rotation(0.95)], _planted_rotation(0.95), dt=1.0)
     fast = reasoning.ReasoningRouter().reason([_planted_rotation(0.90)], _planted_rotation(0.90), dt=1.0)
     assert slow.regime == fast.regime == reasoning.DETERMINISTIC
     assert len(np.asarray(slow.forecast)) > len(np.asarray(fast.forecast)), (

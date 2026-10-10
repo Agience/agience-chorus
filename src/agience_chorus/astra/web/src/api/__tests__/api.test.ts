@@ -174,3 +174,34 @@ describe('api/postList', () => {
 		await expect(postList('/artifacts/batch', {})).resolves.toEqual([]);
 	});
 });
+
+
+// A 401 from an auth endpoint is that page's to explain (a wrong password), not an expired session:
+// the interceptor must leave the session and the page alone for it.
+describe('api 401 handling', () => {
+	const saved = api.defaults.adapter;
+	afterEach(() => {
+		api.defaults.adapter = saved;
+		localStorage.clear();
+	});
+
+	async function answer401(url: string) {
+		api.defaults.adapter = async (config) => {
+			const err = Object.assign(new Error('401'), {
+				config, response: { status: 401, data: { detail: 'no' }, headers: {}, config },
+			});
+			throw err;
+		};
+		localStorage.setItem('access_token', 'T');
+		await api.post(url, {}).catch(() => undefined);
+		return localStorage.getItem('access_token');
+	}
+
+	it('keeps the session when confirming an email with a wrong password', async () => {
+		expect(await answer401('/auth/email/verify-confirm')).toBe('T');
+	});
+
+	it('still drops the session on a 401 from anything else', async () => {
+		expect(await answer401('/artifacts/x')).toBeNull();
+	});
+});

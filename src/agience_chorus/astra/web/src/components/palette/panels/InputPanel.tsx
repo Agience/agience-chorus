@@ -150,7 +150,7 @@ export default function InputPanel() {
 
   const panelArtifacts = panelState.artifacts.map(artifact => ({
     ...artifact,
-    state: artifact.state ?? 'committed',
+    state: artifact.state ?? 'live',
   })) as Artifact[];
 
   const handlePanelClick = (e: React.MouseEvent) => {

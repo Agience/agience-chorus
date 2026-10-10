@@ -8,8 +8,7 @@ import {
   importCollectionArtifactToWorkspace,
   updateWorkspaceArtifact,
   removeWorkspaceArtifact,
-  revertWorkspaceArtifact,
-  commitWorkspace,
+  deleteWorkspaceArtifact,
   orderWorkspaceArtifacts,
   subscribeWorkspaceEvents,
 } from '../../api/workspaces';
@@ -20,7 +19,7 @@ import { toast } from 'sonner';
 import { stringifyArtifactContext } from '@/utils/artifactContext';
 import { midKey, afterKey } from '../../utils/fractional-index';
 import { extractInformation } from '../../api/agent';
-import type { WorkspaceCommitRequest } from '../../api/types/workspace_commit';
+import { errorDetail } from '../../utils/errorDetail';
 
 type UpdateArtifactPayload = {
   state?: Artifact['state'];
@@ -82,9 +81,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [orderVersion, setOrderVersion] = useState<number | null>(null);
-  const [isCommitting, setIsCommitting] = useState(false);
   const newArtifactHandlerRef = useRef<((artifact: Artifact) => void) | null>(null);
-  const commitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // central loader
   const refreshArtifacts = useCallback(async (workspaceId: string) => {
@@ -114,15 +111,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     })();
     return () => { cancelled = true; };
   }, [activeWorkspace?.id, refreshArtifacts]);
-
-  // Cleanup commit timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (commitTimeoutRef.current) {
-        clearTimeout(commitTimeoutRef.current);
-      }
-    };
-  }, []);
 
   // Subscribe to real-time workspace change events via SSE.
   // Opens when a workspace is selected; auto-closes on workspace switch or unmount.
@@ -182,6 +170,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setArtifacts(prev => [...prev, artifact]);
   }, []);
 
+  // Merge fields into an artifact in local state only; nothing is sent to the server. For values
+  // the server owns and reports through its own route, such as upload progress (which travels
+  // through PATCH /artifacts/{id}/upload-status) or the artifact that route returns.
+  const patchArtifactLocally = useCallback((patchIn: Partial<Artifact>) => {
+    if (patchIn.id === undefined || patchIn.id === null) return;
+    setArtifacts(prev =>
+      prev.map(c => (String(c.id) === String(patchIn.id) ? { ...c, ...patchIn } as Artifact : c))
+    );
+  }, []);
+
   // Create an artifact, return it, and insert it at a specific index
   const createArtifact = useCallback(
     async (partial: Partial<Artifact>, insertIndex?: number): Promise<Artifact | null> => {
@@ -229,6 +227,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         return created;
       } catch (err) {
         console.error('Failed to create artifact', err);
+        toast.error('Could not create card', {
+          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+        });
         return null;
       }
     },
@@ -289,26 +290,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [activeWorkspace?.id]
   );
 
-  const revertArtifact = useCallback(
-    async (id: string) => {
-      if (!activeWorkspace?.id) return;
+  // Destroy the artifact itself (`DELETE /artifacts/{id}`), as opposed to `removeArtifact`,
+  // which unlinks it from the active workspace. Resolves false when the server refuses.
+  const deleteArtifact = useCallback(
+    async (id: string): Promise<boolean> => {
       try {
-        const updated = await revertWorkspaceArtifact(activeWorkspace.id, String(id));
-        setArtifacts(prev =>
-          prev.map(c => (String(c.id) === String(id)
-            ? { ...c, ...updated } as Artifact
-            : c))
-        );
-        toast.success('Reverted to last committed version');
+        await deleteWorkspaceArtifact(activeWorkspace?.id ?? '', String(id));
       } catch (err) {
-        console.error('Failed to revert artifact', err);
-        toast.error('Revert failed');
-        try {
-          await refreshArtifacts(activeWorkspace.id);
-        } catch { /* ignore */ }
+        console.error('Failed to delete artifact', err);
+        toast.error('Could not delete', {
+          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+        });
+        return false;
       }
+      setArtifacts(prev => prev.filter(c => String(c.id) !== String(id) && String(c.root_id) !== String(id)));
+      setSelectedArtifactIds(prev => prev.filter(cid => cid !== String(id)));
+      return true;
     },
-    [activeWorkspace?.id, refreshArtifacts]
+    [activeWorkspace?.id]
   );
 
 
@@ -507,64 +506,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   );
 
   const createNewArtifact = useCallback(() => {
-    const draft: Artifact = {
+    const placeholder: Artifact = {
       content: '',
       context: JSON.stringify({ content_type: 'text/plain', preview_text: '' }),
-      state: 'draft',
+      state: 'live',
     };
-    newArtifactHandlerRef.current?.(draft);
+    newArtifactHandlerRef.current?.(placeholder);
   }, []);
 
   const registerNewArtifactHandler = useCallback((fn: (artifact: Artifact) => void) => {
     newArtifactHandlerRef.current = fn;
   }, []);
-
-  const commitCurrentWorkspace = useCallback((input?: WorkspaceCommitRequest) => {
-    if (!activeWorkspace?.id || isCommitting) return;
-
-    // Debounce: clear any pending commit
-    if (commitTimeoutRef.current) {
-      clearTimeout(commitTimeoutRef.current);
-    }
-
-    const requestPayload = input;
-
-    // Debounce for 300ms
-    commitTimeoutRef.current = setTimeout(async () => {
-      setIsCommitting(true);
-      try {
-        console.log('[Commit] Starting commit for workspace', activeWorkspace.id);
-        const response = await commitWorkspace(activeWorkspace.id, requestPayload);
-        console.log('[Commit] Response:', {
-          updated: response.updated_workspace_artifacts.length,
-          deleted: response.deleted_workspace_artifact_ids.length,
-          skipped: response.skipped_workspace_artifact_ids.length,
-          deletedIds: response.deleted_workspace_artifact_ids
-        });
-
-        // Build sets for efficient lookup
-        const deletedIds = new Set(response.deleted_workspace_artifact_ids.map(String));
-        const updatedMap = new Map(
-          response.updated_workspace_artifacts.map(c => [String(c.id), c as Artifact])
-        );
-        
-        // Update state: remove deleted artifacts and update modified artifacts
-        setArtifacts(prev => {
-          const filtered = prev.filter(artifact => !deletedIds.has(String(artifact.id)));
-          return filtered.map(artifact => {
-            const updated = updatedMap.get(String(artifact.id));
-            return updated ? { ...artifact, ...updated } as Artifact : artifact;
-          });
-        });
-        toast.success('Committed');
-      } catch (err) {
-        console.error('Failed to commit workspace', err);
-        toast.error('Commit failed');
-      } finally {
-        setIsCommitting(false);
-      }
-    }, 300);
-  }, [activeWorkspace?.id, isCommitting]);
 
   const extractInformationFromArtifact = useCallback(
     async (sourceArtifactId: string, contextArtifactIds?: string[]) => {
@@ -615,13 +567,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       displayedArtifacts,
       setDisplayedArtifacts,
       selectedArtifactIds,
-      isCommitting,
       addArtifact,
       addExistingArtifact,
+      patchArtifactLocally,
       createArtifact,
       updateArtifact,
       removeArtifact,
-      revertArtifact,
+      deleteArtifact,
       orderArtifacts,
       importArtifactsByRootIds,
       refreshArtifacts,
@@ -629,7 +581,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       selectAllArtifacts,
       unselectAllArtifacts: clearSelection,
       createNewArtifact,
-      commitCurrentWorkspace,
       extractInformationFromArtifact,
       extractInformationFromSelection,
       registerNewArtifactHandler,
@@ -638,13 +589,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       artifacts,
       displayedArtifacts,
       selectedArtifactIds,
-      isCommitting,
       addArtifact,
       addExistingArtifact,
+      patchArtifactLocally,
       createArtifact,
       updateArtifact,
       removeArtifact,
-      revertArtifact,
+      deleteArtifact,
       orderArtifacts,
       importArtifactsByRootIds,
       refreshArtifacts,
@@ -652,7 +603,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       selectAllArtifacts,
       clearSelection,
       createNewArtifact,
-      commitCurrentWorkspace,
       extractInformationFromArtifact,
       extractInformationFromSelection,
       registerNewArtifactHandler,

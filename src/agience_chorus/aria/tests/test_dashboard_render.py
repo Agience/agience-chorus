@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
 
 from agience_chorus.aria.facets import dashboard_render as DR
 

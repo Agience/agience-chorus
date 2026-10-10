@@ -215,13 +215,13 @@ def test_ember_side_pulls_in_no_chorus_module():
 # runs end-to-end. `wn_synsets_for` is stubbed to [] so the recall path is pure BM25 and does not
 # depend on an ambient WordNet corpus (the proper-noun fallback the tekton already has).
 _CORPUS_DOCS = [
-    {"id": "d.hamlet", "content_type": "text/markdown", "state": "committed", "title": "Hamlet",
+    {"id": "d.hamlet", "content_type": "text/markdown", "state": "live", "title": "Hamlet",
      "content": "Hamlet is a tragedy written by William Shakespeare."},
-    {"id": "d.macbeth", "content_type": "text/markdown", "state": "committed", "title": "Macbeth",
+    {"id": "d.macbeth", "content_type": "text/markdown", "state": "live", "title": "Macbeth",
      "content": "Macbeth is a tragedy written by William Shakespeare."},
-    {"id": "d.newton", "content_type": "text/markdown", "state": "committed", "title": "Principia",
+    {"id": "d.newton", "content_type": "text/markdown", "state": "live", "title": "Principia",
      "content": "Isaac Newton described the laws of motion and gravity."},
-    {"id": "d.gravity", "content_type": "text/markdown", "state": "committed", "title": "Gravity",
+    {"id": "d.gravity", "content_type": "text/markdown", "state": "live", "title": "Gravity",
      "content": "Gravity is the attraction between masses, described by Newton."},
 ]
 

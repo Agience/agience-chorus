@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import MDEditor from '@uiw/react-md-editor';
+import { SAFE_MARKDOWN_PREVIEW_OPTIONS } from './safeMarkdownPreview';
 
 interface MarkdownEditorProps {
   content: string;
@@ -80,6 +81,7 @@ export function MarkdownEditor({
         value={content}
         onChange={(value) => onChange(value || '')}
         preview="live"
+        previewOptions={SAFE_MARKDOWN_PREVIEW_OPTIONS}
         height={400}
         visibleDragbar={false}
         hideToolbar={false}

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import html
 import urllib.parse
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 # Imported at module scope, not inside the router factory. `from __future__ import annotations`
 # makes every annotation a string, and FastAPI resolves the route's `request: Request` against this

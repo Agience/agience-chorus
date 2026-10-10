@@ -85,5 +85,7 @@ if __name__ == "__main__":
     import sys
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
-        fn(); print("ok", fn.__name__)
-    print("ALL ARITHMETIC/CATEGORY TESTS PASS"); sys.exit(0)
+        fn()
+        print("ok", fn.__name__)
+    print("ALL ARITHMETIC/CATEGORY TESTS PASS")
+    sys.exit(0)

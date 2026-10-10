@@ -26,7 +26,7 @@ runner, and the persona names the measurement by name.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 # `GAP` and `XI` are not importable here: `propagate` takes `xi=None` / `gap=None` and measures both
 # itself (`match.xi()` / `match.propagation_floor()`), refusing where the corpus cannot report them, rather

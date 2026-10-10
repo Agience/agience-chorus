@@ -114,7 +114,7 @@ export default function ResourcesPanel() {
             },
           }),
           content: payload.body,
-          state: 'committed',
+          state: 'live',
         };
         updatePanelData('resources', (prev) => ({
           ...prev,
@@ -135,7 +135,7 @@ export default function ResourcesPanel() {
             title: 'Bundle • Text',
           }),
           content: payload.text,
-          state: 'committed',
+          state: 'live',
         };
         updatePanelData('resources', (prev) => ({
           ...prev,

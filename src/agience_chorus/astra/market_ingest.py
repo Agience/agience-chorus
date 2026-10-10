@@ -136,10 +136,7 @@ async def push_bars_chunk(series_id: str, *, symbol: str, interval: str, source:
     in `content` instead would embed a numeric series into the meaning manifold and corrupt retrieval
     for everything else.
 
-    `market-bars` may not be directly creatable in mantle: unlike `market-news`, its documented path is
-    the upload flow — `POST /artifacts/{id}/op/upload-url` → PUT the parquet bytes → `POST
-    /artifacts/{series_id}/op/commit`. This function issues a plain create against `series_id`
-    instead, which does not follow that path.
+    This issues a plain create against `series_id`; no parquet bytes are uploaded.
     """
     start, end, count = bars_span(rows)
     ctx = bars_chunk_context(symbol, interval, source, bar_seconds, start, end, count, columns)
@@ -148,16 +145,6 @@ async def push_bars_chunk(series_id: str, *, symbol: str, interval: str, source:
     if not got:
         raise MarketIngestError("bars chunk created but no id returned: %r" % (created,))
     return str(got)
-
-
-async def commit_series(series_id: str, commit_artifact) -> Dict[str, Any]:
-    """Commit a series — draft to immutable and indexed.
-
-    An uncommitted series is not indexed, so it is invisible to retrieval — a silent half-ingest that
-    looks like a write succeeded. Committing is therefore part of the ingest, not an optional tidy-up
-    step, which is why it lives here rather than being left to the caller.
-    """
-    return await commit_artifact(series_id)
 
 
 async def push_news(container_id: str, items: Sequence[Dict[str, str]],

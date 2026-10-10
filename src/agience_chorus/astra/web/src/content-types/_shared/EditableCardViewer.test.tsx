@@ -19,7 +19,7 @@ describe('EditableCardViewer', () => {
           id: 'artifact-1',
           context: JSON.stringify({ title: 'Test Artifact', content_type: 'text/plain' }),
           content: 'hello',
-          state: 'committed' as const,
+          state: 'live' as const,
         }}
         state="view"
       />,
@@ -36,7 +36,7 @@ describe('EditableCardViewer', () => {
           id: 'artifact-1',
           context: JSON.stringify({ title: 'Test Artifact', content_type: 'text/plain' }),
           content: 'hello',
-          state: 'committed' as const,
+          state: 'live' as const,
         }}
         state="edit"
       />,

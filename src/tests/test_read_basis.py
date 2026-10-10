@@ -11,9 +11,9 @@ The one-hot width grows with the vocabulary. The hashed width is chosen (`D = 20
 columns are live). Only the third is a count the reading produced, and the difference is not
 cosmetic: dropping the chosen width more than doubles contrast and gives 5.5x the modes.
 
-Entroptics purity forbids fixing any parameter or constant, so the tests below assert the absence
+Purity forbids fixing any parameter or constant, so the tests below assert the absence
 of choices, not the presence of numbers: that the width is the context count, that the amplitude is
-entroptics' own information measure rather than a plausible reciprocal, and that nothing is
+the instrument's own information measure rather than a plausible reciprocal, and that nothing is
 excluded.
 
 Asserting "contrast > 1" on a fixture is not done here, deliberately: it would assert that a toy
@@ -102,9 +102,9 @@ def test_reading_MORE_grows_rows_FASTER_than_the_width(read_shard):
     assert (len(n1) / len(c1)) > (len(n0) / len(c0)), "T/F fell — the one-hot defect returning"
 
 
-def test_the_amplitude_is_ENTROPTICS_INFORMATION_not_a_hand_rolled_reciprocal(read_shard):
+def test_the_amplitude_is_the_instruments_information_not_a_hand_rolled_reciprocal(read_shard):
     """A plausible reciprocal like `1/degree` has no owner and would stand in for the measure
-    entroptics already publishes. This pins the source, not a computed number: the cell must be
+    the instrument already publishes. This pins the source, not a computed number: the cell must be
     `sqrt(self_information_bits(deg, total))` read through the instrument."""
     from agience_chorus._host_seams import seam
     from agience_chorus.astra.reading import read_basis

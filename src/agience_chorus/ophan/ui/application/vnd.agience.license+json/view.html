@@ -58,7 +58,7 @@ let _artifact = null;
 sendRpc('ui/initialize', {}).then(() => sendNotification('ui/notifications/initialized', {}));
 function handleToolResult(p) { try { const d = JSON.parse(p?.content?.[0]?.text); if (d?.artifact_id) { _artifact = d; render(); } } catch {} }
 function ctx() { if (!_artifact) return {}; try { return typeof _artifact.context === 'string' ? JSON.parse(_artifact.context) : (_artifact.context || {}); } catch { return {}; } }
-function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]); }
 function fmtVal(v) { if (v == null || v === '') return '—'; if (Array.isArray(v)) return v.length ? v.join(', ') : '—'; if (typeof v === 'object') return JSON.stringify(v); return String(v); }
 function badgeCls(s) { const m = {'active':'s-active','recorded':'s-recorded','grace':'s-grace','warning':'s-warning','revoked':'s-revoked','expired':'s-expired','pending':'s-pending','suspended':'s-suspended','needs-license':'s-needs-license'}; return m[s] || 's-default'; }
 

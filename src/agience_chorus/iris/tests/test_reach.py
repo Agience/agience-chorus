@@ -182,8 +182,10 @@ def test_reach_is_idempotent_no_duplicate_evidence_on_redelivery():   # invarian
     lumen = Reactor("lumen", keyring=kr, lightcone=lc, fabric=None, fallback=carrier)
 
     handle = lumen.reach({"q": 1}, to="op.retrieve")
-    sage.pump(carrier); sage.pump(carrier)                                    # handle twice
-    lumen.pump(carrier); lumen.pump(carrier)                                  # pick up twice
+    sage.pump(carrier)
+    sage.pump(carrier)                                    # handle twice
+    lumen.pump(carrier)
+    lumen.pump(carrier)                                  # pick up twice
     assert lumen.evidence(handle) == {"hits": [{"q": 1}]}
     assert lumen.bands(handle) == [{"hits": [{"q": 1}]}]                      # exactly one band, no dup
     assert len(carrier) == 2                                                  # one need + one evidence
@@ -208,7 +210,9 @@ def test_reach_resolves_store_and_forward_across_a_partition():       # invarian
     lumen.pump(node_req)
     assert lumen.evidence(handle) == {"hits": [{"q": 1}]}                     # delivered store-and-forward
 
-    reconcile(node_req, node_prov); sage.pump(node_prov); lumen.pump(node_req)  # replay everything
+    reconcile(node_req, node_prov)
+    sage.pump(node_prov)
+    lumen.pump(node_req)  # replay everything
     assert lumen.bands(handle) == [{"hits": [{"q": 1}]}]                      # exactly-once, no dup
 
 

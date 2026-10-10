@@ -29,7 +29,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 SRC = Path(__file__).resolve().parents[2]            # …/agience-chorus/src/agience_chorus
 ASTRA = SRC / "astra"
@@ -148,7 +147,8 @@ def test_the_manifest_surface_is_unchanged_for_the_host():
 
 # ── 3 · seams — which module fills a seam is the host's answer, not the loader's ──────────────────
 #
-# astra's own group declares no seam (`fetch` reaches only the installed `crystal.evolution`), so
+# astra's own group declares no seam (`fetch` reaches only the installed `crystal.evolution` and
+# its bundle sibling `_egress`), so
 # the seam leg is asserted against the group that does declare one — `operators`, which names
 # `match` — rather than inventing a second synthetic bundle beside the six that already exist.
 
@@ -221,7 +221,7 @@ def test_a_TAMPERED_bundle_is_REFUSED():
     Fails if `_verify_sha` is ever softened to a warning — or if the runner falls back to a
     known-good copy on mismatch — `register_fns` would return callables instead.
     """
-    import os, tempfile
+    import tempfile
     good = json.loads((BUNDLES / "fetch.json").read_text(encoding="utf-8"))
     bad = json.loads(json.dumps(good))
     bad["modules"]["fetch"] = bad["modules"]["fetch"].replace(

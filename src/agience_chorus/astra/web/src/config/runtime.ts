@@ -13,6 +13,11 @@
    * the login form itself. One login screen for the whole platform.
    */
   idpUri: string;
+  /**
+   * Service-provider origins this IdP may hand an access token to, beyond the platform's own
+   * (`KNOWN_SP_ORIGINS` in `auth/spRedirect.ts`). Exact origins, e.g. `https://sp.example.com`.
+   */
+  spOrigins: string[];
 };
 
 const DEFAULT_CONFIG: RuntimeConfig = {
@@ -25,10 +30,17 @@ const DEFAULT_CONFIG: RuntimeConfig = {
   title: import.meta.env.VITE_TITLE || 'Agience',
   favicon: import.meta.env.VITE_FAVICON || '/favicon.png',
   idpUri: import.meta.env.VITE_IDP_URI || '',
+  spOrigins: [],
 };
 
 function normalizeString(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value : fallback;
+}
+
+function normalizeStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === 'string' && v.trim() !== '').map((v) => v.trim())
+    : [];
 }
 
 export function getRuntimeConfig(): RuntimeConfig {
@@ -49,6 +61,7 @@ export function getRuntimeConfig(): RuntimeConfig {
     title: normalizeString(runtimeConfig.title, DEFAULT_CONFIG.title),
     favicon: normalizeString(runtimeConfig.favicon, DEFAULT_CONFIG.favicon),
     idpUri: normalizeString(runtimeConfig.idpUri, DEFAULT_CONFIG.idpUri),
+    spOrigins: normalizeStringList(runtimeConfig.spOrigins),
   };
 }
 

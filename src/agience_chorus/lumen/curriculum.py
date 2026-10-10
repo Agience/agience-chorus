@@ -16,7 +16,7 @@ the gate is missing, as an operator anything can read.
 ── what a certificate is ─────────────────────────────────────────────────────────────────────────
 
 Two halves, and they answer different questions (`GENESIS-EDUCATION.md`: "a stage is stable when
-its entroptics read plateaus and holds on held-out queries"):
+its instrument read plateaus and holds on held-out queries"):
 
     settled   has the level's own structure stopped moving?      — the resolved rank, certified
     answers   can it answer questions it was not shown?          — held out, against the corpus's
@@ -453,7 +453,7 @@ def register_curriculum_operators(store, *, author: str = "ember-local") -> int:
     from crystal.evolution import OPERATOR_CONTENT_TYPE
     for name, offer in _CURRICULUM_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
-            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "committed",
+            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
             "context": offer, "content": "lumen curriculum operator %s: %s" % (name, offer),
             "created_by": author,
             "collection_id": _SYSTEM_COLLECTION, "created_time": _REGISTERED_AT}))

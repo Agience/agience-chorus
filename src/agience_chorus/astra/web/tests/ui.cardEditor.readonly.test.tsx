@@ -14,7 +14,7 @@ vi.mock('../src/hooks/useWorkspace', () => {
       displayedArtifacts: [
         {
           id: 'c1',
-          state: 'committed',
+          state: 'live',
           context: JSON.stringify({ title: 'Guide Intro', description: 'Welcome', tags: ['guide'] }),
           content: 'Hello World',
           committed_collection_ids: ['col1'],
@@ -23,7 +23,6 @@ vi.mock('../src/hooks/useWorkspace', () => {
         },
       ],
       removeArtifact: vi.fn(),
-      revertArtifact: vi.fn(),
       updateArtifact: vi.fn(),
     }),
   };
@@ -72,7 +71,7 @@ describe('CardEditor - read-only behavior for collection artifacts', () => {
     vi.clearAllMocks();
   });
 
-  it('hides Edit and Change controls and renders committed chip', () => {
+  it('hides Edit and Change controls and renders the membership chip', () => {
     renderWithProviders(<CardEditor artifactId="c1" />);
 
     // No edit button for collection artifacts
@@ -81,10 +80,9 @@ describe('CardEditor - read-only behavior for collection artifacts', () => {
     // No Change button for collection membership (read-only)
     expect(screen.queryByText('Change')).toBeNull();
 
-    // The collection chip should be rendered as committed (solid)
-    // CollectionChip adds a title attribute when status = committed
-    const committedChip = screen.getByTitle('Committed to Agience Guide');
-    expect(committedChip).toBeTruthy();
+    // The collection chip is rendered solid, as a membership, with an "In {collection}" title
+    const memberChip = screen.getByTitle('In Agience Guide');
+    expect(memberChip).toBeTruthy();
   });
 
   it('does not enter content edit mode on click for collection artifacts', () => {

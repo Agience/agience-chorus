@@ -26,25 +26,25 @@ def store(tmp_path):
     L.artifacts.ensure_schema()
     L.graph.ensure_schema()
     return _Store(L)
-def _seed(store, *, grammar=40, world_committed=120, world_draft=30, loose=25):
+def _seed(store, *, grammar=40, world_live=120, world_archived=30, loose=25):
     """Deliberately asymmetric: two collections of different sizes plus artifacts in no collection,
     so a per-collection count and the global count cannot coincide by accident. A symmetric fixture
     would let a global-count answer pass as a per-collection one."""
     docs = []
     for i in range(grammar):
         docs.append({"id": "g%04d" % i, "content_type": "text/markdown",
-                     "collection_id": "stage.1.grammar", "state": "committed",
+                     "collection_id": "stage.1.grammar", "state": "live",
                      "content": "grammar", "size": 100, "lemmas": ["g%d" % i],
                      "cited_from": g.CITE_GENESIS, "provenance": g.P_HUMAN})
-    for i in range(world_committed + world_draft):
+    for i in range(world_live + world_archived):
         docs.append({"id": "w%04d" % i, "content_type": "text/markdown",
                      "collection_id": "stage.2.world",
-                     "state": "committed" if i < world_committed else "draft",
+                     "state": "live" if i < world_live else "archived",
                      "content": "world", "size": 200, "lemmas": ["w%d" % i],
                      "cited_from": g.CITE_GENESIS, "provenance": g.P_HUMAN})
     for i in range(loose):
         docs.append({"id": "op.free.%02d" % i, "content_type": g.OPERATOR_CONTENT_TYPE,
-                     "state": "committed", "content": "op",
+                     "state": "live", "content": "op",
                      "cited_from": g.CITE_GENESIS, "provenance": g.P_HUMAN})
     store.artifacts.put_many(docs, batch=200)
     return len(docs)
@@ -82,7 +82,7 @@ def test_nearvdup_excludes_unsigned_artifacts(store):
     store is configured."""
     for i in range(6):
         store.artifacts.put_artifact({"id": "nc%d" % i, "content_type": "text/markdown",
-                                      "collection_id": "stage.1.grammar", "state": "committed",
+                                      "collection_id": "stage.1.grammar", "state": "live",
                                       "size": 4096,          # real bytes live in the content store
                                       "cited_from": g.CITE_GENESIS, "provenance": g.P_HUMAN})
     r = g.consolidate_nearvdup(store, content_type="text/markdown",

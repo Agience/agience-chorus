@@ -32,7 +32,8 @@ def test_content_ref_is_deterministic_plaintext_hash():
 
 
 def test_content_roundtrip_encrypted_and_dedup():
-    kd = Path(tempfile.mkdtemp()); cs = _MemContent()
+    kd = Path(tempfile.mkdtemp())
+    cs = _MemContent()
     data = b"def f():\n    return 1\n" * 500          # >20k, no truncation
     ref, size = C.put_content(cs, kd, data)
     assert size == len(data)
@@ -43,7 +44,8 @@ def test_content_roundtrip_encrypted_and_dedup():
 
 
 def test_resolve_text_prefers_garage_then_inline():
-    kd = Path(tempfile.mkdtemp()); cs = _MemContent()
+    kd = Path(tempfile.mkdtemp())
+    cs = _MemContent()
     ref, _ = C.put_content(cs, kd, b"full garage content")
     b = _Bundle(cs, kd)
     assert C.resolve_text(b, {"content_ref": ref}) == "full garage content"
@@ -132,7 +134,8 @@ class _MemStore:
 
 
 def test_record_invocation_counts_gate_outcomes():
-    s = _MemStore(); s.put_artifact({"id": "op.x"})
+    s = _MemStore()
+    s.put_artifact({"id": "op.x"})
     evolution.record_invocation(s, "op.x", verified=True)
     evolution.record_invocation(s, "op.x", verified=False)
     evolution.record_invocation(s, "op.x")
@@ -272,16 +275,18 @@ def test_fetch_refuses_non_http_and_internal_hosts():
 
 
 def test_fetch_has_no_write_verb_path():
-    """Structurally GET-only: there is exactly one handler, and no operator name maps to a
-    POST/PUT/DELETE path."""
+    """Structurally GET-only: there is exactly one handler, no operator name maps to a
+    POST/PUT/DELETE path, and the one request the egress guard sends is a GET with no body."""
     from ember.runtime.runner import fetch
     assert set(fetch._HANDLERS) == {"op.fetch.get"}
     import inspect
-    src = inspect.getsource(fetch._get)
-    assert 'method="GET"' in src                                     # verb pinned to GET
-    for verb in ('method="POST"', 'method="PUT"', 'method="DELETE"', 'method="PATCH"'):
+    src = inspect.getsource(fetch._egress.fetch)
+    assert src.count(".request(") == 1                               # one request site
+    assert '.request("GET"' in src                                   # verb pinned to GET
+    for verb in ('"POST"', '"PUT"', '"DELETE"', '"PATCH"'):
         assert verb not in src                                       # no write verb constructed
-    assert "data=" not in src                                        # no request body ever sent
+    assert "data=" not in src and "body=" not in src                 # no request body ever sent
+    assert "_egress.fetch(" in inspect.getsource(fetch._get)          # the handler goes through it
 
 
 def test_sweep_retire_sheds_only_proven_unfit():
@@ -307,5 +312,7 @@ if __name__ == "__main__":
     import sys
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
-        fn(); print("ok", fn.__name__)
-    print(f"ALL {len(fns)} PROCESS TESTS PASS"); sys.exit(0)
+        fn()
+        print("ok", fn.__name__)
+    print(f"ALL {len(fns)} PROCESS TESTS PASS")
+    sys.exit(0)

@@ -14,7 +14,7 @@ coordinate is its membership over those contexts — exact, collision-free, and 
 choice. No `D`, no hash, and no second hash to drift from crystal's.
 
 A context's amplitude is `sqrt(self_information_bits(deg, total))` — `I = -log2(p)` from
-`entroptics.entropy` through the one instrument, and the square root because `‖row‖²` is that row's
+the instrument's `entropy` through the one instrument, and the square root because `‖row‖²` is that row's
 energy, the same convention as the organon's `A² + T² = 1`. A context holding nearly everything
 narrows nothing and arrives at ~0 bits; a rare one arrives loud.
 
@@ -24,15 +24,13 @@ it through `optics.principal_directions`, and take the count and the directions 
 from __future__ import annotations
 
 import argparse
-import collections
 import os
 import sqlite3
 import sys
 from typing import Dict, List, Optional
 
-import numpy as np
 
-# One instrument, reached by name: nothing outside `ember/optics.py` imports entroptics, and a
+# One instrument, reached by name: nothing outside `ember/optics.py` imports the instrument, and a
 # persona asks for a measurement rather than performing it.
 from agience_chorus._host_seams import seam as _seam
 

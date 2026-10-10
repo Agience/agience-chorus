@@ -66,26 +66,6 @@
   }
   .key-active { background: #ecfdf5; color: #065f46; }
   .key-inactive { background: #fef2f2; color: #991b1b; }
-  /* one-time key reveal banner */
-  .key-reveal {
-    background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
-    padding: 12px 16px; margin-bottom: 20px;
-  }
-  .key-reveal-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #92400e; margin-bottom: 6px; }
-  .key-reveal-row { display: flex; align-items: stretch; gap: 0; }
-  .key-reveal-value {
-    flex: 1; font-size: 13px; font-family: 'SF Mono', 'Fira Code', monospace;
-    color: #78350f; padding: 8px 12px;
-    background: #fef9c3; border: 1px solid #fde68a; border-radius: 8px 0 0 8px;
-    word-break: break-all; min-width: 0;
-  }
-  .key-reveal-copy {
-    padding: 8px 14px; border: 1px solid #fde68a; border-left: none;
-    background: #fde68a; color: #78350f; border-radius: 0 8px 8px 0;
-    cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap;
-  }
-  .key-reveal-copy:hover { background: #fcd34d; }
-  .key-reveal-hint { font-size: 12px; color: #92400e; margin-top: 6px; }
   /* OAuth section */
   .oauth-section {
     border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;
@@ -208,7 +188,6 @@ async function updateArtifact(patch) {
 let _editing = false;
 let _saving = false;
 let _generating = false;
-let _newKey = null;   // shown once after generation
 let _draft = {};
 
 function ctx() {
@@ -262,20 +241,10 @@ function copyUrl() {
   copyText(url, 'copy-btn', 'URL copied');
 }
 
-function copyNewKey() {
-  if (!_newKey) return;
-  copyText(_newKey, 'reveal-copy-btn', 'API key copied');
-}
-
 function copyClientId() {
   const id = _artifactData && _artifactData.artifact_id;
   if (!id) return;
   copyText(id, 'copy-client-id-btn', 'Client ID copied');
-}
-
-function dismissKey() {
-  _newKey = null;
-  render();
 }
 
 async function generateKey() {
@@ -294,9 +263,10 @@ async function generateKey() {
         resource_filters: filters,
       }
     });
+    // The host shows the new key's secret in its own dialog and returns the key record
+    // without it.
     const data = JSON.parse(result.content[0].text);
-    _newKey = data.key;
-    const preview = data.preview || (data.key ? data.key.substring(0, 16) + '...' : '');
+    const preview = data.key_hint || data.preview || '';
     const newCtx = {
       ...c,
       api_key: {
@@ -311,7 +281,7 @@ async function generateKey() {
     };
     await updateArtifact({ context: JSON.stringify(newCtx) });
     _artifactData.context = newCtx;
-    showToast('API key generated — copy it now!');
+    showToast('API key generated');
   } catch (err) {
     showToast('Failed to generate key');
     console.error(err);
@@ -420,16 +390,6 @@ function render() {
   } else {
     const hasKey = !!apiKey.id;
 
-    const keyRevealHtml = _newKey ? `
-      <div class="key-reveal">
-        <div class="key-reveal-label">&#9888; Copy your API key now — it won't be shown again</div>
-        <div class="key-reveal-row">
-          <div class="key-reveal-value">${esc(_newKey)}</div>
-          <button class="key-reveal-copy" id="reveal-copy-btn" onclick="copyNewKey()">Copy</button>
-        </div>
-        <div class="key-reveal-hint">Paste this as a Bearer token in your MCP client's Authorization header. <a href="#" onclick="dismissKey();return false;" style="color:#b45309;">Dismiss</a></div>
-      </div>` : '';
-
     const oauthHtml = redirectUris.length ? `
       <div class="oauth-section">
         <div class="oauth-header">
@@ -468,7 +428,6 @@ function render() {
       <div class="actions" style="margin-top:0;margin-bottom:16px;">
         <button class="btn btn-outline" onclick="toggleEdit()">Edit</button>
       </div>
-      ${keyRevealHtml}
       ${client.name ? `
       <div class="section">
         <div class="field-label">Client</div>
@@ -501,7 +460,7 @@ function render() {
         </div>`}
       </div>
       ${oauthHtml}
-      ${!hasKey && !_newKey ? '' : `
+      ${!hasKey ? '' : `
       <div class="section">
         <div class="field-label">Setup Instructions</div>
         <ol class="instructions-list">
@@ -512,10 +471,9 @@ function render() {
   }
 }
 
+// Escapes text for element content and for quoted attribute values.
 function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = String(s || '');
-  return d.innerHTML;
+  return String(s || '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 }
 </script>
 </body>

@@ -102,7 +102,7 @@ describe('MarkdownCardViewer', () => {
           id: 'markdown-1',
           context: JSON.stringify({ title: 'Untitled Markdown', content_type: 'text/markdown' }),
           content: '# Title\n\nBody',
-          state: 'committed' as const,
+          state: 'live' as const,
         }}
         state="view"
       />,
@@ -120,7 +120,7 @@ describe('MarkdownCardViewer', () => {
           id: 'markdown-1',
           context: JSON.stringify({ title: 'Untitled Markdown', content_type: 'text/markdown' }),
           content: '# Title\n\nBody',
-          state: 'committed' as const,
+          state: 'live' as const,
         }}
         state="edit"
       />,

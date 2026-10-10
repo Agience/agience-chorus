@@ -211,7 +211,7 @@ def register_bundling_operators(store, *, author: str = "seraph-bundling") -> in
     from crystal.evolution import OPERATOR_CONTENT_TYPE
     for name, offer in _BUNDLING_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
-            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "committed",
+            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
             "context": offer, "content": "seraph bundling operator %s: %s" % (name, offer),
             "created_by": author}))
     return len(_BUNDLING_OPS)

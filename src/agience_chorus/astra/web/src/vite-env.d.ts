@@ -16,6 +16,8 @@ type AgienceRuntimeConfig = {
   favicon?: string;
   /** Set on a service-provider deployment: the IdP login surface to deep-link to. */
   idpUri?: string;
+  /** On the IdP: further service-provider origins it may return an access token to. */
+  spOrigins?: string[];
 };
 
 interface Window {

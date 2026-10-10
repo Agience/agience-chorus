@@ -44,8 +44,6 @@ export default function FilterChips({
   // Calculate counts for each state
   const stateCounts = useMemo(() => {
     const counts: Record<string, number> = {
-      draft: 0,
-      committed: 0,
       archived: 0,
     };
 
@@ -107,10 +105,6 @@ export default function FilterChips({
     if (!active) return 'bg-gray-100 text-gray-600 hover:bg-gray-200';
 
     switch (state) {
-      case 'draft':
-        return 'bg-blue-100 text-blue-700 ring-2 ring-blue-300';
-      case 'committed':
-        return 'bg-green-100 text-green-700 ring-2 ring-green-300';
       case 'archived':
         return 'bg-gray-200 text-gray-700 ring-2 ring-gray-400';
       default:
@@ -119,8 +113,6 @@ export default function FilterChips({
   };
   
   const states = [
-    { key: 'draft', label: 'Draft', count: stateCounts['draft'] },
-    { key: 'committed', label: 'Committed', count: stateCounts.committed },
     { key: 'archived', label: 'Archived', count: stateCounts.archived },
   ];
   

@@ -37,7 +37,6 @@ import os
 import sqlite3
 import sys
 
-import numpy as np
 
 from agience_chorus._host_seams import seam as _seam
 
@@ -253,9 +252,7 @@ def screen_frame(ro, collection, screen, extra=(), polar=(), history=()):
     `read_cloud` derives over the whole reading.
 
     Returns `(F, cols, amp)`; `(None, [], {})` when nothing holds this screen."""
-    import collections as _c
 
-    import numpy as np
     bits = _seam("optics").self_information_bits
 
     # Clark's syntactic concept lattice (FG09) builds a Galois connection between substrings and
@@ -621,7 +618,7 @@ def walk(ro, collection, placed, right_of, carried=()):
         # while its closure carries thousands of contexts and `eigh` on that frame does not return.
         # Any measure of overlap with the screen favours whatever occurs everywhere (`the very much
         # to the very much`), because a common vertex shares more context with any question than a
-        # specific one does; overlap discriminates only under a normalisation that entroptics keeps
+        # specific one does; overlap discriminates only under a normalisation that the instrument keeps
         # out of scope, since dividing a vector by its norm is cosine. The instrument one question
         # opens is too thin to read and its closure is too wide to decompose, which is why the
         # screen is fed over time rather than reconstructed per question.

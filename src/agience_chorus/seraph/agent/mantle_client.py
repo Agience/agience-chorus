@@ -59,7 +59,7 @@ class MantleClient:
 
     def archive_artifact(self, artifact_id: str) -> bool:
         """Archive (soft-remove): superseded/duplicate versions are archived, never destroyed —
-        provenance is preserved, only head/committed answers surface."""
+        provenance is preserved, only live heads surface."""
         r = self.t.request("PATCH", f"{self.base}/artifacts/{artifact_id}", headers=self._h(),
                            json={"state": "archived"})
         return r.ok

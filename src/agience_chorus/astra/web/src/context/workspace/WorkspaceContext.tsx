@@ -3,7 +3,6 @@ import { createStrictContext } from '../../utils/createStrictContext';
 import { MouseEvent } from 'react';
 import { Artifact } from './workspace.types';
 import { ArtifactCreate } from '../../api/types';
-import type { WorkspaceCommitRequest } from '../../api/types/workspace_commit';
 
 
 export interface WorkspaceContextType {
@@ -13,13 +12,16 @@ export interface WorkspaceContextType {
   /** Setter for displayed artifacts so components like Browser can publish what is currently shown */
   setDisplayedArtifacts?: (artifacts: Artifact[]) => void;
   selectedArtifactIds: string[];
-  isCommitting: boolean;
   addArtifact: (artifact: ArtifactCreate) => Promise<void>;
   addExistingArtifact: (artifact: Artifact) => void;
+  /** Merge fields into an artifact in local state only; sends nothing to the server. */
+  patchArtifactLocally: (artifact: Partial<Artifact>) => void;
   createArtifact: (artifact: ArtifactCreate, insertIndex?: number) => Promise<Artifact | null>;
   updateArtifact: (artifact: Partial<Artifact>) => Promise<void>;
+  /** Unlink the artifact from the active workspace. */
   removeArtifact: (id: string) => Promise<void>;
-  revertArtifact: (id: string) => Promise<void>;
+  /** Destroy the artifact. Resolves false when the server refuses. */
+  deleteArtifact: (id: string) => Promise<boolean>;
   refreshArtifacts: (workspaceId: string) => Promise<void>;
   selectArtifact: (id: string, event: MouseEvent) => void;
   orderArtifacts: (orderedIds: string[]) => Promise<void>;
@@ -27,7 +29,6 @@ export interface WorkspaceContextType {
   importArtifactsByRootIds: (rootIds: string[], insertIndex: number) => Promise<void>;
   selectAllArtifacts: () => void;
   unselectAllArtifacts: () => void;
-  commitCurrentWorkspace: (input?: WorkspaceCommitRequest) => void;
   extractInformationFromArtifact: (sourceArtifactId: string, contextArtifactIds?: string[]) => Promise<void>;
   extractInformationFromSelection: (options?: { sourceArtifactId?: string }) => Promise<void>;
   createNewArtifact: () => void;

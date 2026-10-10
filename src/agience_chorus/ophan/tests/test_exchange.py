@@ -63,7 +63,7 @@ def _put_origin(store, oid: str, *, issuer: str, economy: dict | None = None) ->
     store.artifacts.put_artifact({
         "id": oid,
         "content_type": ex.ORIGIN_CONTENT_TYPE,
-        "state": "committed",
+        "state": "live",
         "name": oid,
         "issuer": issuer,
         "policy": {},

@@ -11,7 +11,6 @@ receiving that extra row is the evidence there was more.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
 
 import pytest
 
@@ -20,7 +19,7 @@ from ember import genesis
 
 class _Arts:
     def __init__(self, n):
-        self._rows = [{"id": "a-%d" % i, "content_type": "text/markdown", "state": "committed",
+        self._rows = [{"id": "a-%d" % i, "content_type": "text/markdown", "state": "live",
                        "content_ref": "cas/same" if i % 2 else "cas/other-%d" % i}
                       for i in range(n)]
 

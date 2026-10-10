@@ -335,8 +335,6 @@ def read(store, collection: str, text: str, *, budget: float = 25.0,
 
 def main() -> int:
     import argparse
-    import os
-    import sys
     ap = argparse.ArgumentParser()
     # The text is a corpus file, not part of the checkout: the caller names it, as
     # `organon_reader` already requires. A default here could only be right on one box.

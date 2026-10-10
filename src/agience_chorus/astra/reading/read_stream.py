@@ -21,14 +21,13 @@ offered because which one the reading should take is a question to measure rathe
 the three are directly comparable when run into separate collections from empty.
 
 No normalising, no stripping, no folding. Case is kept, punctuation is kept, whitespace is kept.
-Whitening and normalisation are the screen's, performed by entroptics on the frame, never by a
+Whitening and normalisation are the screen's, performed by the instrument on the frame, never by a
 reader tidying its input — a reader that cleans its text has decided what the text is.
 """
 from __future__ import annotations
 
 import argparse
 import collections
-import os
 import sys
 import time
 

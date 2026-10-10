@@ -39,7 +39,7 @@ describe('api/mcp — listWorkspaceMCPServers', () => {
         content_type: 'application/vnd.agience.mcp-server+json',
         context: JSON.stringify({ mcp_server: { name: 'Agience Core', transport: 'builtin' } }),
         content: '',
-        state: 'committed',
+        state: 'live',
       },
       {
         id: 'aaaaaaaa-0000-4000-8000-000000000002',
@@ -47,7 +47,7 @@ describe('api/mcp — listWorkspaceMCPServers', () => {
         content_type: 'application/vnd.agience.mcp-server+json',
         context: JSON.stringify({ mcp_server: { name: 'Nexus', transport: 'builtin' } }),
         content: '',
-        state: 'committed',
+        state: 'live',
       },
     ];
     mockList.mockResolvedValueOnce(artifacts);
@@ -88,7 +88,7 @@ describe('api/mcp — importMCPResources (Phase 7D: artifact-native dispatch)', 
   });
 
   it('resolves a server name to a UUID before posting resources_import', async () => {
-    mockList.mockResolvedValueOnce([{ id: '8ce77110-f1af-4ab3-86d8-f84305888008', name: 'Agience Core', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'committed' }]);
+    mockList.mockResolvedValueOnce([{ id: '8ce77110-f1af-4ab3-86d8-f84305888008', name: 'Agience Core', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'live' }]);
     mockPost.mockResolvedValueOnce({ data: { created_artifact_ids: ['c1', 'c2'], count: 2 } });
 
     const resources = [
@@ -109,7 +109,7 @@ describe('api/mcp — importMCPResources (Phase 7D: artifact-native dispatch)', 
   });
 
   it('handles empty resource list (count: 0)', async () => {
-    mockList.mockResolvedValueOnce([{ id: '8ce77110-f1af-4ab3-86d8-f84305888008', name: 'Agience Core', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'committed' }]);
+    mockList.mockResolvedValueOnce([{ id: '8ce77110-f1af-4ab3-86d8-f84305888008', name: 'Agience Core', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'live' }]);
     mockPost.mockResolvedValueOnce({ data: { created_artifact_ids: [], count: 0 } });
 
     const result = await importMCPResources('ws-123', 'agience-core', []);
@@ -130,7 +130,7 @@ describe('api/mcp — importMCPResources (Phase 7D: artifact-native dispatch)', 
   });
 
   it('propagates import errors', async () => {
-    mockList.mockResolvedValueOnce([{ id: '8ce77110-f1af-4ab3-86d8-f84305888008', name: 'Agience Core', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'committed' }]);
+    mockList.mockResolvedValueOnce([{ id: '8ce77110-f1af-4ab3-86d8-f84305888008', name: 'Agience Core', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'live' }]);
     mockPost.mockRejectedValueOnce(new Error('Server unreachable'));
 
     await expect(
@@ -152,7 +152,7 @@ describe('api/mcp — readMCPResource (Phase 7D: artifact-native dispatch)', () 
       mimeType: 'application/json',
       text: '{"artifacts":[]}',
     };
-    mockList.mockResolvedValueOnce([{ id: 'cf759fa7-1d53-4867-8c20-2c6d92fe4d0d', name: 'Seraph', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'committed' }]);
+    mockList.mockResolvedValueOnce([{ id: 'cf759fa7-1d53-4867-8c20-2c6d92fe4d0d', name: 'Seraph', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'live' }]);
     mockPost.mockResolvedValueOnce({ data: contents });
 
     const result = await readMCPResource('seraph', 'agience://collection/c1', 'ws-1');
@@ -184,7 +184,7 @@ describe('api/mcp — readMCPResource (Phase 7D: artifact-native dispatch)', () 
   });
 
   it('propagates read errors', async () => {
-    mockList.mockResolvedValueOnce([{ id: '8ce77110-f1af-4ab3-86d8-f84305888008', name: 'Agience Core', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'committed' }]);
+    mockList.mockResolvedValueOnce([{ id: '8ce77110-f1af-4ab3-86d8-f84305888008', name: 'Agience Core', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'live' }]);
     mockPost.mockRejectedValueOnce(new Error('Resource not found'));
 
     await expect(
@@ -211,7 +211,7 @@ describe('api/mcp — proxyToolCall', () => {
   });
 
   it('resolves a server name to a UUID before invoke', async () => {
-    mockList.mockResolvedValueOnce([{ id: '641e9cfb-2b57-4515-b912-9d0a07eb6225', name: 'Ophan', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'committed' }]);
+    mockList.mockResolvedValueOnce([{ id: '641e9cfb-2b57-4515-b912-9d0a07eb6225', name: 'Ophan', content_type: 'application/vnd.agience.mcp-server+json', context: '{}', content: '', state: 'live' }]);
     mockPost.mockResolvedValueOnce({ data: { content: [{ type: 'text', text: 'ok' }] } });
 
     const result = await proxyToolCall('billing.get_portal', { invoice_id: 'inv-1' }, 'ophan', 'ws-1');

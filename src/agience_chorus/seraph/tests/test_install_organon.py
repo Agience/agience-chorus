@@ -136,7 +136,8 @@ def test_tampered_crystal_member_refused():
     b = _bundle(art)
     tampered = json.loads(art["content"])
     tampered["organons"].append({"name": "op.evil", "requires": []})
-    bad = dict(art); bad["content"] = json.dumps(tampered, sort_keys=True)
+    bad = dict(art)
+    bad["content"] = json.dumps(tampered, sort_keys=True)
     with pytest.raises(ValueError, match="integrity failure"):
         install.install_bundle(b, ["compute.local", "store.read"], _fetcher(bad))
 

@@ -228,7 +228,7 @@ def _persist(store: Any, capability: str, given: Any, result: Any, *,
     try:
         if arts.get_artifact(aid) is not None:
             return aid                              # already measured at these scales — no second row
-        arts.put_artifact({"id": aid, "content_type": RECOGNITION_CT, "state": "committed",
+        arts.put_artifact({"id": aid, "content_type": RECOGNITION_CT, "state": "live",
                            "basis": RECOGNITION_BASIS, "capability": capability,
                            "given": given, "result": result,
                            "scales": dict(scale), "corpus": corpus})
@@ -312,7 +312,7 @@ def frame(store: Any, names: Sequence[str], *, center: Any = None, energy: Any =
           corpus_basis: bool = True, k: Optional[int] = None):
     """`op.frame` — the ordered `(T, F)` screen for these concepts. `projection.frame`.
 
-    Order is the signal: `entroptics`' Screen is ordered and a shuffle destroys coherence, so
+    Order is the signal: the instrument's Screen is ordered and a shuffle destroys coherence, so
     `names` travels as a list across the plane and is never normalised into a set on the way.
 
     Returns the frame, or `None` when the projection cannot be read. `None` means unreadable, which
@@ -499,7 +499,7 @@ def register_recognition_operators(store: Any, *, author: str = "chorus") -> int
     arts = getattr(store, "artifacts", store)
     for name, offer in _RECOGNITION_OFFERS:
         arts.put_artifact(evolution.preserve_fitness(arts, {
-            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "committed",
+            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
             "context": offer, "content": "recognition tekton %s: %s" % (name, offer),
             "created_by": author}))
     return len(_RECOGNITION_OFFERS)

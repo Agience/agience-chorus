@@ -25,8 +25,8 @@ import time
 
 import numpy as np
 
-# One neighbourhood, reached by name. `from ember import optics` is what
-# `test_only_the_instrument_seam_imports_entroptics` forbids from chorus, and the seam is how a persona asks
+# One neighbourhood, reached by name. `from ember import optics` is what ember's seam test forbids
+# from chorus, and the seam is how a persona asks
 # for a measurement the runner performs. `import ember` (which binds the seams) is the host's act,
 # not this module's.
 from agience_chorus._host_seams import seam as _seam
@@ -283,7 +283,8 @@ def widen(ro, ctx, held):
     for _d, _uid, srcs in deg:
         for src in srcs:
             if src not in seen:
-                seen.add(src); added.append(src)
+                seen.add(src)
+                added.append(src)
         if added:
             break                                # one rarity-tier at a time, then re-test the read
     for o in added:

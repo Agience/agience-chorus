@@ -37,7 +37,7 @@ export default function OutputPanel() {
             id,
             context,
             content,
-            state: 'committed',
+            state: 'live',
             collection_ids: [],
           },
         ],

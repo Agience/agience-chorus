@@ -53,7 +53,7 @@ def test_disjoint_series_are_REFUSED_not_padded():
 
 
 def test_time_order_is_preserved_regardless_of_input_order():
-    """The entroptics Screen is ordered — a shuffle destroys coherence — so rows must come out sorted
+    """The instrument's Screen is ordered — a shuffle destroys coherence — so rows must come out sorted
     by timestamp, not in whatever order the bars arrived."""
     scrambled = _bars(("t3", 102.0), ("t1", 100.0), ("t2", 101.0))
     ts, _, closes = mf.aligned_closes({"A": scrambled, "B": B})

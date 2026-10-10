@@ -225,12 +225,7 @@ export const ButtonStyles = {
  * Artifact state colors
  */
 export const ArtifactStateColors = {
-  draft: {
-    bg: 'bg-green-50',
-    text: 'text-green-700',
-    border: 'border-green-300',
-  },
-  committed: {
+  live: {
     bg: 'bg-gray-50',
     text: 'text-gray-700',
     border: 'border-gray-300',

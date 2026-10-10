@@ -63,10 +63,9 @@ def retrieve(query: str, auth_token: Optional[str], mantle_url: str,
             # skipped on every answer, beneath the default log level.
             f"{mantle_url.rstrip('/')}/artifacts/recall",
             headers={"Authorization": _bearer(auth_token), "Content-Type": "application/json"},
-            # `use_hybrid` dropped: retired, and recall IGNORES unknown fields,
-            # so sending it was inert rather than wrong. `state` and `highlight` are real.
-            json={"query_text": query, "size": k,
-                  "state": "committed", "highlight": True},
+            # No `state`: recall's default is the live set, which is what grounding reads.
+            # Recall ignores unknown fields, so only `highlight` rides beside the query.
+            json={"query_text": query, "size": k, "highlight": True},
             timeout=12,
         )
         if r.status_code != 200:
@@ -106,7 +105,7 @@ def register_retrieval_operators(store, *, author: str = "ember-local") -> int:
     from crystal.evolution import OPERATOR_CONTENT_TYPE
     for name, offer in _RETRIEVAL_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
-            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "committed",
+            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
             "context": offer, "content": f"lumen tekton operator {name}: {offer}",
             "created_by": author}))
     return len(_RETRIEVAL_OPS)

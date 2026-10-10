@@ -88,7 +88,7 @@ def exchange_artifact(origin_a: str, origin_b: str, *,
     return {
         "id": exchange_id(a, b),
         "content_type": EXCHANGE_CONTENT_TYPE,
-        "state": "committed",
+        "state": "live",
         "parties": [lo, hi],                    # canonical order — symmetric, one artifact per pair
         "issuers": dict(issuers or {}),         # cross-issuer trust: origin_id → agreed Authority
         "allow": allow or {},                   # the membrane: what may flow (default: nothing)

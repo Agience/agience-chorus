@@ -149,11 +149,13 @@ def test_start_and_stop_are_idempotent_and_leave_no_loop_running(tmp_path):
     """Failure mode: a leaked pump thread outliving the service — the exact thing `ReachHost`'s own
     context-manager test pins, re-asserted at the service layer that owns the lifetime."""
     svc = _build(tmp_path, respond_store=None)
-    svc.start(); svc.start()                       # idempotent: a second start must not spawn a 2nd thread
+    svc.start()
+    svc.start()                       # idempotent: a second start must not spawn a 2nd thread
     assert svc.started is True
     assert svc.host.loop.running is True, "the pump loop did not start"   # `running` is a property
 
-    svc.stop(); svc.stop()                         # idempotent
+    svc.stop()
+    svc.stop()                         # idempotent
     assert svc.started is False
     assert svc.host.loop.running is False, "a pump thread outlived the service"
 

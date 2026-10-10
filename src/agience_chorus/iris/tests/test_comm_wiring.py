@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from prism.carriers import InMemoryCarrier, S3Carrier, reconcile  # noqa: E402
-from prism.plane import Lightcone, open_sealed, seal  # noqa: E402
+from prism.plane import open_sealed, seal  # noqa: E402
 from agience_chorus.iris.comms.wiring import MantleKeyring, MantleLightcone, build_plane  # noqa: E402
 
 

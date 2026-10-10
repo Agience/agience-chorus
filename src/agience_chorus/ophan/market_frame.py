@@ -24,7 +24,7 @@ distinguish a tightly driven basket from pure noise. `top_share` measures the do
 power fraction instead, which does distinguish them, and `k_signal` says how many drivers clear the
 null.
 
-`ember/optics.py` is the one door onto entroptics — nothing else may import it directly
+`ember/optics.py` is the one door onto the instrument — nothing else may import it directly
 ([[one-instrument-enforced]]) — so market code stays out of ember: ember is the instrument and its
 nomenclature is generic energy-flow (absorb/transmit, propagate_residual, coherence, decay_profile).
 A `MarketFrame` in ember would drag a domain into the instrument; it belongs to the persona that owns
@@ -51,8 +51,8 @@ def aligned_closes(series: Dict[str, Sequence[Dict[str, Any]]]) -> Tuple[List[st
     data and biases every correlation that touches it. Dropping the timestamp is honest and costs
     only samples.
 
-    Time order is preserved: the entroptics Screen is ordered — shuffling destroys coherence
-    ([[entroptics-screen-is-ordered]]) — so the rows are sorted by timestamp, not by dict iteration.
+    Time order is preserved: the instrument's Screen is ordered — shuffling destroys coherence
+ — so the rows are sorted by timestamp, not by dict iteration.
     """
     if not series:
         raise FrameError("no series given — nothing to frame")

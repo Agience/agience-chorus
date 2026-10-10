@@ -2,7 +2,9 @@
 
 export type JSONValue = string | number | boolean | null | JSONValue[] | { [k: string]: JSONValue };
 
-export type ArtifactState = 'draft' | 'committed' | 'archived';
+/** `live` is every artifact that is not archived. Legacy `committed`/`draft` values are mapped
+ * to `live` at the API boundary (`utils/artifactState`). */
+export type ArtifactState = 'live' | 'archived';
 
 export interface ArtifactCreate {
   content_type?: string;
@@ -32,15 +34,13 @@ export interface ArtifactResponse {
   modified_by?: string;
   modified_time?: string;
   state: ArtifactState;
-  /** True when at least one committed version of this root_id exists. */
-  has_committed_version?: boolean;
   order_key?: string;
   /**
    * Non-workspace collections this artifact belongs to (via edges).
    * Populated by `attach_committed_collection_ids()` on the backend.
    * Membership is edge-based and independent of artifact state.
-   * (Backend field name is `committed_collection_ids` — a misnomer,
-   * since membership is not tied to the committed state.)
+   * (Backend field name is `committed_collection_ids` — a misnomer:
+   * it lists memberships and has nothing to do with artifact state.)
    */
   committed_collection_ids?: string[];
   /** True when at least one child artifact exists (via parent_id edge). */

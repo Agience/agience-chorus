@@ -3,6 +3,7 @@ import { get, del } from '../../api/api';
 import { getRuntimeConfig } from '../../config/runtime';
 import { User } from './auth.types';
 import { AuthContext } from './AuthContext';
+import { consumeSpState } from '../../auth/spState';
 
 const { originUri: ORIGIN_URI, clientId: CLIENT_ID } = getRuntimeConfig();
 
@@ -14,20 +15,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     // SP return path: Origin (the IdP) sends us back with the token in the URL
-    // fragment. Consume it, persist it, and scrub it from the address bar so the
+    // fragment. The token is accepted only when the fragment's `state` is one this
+    // browser issued when it started the sign-in (`auth/spState`), and each state is
+    // accepted once. Any other fragment token is discarded and the existing session is
+    // left as it is. The fragment is scrubbed from the address bar either way, so the
     // JWT isn't left in history. The fragment never reaches a server.
-    const fragToken = (() => {
-      const hash = window.location.hash;
-      if (!hash || hash.indexOf('access_token=') === -1) return null;
-      const t = new URLSearchParams(hash.replace(/^#/, '')).get('access_token');
-      return t && t.trim() ? t : null;
-    })();
-    if (fragToken) {
-      console.log('[AuthProvider] mount — token arrived in fragment from the IdP');
-      localStorage.setItem('access_token', fragToken);
+    const hash = window.location.hash;
+    if (hash && hash.indexOf('access_token=') !== -1) {
+      const frag = new URLSearchParams(hash.replace(/^#/, ''));
+      const t = frag.get('access_token');
+      const fragToken = t && t.trim() ? t : null;
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
-      setToken(fragToken);
-      return;
+      if (fragToken && consumeSpState(frag.get('state'))) {
+        console.log('[AuthProvider] mount — token arrived in fragment from the IdP');
+        localStorage.setItem('access_token', fragToken);
+        setToken(fragToken);
+        return;
+      }
+      console.warn('[AuthProvider] mount — fragment token discarded: state missing or not issued here');
     }
 
     const localToken = localStorage.getItem('access_token');

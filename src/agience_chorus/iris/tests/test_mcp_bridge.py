@@ -38,8 +38,7 @@ from prism.plane import HLC, Keyring, Lightcone  # noqa: E402
 from prism.reach import Reactor  # noqa: E402
 from prism.streams import LoopbackFabric  # noqa: E402
 from prism import mcp_bridge  # noqa: E402
-from prism.mcp_bridge import (dispatch_tools_call, external_mcp_handler,  # noqa: E402
-                              serve_external_mcp, tools_call)
+from prism.mcp_bridge import (dispatch_tools_call, serve_external_mcp, tools_call)
 
 SEEDS = range(120)   # the generated world-space (each seed = a reproducible tool + args)
 

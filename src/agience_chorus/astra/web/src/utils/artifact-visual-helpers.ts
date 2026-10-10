@@ -15,7 +15,7 @@ type ArtifactProcessing = {
   index_status?: string;
 };
 
-const PROCESSING_LOCKED_ACTIONS = new Set(['archive', 'remove', 'revert', 'restore']);
+const PROCESSING_LOCKED_ACTIONS = new Set(['archive', 'remove', 'restore']);
 
 function parseArtifactContext(artifact: Artifact): ArtifactContextDict {
   try {
@@ -80,16 +80,14 @@ export function isArtifactActionBlocked(artifact: Artifact, actionId: string): b
   return PROCESSING_LOCKED_ACTIONS.has(actionId) && isArtifactProcessingPending(artifact);
 }
 
-// Check if state badge should be shown.
-// committed = normal published state — no badge needed.
+// Check if state badge should be shown. Only archived artifacts carry one.
 export function shouldShowStateBadge(state: string | undefined): boolean {
-  return state === 'draft' || state === 'archived';
+  return state === 'archived';
 }
 
 // Get friendly label for state badge
 export function getStateBadgeLabel(state: string | undefined): string {
   switch (state) {
-    case 'draft': return 'Draft';
     case 'archived': return 'Archived';
     default: return '';
   }

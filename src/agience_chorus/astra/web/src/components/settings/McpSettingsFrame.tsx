@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { readUiResource, proxyToolCall } from '@/api/mcp';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useAuth } from '@/hooks/useAuth';
+import { isWebUrl } from '@/isolation/openLink';
 
 interface McpSettingsFrameProps {
   /** MCP server name (e.g. "ophan") */
@@ -90,9 +91,11 @@ export default function McpSettingsFrame({ server, resourceUri }: McpSettingsFra
       case 'ui/open-link': {
         const href = (req.params as { href?: string; url?: string })?.href
           ?? (req.params as { url?: string })?.url;
-        if (href) {
+        if (href && isWebUrl(href)) {
           window.open(href, '_blank', 'noopener,noreferrer');
           sendResponse(req.id, {});
+        } else if (href) {
+          sendError(req.id, -32000, 'Only http and https links can be opened');
         } else {
           sendError(req.id, -32000, 'Invalid URL');
         }

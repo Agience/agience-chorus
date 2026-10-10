@@ -58,14 +58,6 @@
     {
       "name": "create_vu_topup",
       "description": "REFUSES — VU top-up checkout is an outbound write and must go through the op.pay.session organon (net.request + discharge gate). Raises; creates nothing and charges nothing"
-    },
-    {
-      "name": "activate_subscription",
-      "description": "Activate a subscription after Stripe checkout. Creates artifacts and syncs limits to Core"
-    },
-    {
-      "name": "update_subscription",
-      "description": "Update a subscription (plan change or cancellation). Syncs new limits to Core"
     }
   ],
   "resources": [],

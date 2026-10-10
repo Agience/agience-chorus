@@ -16,6 +16,7 @@ import CardGrid from './CardGrid';
 import CardList from './CardList';
 import { CardTreeItem } from './CardTreeItem';
 import type { Artifact } from '../../context/workspace/workspace.types';
+import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import type { ActiveSource } from '../../types/workspace';
 import { getStableArtifactId } from '@/utils/artifact-identifiers';
 
@@ -51,8 +52,9 @@ export interface CardBrowserProps {
 
   // ── Artifact events ───────────────────────────────────────────────────────────
   onOpenArtifact?: (artifact: Artifact) => void;
-  onRemove?: (artifact: Artifact) => void;
-  onRevert?: (artifact: Artifact) => void;
+  onRemove?: (artifact: Artifact, mode?: CardRemoveMode) => void;
+  /** The host destroys the artifact on `onRemove(artifact, 'delete')`; without it Delete is not offered. */
+  deleteEnabled?: boolean;
   onArchive?: (artifact: Artifact) => void;
   onRestore?: (artifact: Artifact) => void;
   onAddToWorkspace?: (artifact: Artifact) => void;
@@ -96,7 +98,7 @@ export function CardBrowser({
   isShowingSearchResults = false,
   onOpenArtifact,
   onRemove,
-  onRevert,
+  deleteEnabled = false,
   onArchive,
   onRestore,
   onAddToWorkspace,
@@ -123,7 +125,7 @@ export function CardBrowser({
               onMouseDown={id ? (e) => onArtifactMouseDown?.(id, e) : undefined}
               onOpen={onOpenArtifact}
               onRemove={readOnly ? undefined : onRemove}
-              onRevert={readOnly ? undefined : onRevert}
+              deleteEnabled={!readOnly && deleteEnabled}
               onArchive={readOnly ? undefined : onArchive}
               onRestore={readOnly ? undefined : onRestore}
             />
@@ -145,7 +147,7 @@ export function CardBrowser({
         onArtifactMouseDown={onArtifactMouseDown}
         onOpenArtifact={onOpenArtifact}
         onRemove={readOnly ? undefined : onRemove}
-        onRevert={readOnly ? undefined : onRevert}
+        deleteEnabled={!readOnly && deleteEnabled}
         onArchive={readOnly ? undefined : onArchive}
         onRestore={readOnly ? undefined : onRestore}
         onAddToWorkspace={onAddToWorkspace}
@@ -188,7 +190,7 @@ export function CardBrowser({
       onArtifactMouseDown={onArtifactMouseDown}
       onOpenArtifact={onOpenArtifact}
       onRemove={readOnly ? undefined : onRemove}
-      onRevert={readOnly ? undefined : onRevert}
+      deleteEnabled={!readOnly && deleteEnabled}
       onAddToWorkspace={onAddToWorkspace}
       onAssignCollections={readOnly ? undefined : onAssignCollections}
       onOrder={readOnly ? undefined : onOrder}

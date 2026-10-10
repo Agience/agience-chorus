@@ -16,9 +16,13 @@ export type CreateAccountFormProps = {
   /** Called when user clicks "Change" on the identifier pill */
   onChangeIdentifier?: () => void
 
-  /** Optional email field — not required, suggested for recovery */
+  /** Email address. Required by default: Origin's registration refuses an account without one,
+   * because confirming the address is the only proof its owner is reachable. */
   email?: string
   onEmailChange?: (v: string) => void
+  /** When false, the email may be left blank (the setup wizard's operator, which Origin accepts
+   * without an address). */
+  requireEmail?: boolean
 
   name: string
   onNameChange: (v: string) => void
@@ -40,6 +44,7 @@ const CreateAccountForm: React.FC<CreateAccountFormProps> = ({
   onChangeIdentifier,
   email = '',
   onEmailChange,
+  requireEmail = true,
   name,
   onNameChange,
   password,
@@ -54,6 +59,8 @@ const CreateAccountForm: React.FC<CreateAccountFormProps> = ({
   const [passwordCopied, setPasswordCopied] = useState(false)
 
   const passwordValid = password.length >= 12
+  // The shape Origin checks (`@` present); the input's own `type="email"` validation covers the rest.
+  const emailValid = !requireEmail || email.trim().includes('@')
 
   const generatePassword = useCallback(async () => {
     const upper   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
@@ -87,7 +94,7 @@ const CreateAccountForm: React.FC<CreateAccountFormProps> = ({
 
   return (
     <form
-      onSubmit={e => { e.preventDefault(); onSubmit() }}
+      onSubmit={e => { e.preventDefault(); if (emailValid) onSubmit() }}
       className="space-y-4"
     >
       {/* Identifier pill (read-only) — shown when coming from the login identifier phase */}
@@ -122,10 +129,10 @@ const CreateAccountForm: React.FC<CreateAccountFormProps> = ({
         />
       </div>
 
-      {/* Email — optional, for recovery */}
+      {/* Email — required unless the caller opts out */}
       <div className="space-y-1.5">
         <label htmlFor="ca-email" className="block text-sm font-medium text-gray-700 flex items-center gap-1.5">
-          Email <span className="text-gray-400 font-normal text-xs">(optional)</span>
+          Email {!requireEmail && <span className="text-gray-400 font-normal text-xs">(optional)</span>}
         </label>
         <input
           id="ca-email"
@@ -135,6 +142,7 @@ const CreateAccountForm: React.FC<CreateAccountFormProps> = ({
           placeholder="you@example.com"
           className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent text-sm"
           autoComplete="email"
+          required={requireEmail}
           disabled={submitting}
         />
       </div>
@@ -184,8 +192,8 @@ const CreateAccountForm: React.FC<CreateAccountFormProps> = ({
 
       <button
         type="submit"
-        disabled={submitting || !name || (requirePassword && (!password || !passwordValid))}
-        // name = username field; email is optional
+        disabled={submitting || !name || !emailValid || (requirePassword && (!password || !passwordValid))}
+        // name = username field
         className="w-full py-2.5 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
       >
         {submitting ? 'Creating account…' : submitLabel}

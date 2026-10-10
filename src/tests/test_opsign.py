@@ -7,7 +7,6 @@ beside the operators. Tests in that file needing no payload stayed in ember.
 """
 from __future__ import annotations
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from prism.trust import opsign
 from ember import genesis as g
 from _fakes import _FakeStore

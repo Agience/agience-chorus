@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import MDEditor from '@uiw/react-md-editor';
-import { Tag, Calendar, Folder, Trash2, Archive, RotateCcw, RefreshCw, FolderInput, Save, X, Pencil, Wand2 } from 'lucide-react';
+import { Tag, Calendar, Folder, Trash2, Archive, RefreshCw, FolderInput, Save, X, Pencil, Wand2 } from 'lucide-react';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { useCollections } from '../../hooks/useCollections';
 import { addArtifactToCollection, removeArtifactFromCollection } from '../../api/collections';
@@ -11,8 +11,11 @@ import { CollectionPicker } from '../modals/CollectionPicker';
 import { CollectionChip } from '../common/CollectionChip';
 import { ContentRenderer } from './ContentRenderer';
 import { EditorFactory } from './editors';
+import { SAFE_MARKDOWN_PREVIEW_OPTIONS } from './editors/safeMarkdownPreview';
 import { useConfirm } from '../../context/dialog/useConfirm';
 import { CARD_CONFIRM, BUTTON_LABELS } from '@/constants/strings';
+import { canDeleteArtifact } from '@/utils/artifact-permissions';
+import { useCurrentUserId } from '@/hooks/useCurrentUserId';
 import { safeParseArtifactContext, stringifyArtifactContext, type ArtifactContext } from '@/utils/artifactContext';
 import { getTransformFromArtifact } from '@/context/palette/orderSpec';
 import TransformCardSummary from '@/components/palette/OrderCardSummary';
@@ -35,12 +38,13 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
     artifacts,
     displayedArtifacts = [],
     removeArtifact,
-    revertArtifact,
+    deleteArtifact,
     updateArtifact,
     extractInformationFromSelection,
   } = useWorkspace();
   const { collections = [] } = useCollections();
   const dangerConfirm = useConfirm();
+  const currentUserId = useCurrentUserId();
   const { registerShortcut } = useShortcuts();
   
   const [isEditing, setIsEditing] = useState(false);
@@ -243,13 +247,15 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
     return {
       id,
       name: collection?.name || id,
-      status: 'committed' as const,
+      status: 'member' as const,
     };
   });
 
+  // Delete destroys the artifact when the user may delete it; otherwise the button removes it
+  // from the workspace.
+  const canDelete = canDeleteArtifact(artifact, currentUserId);
   const handleDelete = async () => {
-    const isPermanent = artifact.state === 'draft';
-    if (isPermanent) {
+    if (canDelete) {
       const confirmed = await dangerConfirm.confirm({
         title: CARD_CONFIRM.DELETE_PERMANENT_TITLE,
         description: CARD_CONFIRM.DELETE_PERMANENT_DESCRIPTION,
@@ -257,13 +263,11 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
         cancelLabel: BUTTON_LABELS.CANCEL
       });
       if (!confirmed) return;
+      if (!(await deleteArtifact(String(artifact.id)))) return;
+    } else {
+      await removeArtifact(String(artifact.id));
     }
-    await removeArtifact(String(artifact.id));
     onClose?.();
-  };
-
-  const handleRevert = async () => {
-    await revertArtifact(String(artifact.id));
   };
 
   const handleArchive = async () => {
@@ -271,7 +275,7 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
   };
 
   const handleRestore = async () => {
-    await updateArtifact({ id: String(artifact.id), state: 'committed' });
+    await updateArtifact({ id: String(artifact.id), state: 'live' });
   };
 
   const handleSelectCollections = async (collectionIds: string[]) => {
@@ -327,16 +331,6 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
               <h2 className="text-base font-semibold text-gray-900 truncate">
                 {title}
               </h2>
-            )}
-            {artifact.state === 'draft' && (
-              <span className="px-2 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-gradient-to-br from-green-400/25 via-emerald-400/25 to-teal-400/25 border border-green-200/50 text-green-700">
-                New
-              </span>
-            )}
-            {artifact.state === 'committed' && (
-              <span className="px-2 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-gradient-to-br from-amber-400/25 via-orange-400/25 to-yellow-400/25 border border-amber-200/50 text-amber-700">
-                Modified
-              </span>
             )}
             {artifact.state === 'archived' && (
               <span className="px-2 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-gradient-to-br from-rose-400/25 via-red-400/25 to-pink-400/25 border border-rose-200/50 text-rose-700">
@@ -422,6 +416,7 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
                   setHasUnsavedChanges(true);
                 }}
                 preview="live"
+                previewOptions={SAFE_MARKDOWN_PREVIEW_OPTIONS}
                 height={400}
                 visibleDragbar={false}
               />
@@ -602,17 +597,7 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
               </button>
             )}
 
-            {artifact.state === 'committed' && (
-              <button
-                onClick={handleRevert}
-                className="flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded transition-all bg-gradient-to-br from-amber-400/20 via-orange-400/20 to-yellow-400/20 hover:from-amber-500/30 hover:via-orange-500/30 hover:to-yellow-500/30 border border-amber-200/40 text-amber-700"
-              >
-                <RotateCcw className="w-4 h-4" />
-                Revert
-              </button>
-            )}
-
-            {artifact.state === 'committed' && (
+            {artifact.state !== 'archived' && (
               <button
                 onClick={handleArchive}
                 className="flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded transition-all bg-gradient-to-br from-amber-400/20 via-orange-400/20 to-yellow-400/20 hover:from-amber-500/30 hover:via-orange-500/30 hover:to-yellow-500/30 border border-amber-200/40 text-amber-700"
@@ -637,7 +622,7 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
               className="flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded transition-all bg-gradient-to-br from-rose-400/20 via-red-400/20 to-pink-400/20 hover:from-rose-500/30 hover:via-red-500/30 hover:to-pink-500/30 border border-rose-200/40 text-rose-700"
             >
               <Trash2 className="w-4 h-4" />
-              {artifact.state === 'draft' ? 'Delete' : 'Remove'}
+              {canDelete ? 'Delete' : 'Remove'}
             </button>
           </div>
         </div>

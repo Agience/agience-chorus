@@ -49,7 +49,7 @@ export async function resourcesHandler(
           title: `MCP resource • ${title}`,
           mcp: { server: r.server, uri: r.uri },
         }),
-        state: 'committed',
+        state: 'live',
       });
     } catch {
       artifacts.push({
@@ -61,7 +61,7 @@ export async function resourcesHandler(
           title: `MCP resource • Failed to read ${r.uri}`,
           mcp: { server: r.server, uri: r.uri },
         }),
-        state: 'committed',
+        state: 'live',
       });
     }
   }

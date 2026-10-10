@@ -208,6 +208,10 @@ def test_cross_persona_TEST_imports_stay_visible_and_bounded():
         # lumen's router -> sage's `op.retrieve`. Lives in sage's suite because the fixture is sage's
         # corpus; it imports lumen only to drive the router.
         ("sage", "sage/tests/test_reach_provider_sage.py", "lumen"),
+        # aria's public `/api/chat` hands each turn to lumen's reading responder. The test drives
+        # `lumen.reading.chat.respond` to prove the responder keeps state per caller, so one
+        # stranger's screen is never another's context; the route is aria's, the state is lumen's.
+        ("aria", "aria/tests/test_bff_public_routes_are_bounded.py", "lumen"),
     }
     found = {(a, b, d) for a, b, _, d in _cross_persona_imports(include_tests=True)
              if "tests" in b.split("/")}

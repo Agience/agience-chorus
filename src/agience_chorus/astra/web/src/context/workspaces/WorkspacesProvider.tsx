@@ -1,5 +1,6 @@
 import { ReactNode, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import {
   listWorkspaces,
   createWorkspace as apiCreateWorkspace,
@@ -11,6 +12,7 @@ import { Workspace } from '../workspace/workspace.types';
 import { WorkspaceUpdate } from '../../api/types/workspace';
 import { useAuth } from '../../hooks/useAuth';
 import { usePreferences } from '../../hooks/usePreferences';
+import { errorDetail } from '../../utils/errorDetail';
 
 export function WorkspacesProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, loading, user } = useAuth();
@@ -39,6 +41,9 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
       })
       .catch(err => {
         console.error('Failed to load workspaces', err);
+        toast.error('Could not load workspaces', {
+          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+        });
       });
   }, [isAuthenticated, loading]);
 
@@ -82,13 +87,23 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
     }
   }, [workspaces, urlArtifactId, urlWorkspaceId]);
 
-  // Create
+  // Create. A failure is toasted here with the server's reason, then rethrown so the
+  // caller stops; callers need not toast again.
   const createWorkspace = useCallback(async (
     name: string,
     description: string = '',
     options?: { activate?: boolean }
   ): Promise<Workspace> => {
-    const created = await apiCreateWorkspace({ name, description });
+    let created: Workspace;
+    try {
+      created = await apiCreateWorkspace({ name, description });
+    } catch (err) {
+      console.error('Failed to create workspace', err);
+      toast.error('Could not create workspace', {
+        description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+      });
+      throw err;
+    }
     setWorkspaces(prev => [...prev, created]);
     if (dockedWorkspaceTabIds) {
       void updatePreferences({

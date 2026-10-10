@@ -17,7 +17,6 @@ tekton (a condensor; its tools are organons, invoked by condensation — OPERATO
 
 from __future__ import annotations
 
-import contextlib
 import importlib.util
 import logging
 import os
@@ -467,9 +466,10 @@ def _wire_conversation_carrier() -> None:
         # there is nothing to answer from, so falling back to the ontology is the correct behaviour
         # rather than a hedge.
         #
-        # The collection is the person's choice, not the deployment's: `/use <collection>` and
-        # `/collections` are handled by the responder, so which corpus is being talked to can change
-        # per conversation without a redeploy. `READ_COLLECTION` only sets where it starts.
+        # The bff's callers are anonymous, so they talk to `READ_COLLECTION` and nothing else: the
+        # responder refuses `/use` and `/collections` to a caller with no identity, and keeps no
+        # state between an anonymous caller's turns. An identified caller (`respond(q, caller=id)`)
+        # picks its own collection, held under its own id.
         if os.getenv("READ_ONTOLOGY") or os.getenv("READ_COLLECTION"):
             from agience_chorus.lumen.reading import chat as _readchat
             bff._RESPOND_CARRIER = {"respond": _readchat.respond}

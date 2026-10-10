@@ -21,7 +21,7 @@ persona and invert the split. What aria owns is the surface the reply is emitted
 (`aria/web_bff.py`); placing the responder is the host's act.
 
 Module names avoid generic terms that collide elsewhere in the codebase: `neighbourhood.py` is named
-`query_neighbourhood.py` because `entroptics/neighbourhood.py` is the instrument's own front door;
+`query_neighbourhood.py` because the instrument's own `neighbourhood.py` is its front door;
 `operator.py` is named `operator_predict.py` because of `mantle/services/operator.py` and the stdlib
 `operator` module; `serve_aria.py` is named `operator_respond.py` because it builds a responder over
 the operator rather than serving anything itself. All three live inside packages, so imports resolve

@@ -83,13 +83,7 @@ for _up in _probe.parents:
     break
 del _os, _Path, _sys, _probe
 
-import json
-import os
 
-import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from jose import jwk
 
 # The fixture body lives in `_chorus_identity.py` so it has one home and can be registered by more
 # than one conftest.

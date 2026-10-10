@@ -1,8 +1,7 @@
-import { FiX, FiTag, FiFolder, FiTrash2, FiArchive, FiLogOut, FiCheck } from 'react-icons/fi';
+import { FiX, FiTag, FiFolder, FiTrash2, FiArchive, FiLogOut } from 'react-icons/fi';
 
 interface MultiCardToolbarProps {
   selectedCount: number;
-  onCommit: () => void;
   onArchive: () => void;
   onAddTags: () => void;
   onMove: () => void;
@@ -10,16 +9,14 @@ interface MultiCardToolbarProps {
   onDelete: () => void;
   onDrop: () => void;
   onClear: () => void;
-  /** Selection includes at least one draft (committable). */
-  hasNew: boolean;
-  hasCommitted: boolean;
-  /** Disable the commit action while a commit is in flight. */
-  isCommitting?: boolean;
+  /** Selection includes at least one card the user may delete. */
+  canDelete: boolean;
+  /** Selection includes at least one card that is not archived. */
+  hasLive: boolean;
 }
 
 export default function MultiCardToolbar({
   selectedCount,
-  onCommit,
   onArchive,
   onAddTags,
   onMove,
@@ -27,9 +24,8 @@ export default function MultiCardToolbar({
   onDelete,
   onDrop,
   onClear,
-  hasNew,
-  hasCommitted,
-  isCommitting = false,
+  canDelete,
+  hasLive,
 }: MultiCardToolbarProps) {
   return (
     <div className="fixed bottom-6 inset-x-0 flex justify-center z-50 pointer-events-none">
@@ -40,19 +36,7 @@ export default function MultiCardToolbar({
 
         <div className="w-px h-6 bg-gray-200 mx-1" />
 
-        {hasNew && (
-          <button
-            onClick={onCommit}
-            disabled={isCommitting}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-colors"
-            title="Commit selected draft(s)"
-          >
-            <FiCheck className="w-4 h-4" />
-            Commit
-          </button>
-        )}
-
-        {hasCommitted && (
+        {hasLive && (
           <button
             onClick={onArchive}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
@@ -78,7 +62,7 @@ export default function MultiCardToolbar({
           {moveLabel}
         </button>
 
-        {hasCommitted && (
+        {hasLive && (
           <button
             onClick={onDrop}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
@@ -88,7 +72,7 @@ export default function MultiCardToolbar({
           </button>
         )}
 
-        {hasNew && (
+        {canDelete && (
           <button
             onClick={onDelete}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-full transition-colors"

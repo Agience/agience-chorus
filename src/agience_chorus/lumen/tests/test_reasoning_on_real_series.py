@@ -1,6 +1,6 @@
 """op.reason on REAL series, not synthesised ones.
 
-`agience-pharos/theory/FRACTAL-ENTROPTICS-EVAL.md` §7.3: *"Validate the rank test on real series with known
+the fractal evaluation in `agience-pharos/theory/` §7.3: *"Validate the rank test on real series with known
 artefacts — the synthetic separation is perfect, which usually means the test is too clean."* Real
 data earned its place here twice, and the second time it settled what a counter can be asked for.
 

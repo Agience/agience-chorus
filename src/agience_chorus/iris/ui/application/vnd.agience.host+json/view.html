@@ -258,10 +258,9 @@ function render() {
   }
 }
 
+// Escapes text for element content and for quoted attribute values.
 function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = String(s || '');
-  return d.innerHTML;
+  return String(s || '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 }
 </script>
 </body>
@@ -451,9 +450,12 @@ function detectOS() {
 const _osLabels = { windows: 'Windows (.exe)', macos: 'macOS (.dmg)', linux: 'Linux (.AppImage)' };
 const _osOther  = { windows: ['macos', 'linux'], macos: ['windows', 'linux'], linux: ['windows', 'macos'] };
 
+// The link is built on the host's origin_uri only when that is an http(s) URL, so a context value
+// cannot turn it into a javascript: link.
 function downloadUrl(platform) {
-  const base = (ctx().host || {}).origin_uri || '';
-  return `${base}/relay/download?platform=${platform}`;
+  const origin = (ctx().host || {}).origin_uri || '';
+  const base = /^https?:\/\//i.test(origin) ? origin.replace(/\/+$/, '') : '';
+  return `${base}/relay/download?platform=${encodeURIComponent(platform)}`;
 }
 
 /* --- Host viewer state --- */
@@ -634,10 +636,9 @@ function render() {
   }
 }
 
+// Escapes text for element content and for quoted attribute values.
 function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = String(s || '');
-  return d.innerHTML;
+  return String(s || '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 }
 
 /* --- Boot: fetch relay status after initial render --- */

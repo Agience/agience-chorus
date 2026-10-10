@@ -22,7 +22,7 @@ describe('api/workspaces (TypeScript helpers)', () => {
 	it('returns items envelope from API', async () => {
 		mockedGet.mockResolvedValueOnce({
 			items: [
-				{ id: 'c1', content: 'Artifact 1', state: 'draft', context: '{}', collection_ids: [] },
+				{ id: 'c1', content: 'Artifact 1', state: 'live', context: '{}', collection_ids: [] },
 			],
 			order_version: 3,
 		});

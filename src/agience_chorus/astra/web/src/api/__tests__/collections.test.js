@@ -135,12 +135,6 @@ describe('api/collections', () => {
     expect(res).toEqual([{ id: 'v1', root_id: 'r1' }]);
   });
 
-  it('listCollectionArtifacts passes workspace_id when provided (surfaces that workspace’s linked drafts)', async () => {
-    getList.mockResolvedValueOnce([]);
-    await listCollectionArtifacts('c1', 'ws-1');
-    expect(getList).toHaveBeenCalledWith('/artifacts/c1/children?workspace_id=ws-1');
-  });
-
   it('getCollectionArtifact calls GET /artifacts/:rootId', async () => {
     get.mockResolvedValueOnce({ id: 'v1', root_id: 'r1', content: 'test' });
     const res = await getCollectionArtifact('c1', 'r1');

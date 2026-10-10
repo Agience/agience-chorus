@@ -7,8 +7,6 @@ the type's colimit, not a rule baked into this reader.
 """
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
 
 import pytest
 

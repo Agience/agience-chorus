@@ -291,7 +291,7 @@ function CollectionsPanel({ artifact }: { artifact: Artifact }) {
 		const collectionLabelMap = buildCollectionLabelMap([...artifacts, ...displayedArtifacts], collections);
 
 		return committedCollectionIds.map((id) => {
-			return { id, name: resolveCollectionLabel(id, collectionLabelMap), status: 'committed' as const };
+			return { id, name: resolveCollectionLabel(id, collectionLabelMap), status: 'member' as const };
 		});
 	}, [committedCollectionIds, collections, artifacts, displayedArtifacts]);
 

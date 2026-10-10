@@ -186,7 +186,7 @@ def register_check_operators(store, *, author: str = "ember-local") -> int:
     from crystal import evolution
     for name, offer in _CHECK_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
-            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "committed",
+            "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
             "context": offer, "content": "checker operator %s: %s" % (name, offer),
             "created_by": author,
             "collection_id": _SYSTEM_COLLECTION, "created_time": _REGISTERED_AT}))

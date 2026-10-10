@@ -41,7 +41,7 @@
     },
     {
       "name": "verify_token",
-      "description": "Verify a JWT against the platform JWKS and return which class it is, plus claims"
+      "description": "Verify a JWT against the platform JWKS and return whether it is a valid access token, and of which class"
     },
     {
       "name": "enforce_policy",

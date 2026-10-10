@@ -25,7 +25,7 @@ describe('artifactDownload', () => {
       collection_id: 'ws-1',
       context: '{}',
       content: '',
-      state: 'committed',
+      state: 'live',
     });
 
     expect(getArtifactContentUrl).toHaveBeenCalledWith('ws-1', 'artifact-1');
@@ -41,7 +41,7 @@ describe('artifactDownload', () => {
       collection_id: 'collection-1',
       context: '{}',
       content: '',
-      state: 'committed',
+      state: 'live',
     });
 
     expect(getCollectionArtifactContentUrl).toHaveBeenCalledWith('collection-1', 'root-1');
@@ -49,7 +49,7 @@ describe('artifactDownload', () => {
     expect(url).toBe('https://cdn.example/collection');
   });
 
-  it('falls back to committed collection membership when collection_id is absent', async () => {
+  it('falls back to collection membership when collection_id is absent', async () => {
     vi.mocked(getCollectionArtifactContentUrl).mockResolvedValueOnce({ url: 'https://cdn.example/fallback', expires_in: 300 });
 
     const url = await resolveArtifactContentUrl({
@@ -57,7 +57,7 @@ describe('artifactDownload', () => {
       committed_collection_ids: ['collection-2'],
       context: '{}',
       content: '',
-      state: 'committed',
+      state: 'live',
     });
 
     expect(getCollectionArtifactContentUrl).toHaveBeenCalledWith('collection-2', 'root-2');

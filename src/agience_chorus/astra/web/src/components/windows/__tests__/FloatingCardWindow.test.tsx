@@ -13,7 +13,7 @@ vi.mock('@/hooks/useWorkspace', () => ({
         id: 'artifact-1',
         context: JSON.stringify({ title: 'Artifact One', content_type: 'text/plain' }),
         content: 'hello',
-        state: 'draft',
+        state: 'live',
         collection_ids: [],
       },
     ],

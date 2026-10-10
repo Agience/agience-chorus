@@ -13,9 +13,12 @@ import { fileURLToPath } from 'url';
  * the assertions below, not the point of them.
  *
  * Credentials come from the environment, defaulting to a synthetic account created for this suite
- * alone. It is a username with NO EMAIL ADDRESS — registered that way deliberately, so the
- * registration path could not attempt a verification send to an address that cannot receive one.
- * It owns nothing and is not the operator of any node.
+ * alone, signed in by its username. It owns nothing and is not the operator of any node.
+ *
+ * Registration requires an email address. Give it one on the node's `EMAIL_VERIFICATION_ALLOWLIST`
+ * (or run with verification off) so the account signs in without a confirmation mail, or a mailbox
+ * you can confirm from; an address that cannot receive mail leaves the account unable to sign in
+ * wherever verification is on.
  *
  * ⚠ THESE ARE NODE-LOCAL AND THE ACCOUNT MUST EXIST ON THE NODE UNDER TEST. Measured 2026-09-15:
  * the previous defaults belonged to a throwaway origin that no longer runs, and against the real
@@ -23,7 +26,7 @@ import { fileURLToPath } from 'url';
  * missing fixture. Recreate with:
  *
  *   curl -X POST http://127.0.0.1:8080/auth/password/register -H 'Content-Type: application/json' \
- *     -d "{\"username\":\"e2e-facet\",\"name\":\"Facet E2E\",\"password\":\"$FACET_E2E_PASSWORD\"}"
+ *     -d "{\"username\":\"e2e-facet\",\"name\":\"Facet E2E\",\"email\":\"$FACET_E2E_ADDRESS\",\"password\":\"$FACET_E2E_PASSWORD\"}"
  *
  * ⛔ THE PASSWORD HAS NO DEFAULT, AND THAT IS DELIBERATE. It used to fall back to a literal, which
  * put a working credential in a PUBLIC repository — `agience-chorus` is public, so a default here

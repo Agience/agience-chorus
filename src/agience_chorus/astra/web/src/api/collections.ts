@@ -101,12 +101,8 @@ export function getGrant(grantId: string): Promise<GrantResponse> {
 }
 
 // artifacts
-export function listCollectionArtifacts(collectionId: string, workspaceId?: string): Promise<ArtifactResponse[]> {
-  // Passing the caller's active workspace surfaces this workspace's drafts that
-  // are linked into the collection (drafts are workspace-private; the server gates
-  // it on the caller's read access to that workspace). Omit for committed-only.
-  const q = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : '';
-  return getList<ArtifactResponse>(`/artifacts/${encodeURIComponent(collectionId)}/children${q}`);
+export function listCollectionArtifacts(collectionId: string): Promise<ArtifactResponse[]> {
+  return getList<ArtifactResponse>(`/artifacts/${encodeURIComponent(collectionId)}/children`);
 }
 
 export const getCollectionArtifacts = listCollectionArtifacts;

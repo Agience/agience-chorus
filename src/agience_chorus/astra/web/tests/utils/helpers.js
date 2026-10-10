@@ -20,7 +20,7 @@ export function mockArtifact(overrides = {}) {
   return {
     id: 'c1',
     collection_id: 'w1',
-    state: 'draft',
+    state: 'live',
     context: '{}',
     content: 'test content',
     order_key: 'U',

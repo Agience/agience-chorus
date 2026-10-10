@@ -19,7 +19,8 @@ Nothing is imported by bare name here: `src/astra/` is not on `sys.path` under a
 persona dir absent from the path.
 
 `fetch` declares no host seam (`host_seams: []` in `bundle_spec.json`) — astra's organon reaches
-only `crystal.evolution`, an installed package, so it needs nothing bound at boot. The seam leg of
+only `crystal.evolution`, an installed package, and the egress guard `_egress`, which travels in
+the bundle as a sibling module, so it needs nothing bound at boot. The seam leg of
 the mechanism is exercised by the `operators` group, which declares `match`; ember fills it in
 `ember/runtime/runner.py` and chorus deliberately leaves it unfilled.
 

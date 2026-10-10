@@ -406,7 +406,7 @@ def register_dev_operators(artifact_store, *, author: str = "ember-local") -> in
     n = 0
     for o in DEV_OPS:
         evolution.put_operator(artifact_store, {
-            "id": o.name, "content_type": OPERATOR_CONTENT_TYPE, "state": "committed",
+            "id": o.name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
             "context": o.offer, "content": f"dev operator {o.name}: {o.offer}"
             + ("  [WRITES]" if o.writes else "  [read-only]"), "created_by": author,
             "collection_id": _SYSTEM_COLLECTION, "created_time": _REGISTERED_AT,

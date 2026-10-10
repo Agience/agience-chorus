@@ -77,6 +77,12 @@ BASELINE_UNFIXED: dict[tuple[str, str], str] = {}
 # `_resolve_stripe_webhook_secret` raises rather than degrading (`ophan/server.py`): if the signing
 # secret is unresolvable, these four must never run at all, and the endpoint answers 503.
 #
+# The property holds only while nothing else can call them. None of the four is an MCP tool:
+# `activate_subscription` and `update_subscription` take a `person_id` and set that person's plan
+# limits, so registered they would let any MCP caller grant any person any plan with ophan's platform
+# token. `test_intentional_sites_are_not_mcp_tools` holds that: an exempted site that gains an
+# `@mcp.tool` decorator fails the suite, because its `person_id` would then be caller-chosen.
+#
 # This list is not an amnesty. It is load-bearing for the checks below: an entry here is exempted
 # from `test_no_new_service_identity_on_caller_supplied_ids` exactly as a baseline entry is, so
 # adding one is adding an exemption. It may only grow with a written justification of the same shape
@@ -87,8 +93,8 @@ BASELINE_UNFIXED: dict[tuple[str, str], str] = {}
 INTENTIONAL_SERVICE_IDENTITY: dict[tuple[str, str], str] = {
     ("ophan", "_add_vu_to_core"): "['person_id'] + [via _platform_request → _headers] — Stripe WEBHOOK path, no delegated caller; person_id comes from HMAC-verified event metadata",
     ("ophan", "_sync_limits_to_core"): "['person_id'] + [via _platform_request → _headers] — Stripe WEBHOOK path, no delegated caller; person_id comes from HMAC-verified event metadata",
-    ("ophan", "activate_subscription"): "['person_id'] + [via _sync_limits_to_core → _platform_request → _headers] — reached from _dispatch_stripe_event",
-    ("ophan", "update_subscription"): "['person_id'] + [via _sync_limits_to_core → _platform_request → _headers] — reached from _dispatch_stripe_event",
+    ("ophan", "activate_subscription"): "['person_id'] + [via _sync_limits_to_core → _platform_request → _headers] — not an MCP tool; called only by _dispatch_stripe_event, person_id from HMAC-verified event metadata",
+    ("ophan", "update_subscription"): "['person_id'] + [via _sync_limits_to_core → _platform_request → _headers] — not an MCP tool; called only by _dispatch_stripe_event, person_id from HMAC-verified event metadata",
 }
 
 #: Every site this check tolerates, for whichever reason. Two dicts rather than one flag: the
@@ -238,6 +244,42 @@ def test_intentional_sites_are_all_principal_less():
         "the intentional-exemption roster changed. Only the principal-less Stripe-webhook path "
         "qualifies; anything else is debt and belongs in BASELINE_UNFIXED with a plan to remove it."
     )
+
+
+def _registered_tools(path: Path) -> set[str]:
+    """Functions in `path` carrying an `@mcp.tool` decorator, bare or called."""
+    tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"), filename=str(path))
+    out = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for dec in node.decorator_list:
+            target = dec.func if isinstance(dec, ast.Call) else dec
+            if (isinstance(target, ast.Attribute) and target.attr == "tool"
+                    and isinstance(target.value, ast.Name) and target.value.id == "mcp"):
+                out.add(node.name)
+    return out
+
+
+def test_intentional_sites_are_not_mcp_tools():
+    """No exempted site is reachable as an MCP tool.
+
+    The exemption rests on the `person_id` coming from HMAC-verified Stripe metadata. A registered
+    tool takes its `person_id` from whoever calls it, so the moment an exempted function is
+    registered the property is gone and the exemption is excusing a cross-tenant write.
+    """
+    registered = {(p.parent.name, fn) for p in _persona_files() for fn in _registered_tools(p)}
+    exposed = sorted(set(INTENTIONAL_SERVICE_IDENTITY) & registered)
+    assert not exposed, (
+        f"exempted service-identity sites are registered MCP tools: {exposed}. Their resource id is "
+        f"then caller-chosen; unregister them or gate them, and remove the exemption.")
+
+
+def test_the_tool_scan_finds_registered_tools():
+    """Control for the check above: the scan sees ophan's real registrations, so an empty
+    intersection means the exempted sites are unregistered, not that the scan read nothing."""
+    tools = _registered_tools(SRC / "ophan" / "server.py")
+    assert {"issue_license", "create_checkout_session"} <= tools, sorted(tools)
 
 
 def test_baseline_progress_is_visible(capsys):

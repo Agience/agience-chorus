@@ -33,7 +33,6 @@ learning rather than logging. `Elizabeth` costs nine junctions once and one vert
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sqlite3
 import sys

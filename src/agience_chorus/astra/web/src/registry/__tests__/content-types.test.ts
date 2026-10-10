@@ -207,7 +207,7 @@ function makeArtifact(contentType?: string, context: Record<string, unknown> | s
     content_type: contentType,
     context: typeof context === 'string' ? context : JSON.stringify(context),
     content: 'body',
-    state: 'committed',
+    state: 'live',
   };
 }
 

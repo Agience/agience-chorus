@@ -271,7 +271,7 @@ def status_page(bundle) -> str:
     # no cheaper: an indexed equality is only cheap on a selective value (measured on node 71,
     # 5,657,386 rows: a 48-row type 0.12s, text/markdown ~6M rows timed out at 120s), and the
     # concept count is unbounded.
-    # `by_content_type` counts committed artifacts, as the wordnet and operator rows beside it in
+    # `by_content_type` counts live artifacts, as the wordnet and operator rows beside it in
     # this same table do, so the table is consistent within itself.
     concepts = int(by_type.get("application/x-concept", 0) or 0)
 

@@ -55,7 +55,7 @@ vi.mock('../../../utils/resolveSearchHits', () => ({
         id: hit.version_id ?? hit.id ?? 'artifact-id',
         context: JSON.stringify({ title: 'Test Artifact', content_type: 'text/plain' }),
         content: 'Test Artifact',
-        state: 'committed',
+        state: 'live',
         collection_ids: [],
       } as Artifact;
     }),
@@ -139,7 +139,7 @@ vi.mock('../MainHeader', () => ({
           id: 'new-artifact-1',
           context: JSON.stringify({ title: 'New Artifact', content_type: 'text/plain' }),
           content: 'hello',
-          state: 'draft',
+          state: 'live',
           collection_ids: [],
         } as Artifact, { startInEditMode: true })}
       >
@@ -152,7 +152,7 @@ vi.mock('../MainHeader', () => ({
           id: 'existing-artifact-1',
           context: JSON.stringify({ title: 'Existing Artifact', content_type: 'text/plain' }),
           content: 'hello',
-          state: 'committed',
+          state: 'live',
           collection_ids: [],
         } as Artifact)}
       >
@@ -165,7 +165,7 @@ vi.mock('../MainHeader', () => ({
           id: 'workspace-card-1',
           context: JSON.stringify({ title: 'Workspace Card', content_type: 'application/vnd.agience.workspace+json' }),
           content: '{}',
-          state: 'draft',
+          state: 'live',
           collection_ids: [],
         } as Artifact, { startInEditMode: true })}
       >
@@ -178,7 +178,7 @@ vi.mock('../MainHeader', () => ({
           id: 'collection-1',
           context: JSON.stringify({ title: 'Collection One', content_type: 'application/vnd.agience.collection+json' }),
           content: '{}',
-          state: 'committed',
+          state: 'live',
           collection_ids: [],
         } as Artifact)}
       >

@@ -122,18 +122,17 @@ class TestInferPackageRole:
 
 
 # ---------------------------------------------------------------------------
-#  _package_block — where the store actually put the manifest
+#  _package_block — where the stored context holds the manifest
 # ---------------------------------------------------------------------------
 
 class TestPackageBlock:
-    """`install_package` read only the TOP level and so could not install anything a user made.
+    """`_package_block` finds the manifest at the top level or under `caller`.
 
-    Mantle mints a context onto every create and nests the caller's own under `caller`, verbatim,
-    by documented contract. A `POST /artifacts` carrying `{"package": {...}}` therefore lands as
-    `context.caller.package`, not `context.package`. Measured against production 2026-09-11: the
-    tool answered "Artifact is not a package (missing context.package)" for an artifact whose
-    context carried the block one level down, and only create-then-PATCH worked — which nothing
-    documents and no caller would guess.
+    Mantle stores a caller's keys at the top level, so `POST /artifacts` carrying
+    `{"package": {...}}` stores `context.package`. A row that no write through mantle's
+    `mint_context` has touched can hold `context.caller.package` instead; measured against
+    production, a top-level-only read answered "Artifact is not a package (missing
+    context.package)" for such a row. Both shapes are pinned here.
     """
 
     def test_the_minted_shape_a_create_produces_is_found(self):
@@ -146,7 +145,7 @@ class TestPackageBlock:
             {"collections": [], "package": {"id": "probe.demo"}}) == {"id": "probe.demo"}
 
     def test_an_explicit_patch_overrides_what_the_mint_recorded(self):
-        """Flat wins: a PATCH is a deliberate statement, the mint is a record of the create."""
+        """The top-level block wins over one under `caller`."""
         ctx = {"package": {"id": "patched"}, "caller": {"package": {"id": "minted"}}}
         assert _server._package_block(ctx)["id"] == "patched"
 

@@ -81,6 +81,9 @@ export function ContentRenderer({ content, mime, filename, uri }: ContentRendere
         <div className="w-full">
           <iframe
             src={mediaUrl}
+            // The URL is the artifact's, not ours: whatever it serves gets no scripts, forms,
+            // popups, or top-level navigation.
+            sandbox=""
             title={filename ?? 'PDF'}
             className="w-full h-[70vh] rounded border border-gray-200"
           />

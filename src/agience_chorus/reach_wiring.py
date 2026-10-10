@@ -17,7 +17,7 @@ the same shape from one implementation is not two implementations.
 There is no shared home below both sides. The assembly needs `beam.reach.Reactor` and a mantle backing:
   * it cannot live in **mantle** — mantle is beam's sibling in the target DAG (mantle reaches only
     origin), so `mantle → beam` would trade one violation for another;
-  * it cannot live in **beam** — beam is the signal, entroptics-only, and `beam → mantle` would break the
+  * it cannot live in **beam** — beam is the signal, instrument-only, and `beam → mantle` would break the
     "beam is signal" property the dependency graph maintains;
   * it cannot live in **ember** for chorus's use — that would recreate the `chorus → ember` edge this
     module exists to avoid.

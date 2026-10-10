@@ -43,7 +43,7 @@ describe('api/artifacts', () => {
 
   describe('createArtifact', () => {
     it('POSTs to /artifacts with container_id, context, and content', async () => {
-      const artifact = { id: 'art-1', collection_id: 'ws-1', state: 'draft' };
+      const artifact = { id: 'art-1', collection_id: 'ws-1', state: 'live' };
       mockPost.mockResolvedValueOnce(artifact);
 
       const result = await createArtifact('ws-1', '{"title":"Hello"}', 'body text');
@@ -68,7 +68,7 @@ describe('api/artifacts', () => {
 
   describe('getArtifact', () => {
     it('GETs /artifacts/{id}', async () => {
-      const artifact = { id: 'art-1', state: 'committed' };
+      const artifact = { id: 'art-1', state: 'live' };
       mockGet.mockResolvedValueOnce(artifact);
 
       const result = await getArtifact('art-1');
@@ -80,7 +80,7 @@ describe('api/artifacts', () => {
 
   describe('updateArtifact', () => {
     it('PATCHes /artifacts/{id} with the updates payload', async () => {
-      const updated = { id: 'art-1', state: 'committed' };
+      const updated = { id: 'art-1', state: 'live' };
       mockPatch.mockResolvedValueOnce(updated);
 
       const result = await updateArtifact('art-1', { context: '{"title":"New"}' });

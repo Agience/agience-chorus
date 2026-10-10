@@ -51,7 +51,6 @@ from __future__ import annotations
 import argparse
 import os
 import sqlite3
-import sys
 from typing import Dict, List, Optional
 
 from agience_chorus.astra.reading import read_basis as _rb

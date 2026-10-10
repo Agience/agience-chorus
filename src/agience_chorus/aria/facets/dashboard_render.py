@@ -293,7 +293,9 @@ def render_dashboard(boxes: List[Dict[str, Any]], my_node: Optional[str] = None,
     whole_art = max((_i(b, "artifacts") for b in _lead_pool), default=0)
     shards_overlap = _detect_shard_overlap(boxes)
     lead = max(_lead_pool, key=lambda b: _i(b, "artifacts"), default={}) if _lead_pool else {}
-    rho = lead.get("rho"); cov = lead.get("keyed_coverage"); dark = lead.get("dark_matter")
+    rho = lead.get("rho")
+    cov = lead.get("keyed_coverage")
+    dark = lead.get("dark_matter")
     # `stats` carries `metrics_sampled` / `metrics_sample_n` so an estimate is never read as a
     # census — dark_matter in particular is an absolute count capped at a 20,000-row sample, so a
     # node with far more dark rows than that would otherwise have its sampled figure shown as the
@@ -305,14 +307,18 @@ def render_dashboard(boxes: List[Dict[str, Any]], my_node: Optional[str] = None,
     _unreadable = 0
     for _b in boxes:
         if _b.get("_peers_unreadable"):
-            _unreadable = int(_b["_peers_unreadable"]); break
-    ops_n = lead.get("operators"); wn = lead.get("wordnet"); con = lead.get("concepts")
+            _unreadable = int(_b["_peers_unreadable"])
+            break
+    ops_n = lead.get("operators")
+    wn = lead.get("wordnet")
+    con = lead.get("concepts")
     content_s3 = sum(_i(b, "promoted_total") for b in boxes)
     ingesting = [b for b in boxes if (b.get("role") == "ingest" or _i(b.get("ingest") or {}, "assigned"))
                  and not (b.get("ingest") or {}).get("converged")]
 
     def _idle(b):
-        q = b.get("queue") or {}; ing = b.get("ingest") or {}
+        q = b.get("queue") or {}
+        ing = b.get("ingest") or {}
         return bool(ing.get("converged")) and not _i(q, "pending") and not _i(q, "claimed") \
             and b.get("purpose") != "tests" and b.get("role") != "full"
     idle_boxes = [b for b in boxes if _idle(b)]
@@ -323,9 +329,13 @@ def render_dashboard(boxes: List[Dict[str, Any]], my_node: Optional[str] = None,
     ROLE_BADGE = {"ingest": ("#9a6700", "ingest"), "full": ("#0969da", "full")}
     cards = []
     for b in boxes:
-        node = b.get("node"); is_me = (my_node is not None and node == my_node)
-        role = b.get("role") or "?"; purpose = b.get("purpose") or ""
-        ing = b.get("ingest") or {}; q = b.get("queue") or {}; prov = b.get("provenance") or {}
+        node = b.get("node")
+        is_me = (my_node is not None and node == my_node)
+        role = b.get("role") or "?"
+        purpose = b.get("purpose") or ""
+        ing = b.get("ingest") or {}
+        q = b.get("queue") or {}
+        prov = b.get("provenance") or {}
         art = _i(b, "artifacts")
         share = (100.0 * art / whole_art) if whole_art else 0     # comparative-to-whole
         conv = bool(ing.get("converged"))
@@ -345,7 +355,8 @@ def render_dashboard(boxes: List[Dict[str, Any]], my_node: Optional[str] = None,
             bg = ROLE_BADGE.get(role, ("#656d76", role))[0]
             txt = "ingesting" if role == "ingest" else role
         badge = f'<span class=badge style="background:{bg}">{esc(txt)}</span>'
-        disk = b.get("disk_pct"); dfree = b.get("disk_free_gb")
+        disk = b.get("disk_pct")
+        dfree = b.get("disk_free_gb")
         # 60/85 are declared operator alarm levels for a disk gauge — the one place on this page
         # where a typed band is defensible, because "how full is too full" depends on what the
         # operator intends to put on the box next, which no snapshot carries. It is safe to keep

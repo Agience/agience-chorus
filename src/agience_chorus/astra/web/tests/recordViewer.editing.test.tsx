@@ -14,7 +14,7 @@ vi.mock('../src/hooks/useWorkspace', () => {
       artifacts: [
         {
           id: 'org-1',
-          state: 'draft',
+          state: 'live',
           context: JSON.stringify({
             content_type: 'application/vnd.agience.organization+json',
             identity: {
@@ -75,7 +75,7 @@ describe('RecordViewer editing', () => {
   it('edits an organization record and persists context', async () => {
     const artifact = {
       id: 'org-1',
-      state: 'draft',
+      state: 'live',
       content_type: 'application/vnd.agience.organization+json',
       context: JSON.stringify({
         content_type: 'application/vnd.agience.organization+json',

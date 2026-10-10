@@ -2,8 +2,7 @@
  * BrowserControls
  *
  * Compact toolbar that lets the user switch view mode (grid / list / tree)
- * and sort order. Rendered inside CardBrowser and also re-exported for use
- * in WorkspaceToolbar when the host wants to drive them externally.
+ * and sort order. Rendered inside CardBrowser.
  */
 import { FiGrid, FiList } from 'react-icons/fi';
 import { Trees } from 'lucide-react';
@@ -18,7 +17,7 @@ import clsx from 'clsx';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type ViewMode = 'grid' | 'list' | 'tree';
-export type SortMode = 'recent' | 'title' | 'created' | 'committed' | 'manual';
+export type SortMode = 'recent' | 'title' | 'created' | 'modified' | 'manual';
 
 const VIEW_OPTIONS: { mode: ViewMode; icon: React.ElementType; label: string }[] = [
   { mode: 'grid', icon: FiGrid,  label: 'Grid view' },
@@ -31,7 +30,7 @@ const SORT_OPTIONS: { mode: SortMode; label: string }[] = [
   { mode: 'recent',   label: 'Recently added' },
   { mode: 'title',    label: 'Title (A → Z)' },
   { mode: 'created',  label: 'Date created' },
-  { mode: 'committed', label: 'Date modified' },
+  { mode: 'modified', label: 'Date modified' },
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────

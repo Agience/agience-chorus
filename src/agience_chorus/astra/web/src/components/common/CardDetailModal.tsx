@@ -162,7 +162,7 @@ export default function ArtifactEditModal({ artifact, onSave, onClose }: Artifac
           {/* Context Tab */}
           <TabsContent value="context" className="flex-1 overflow-y-auto p-4 mt-0">
             <KeyValueEditor 
-              key={String(artifact.id ?? 'draft')} 
+              key={String(artifact.id ?? 'unsaved')} 
               value={contextObj} 
               onChange={setContextObj}
               artifactId={artifact.id ? String(artifact.id) : undefined}

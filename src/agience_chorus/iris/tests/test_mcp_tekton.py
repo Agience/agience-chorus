@@ -26,7 +26,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # persona dir → bare `comms` import
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))       # chorus/src → `_persona`
@@ -182,5 +181,5 @@ def test_register_mcp_operators_mints_the_artifact():
 
     n = register_mcp_operators(_Store())
     assert n == 1 and MCP_CALL in minted
-    assert minted[MCP_CALL]["state"] == "committed"
+    assert minted[MCP_CALL]["state"] == "live"
     assert "mcp" in minted[MCP_CALL]["content"].lower()

@@ -10,7 +10,7 @@ describe('transformSpec', () => {
     id,
     context: '{}',
     content: '',
-    state: 'draft',
+    state: 'live',
     collection_ids: [],
   }) as unknown as Artifact;
 
@@ -71,7 +71,7 @@ describe('transformSpec', () => {
       id: 'transform1',
       context: JSON.stringify(ctx),
       content: 'x',
-      state: 'draft',
+      state: 'live',
       collection_ids: [],
     } as unknown as Artifact;
 
@@ -89,7 +89,7 @@ describe('transformSpec', () => {
       id: 'legacy-order',
       context: JSON.stringify({ title: 'Legacy Order', order: { spec } }),
       content: 'x',
-      state: 'draft',
+      state: 'live',
       collection_ids: [],
     } as unknown as Artifact;
 

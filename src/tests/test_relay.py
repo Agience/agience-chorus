@@ -7,7 +7,6 @@ test belongs beside the operators rather than beside the engine.
 """
 from __future__ import annotations
 import numpy as np
-import pytest
 from _fakes import _StubAnswerer
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from ember import Ember, MeshChannel
@@ -25,7 +24,8 @@ QUERY = "An ontology names the things a system can talk about."
 def _anchors() -> AnchorSet:
     a = AnchorSet(model_id=CANON, dim=DIM)
     for i, l in enumerate(LABELS):
-        v = np.full(DIM, 0.05, dtype=np.float32); v[i] = 1.0
+        v = np.full(DIM, 0.05, dtype=np.float32)
+        v[i] = 1.0
         a.add_text(l, v)
     return a
 def _settings(tmp_path) -> Settings:

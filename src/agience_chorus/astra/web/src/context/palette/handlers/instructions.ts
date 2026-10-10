@@ -19,7 +19,7 @@ export async function instructionsHandler(state: PaletteState): Promise<PaletteS
           source_artifact_id: String(input.id ?? ''),
         }),
         content: text.slice(i, i + CHUNK_SIZE),
-        state: 'draft',
+        state: 'live',
       });
     }
   }

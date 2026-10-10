@@ -260,10 +260,9 @@ function render() {
   `;
 }
 
+// Escapes text for element content and for quoted attribute values.
 function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+  return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 }
 </script>
 </body>

@@ -19,7 +19,7 @@ describe('resolveSearchHitsToArtifacts', () => {
         id: 'artifact-1',
         content: 'Content',
         context: '{}',
-        state: 'committed',
+        state: 'live',
       },
     ]);
 
@@ -45,7 +45,7 @@ describe('resolveSearchHitsToArtifacts', () => {
         root_id: 'root-collection-1',
         content: 'Collection artifact',
         context: '{}',
-        state: 'committed',
+        state: 'live',
       },
     ]);
 
@@ -67,18 +67,18 @@ describe('resolveSearchHitsToArtifacts', () => {
   it('deduplicates when multiple hits share the same root_id', async () => {
     vi.mocked(getCollectionArtifactsBatchGlobal).mockResolvedValue([
       {
-        id: 'artifact-draft',
+        id: 'artifact-first',
         root_id: 'root-shared-1',
-        content: 'Draft',
+        content: 'First',
         context: '{}',
-        state: 'draft',
+        state: 'live',
       },
       {
-        id: 'artifact-committed',
+        id: 'artifact-second',
         root_id: 'root-shared-1',
-        content: 'Committed',
+        content: 'Second',
         context: '{}',
-        state: 'committed',
+        state: 'live',
       },
     ]);
 
@@ -87,20 +87,20 @@ describe('resolveSearchHitsToArtifacts', () => {
         id: 'search-doc-3',
         score: 1,
         root_id: 'root-shared-1',
-        version_id: 'artifact-draft',
+        version_id: 'artifact-first',
         collection_id: 'col-1',
       },
       {
         id: 'search-doc-4',
         score: 0.9,
         root_id: 'root-shared-1',
-        version_id: 'artifact-committed',
+        version_id: 'artifact-second',
         collection_id: 'col-1',
       },
     ]);
 
     expect(artifacts).toHaveLength(1);
-    expect(artifacts[0]?.id).toBe('artifact-draft');
+    expect(artifacts[0]?.id).toBe('artifact-first');
   });
 
   it('returns empty array for empty hits', async () => {
@@ -122,7 +122,7 @@ describe('resolveSearchHitsToArtifacts', () => {
       id: 'workspace-1',
       name: 'Inbox',
       description: 'Seed inbox workspace',
-      state: 'draft',
+      state: 'live',
     } as unknown as ArtifactResponse;
 
     vi.mocked(getCollectionArtifactsBatchGlobal).mockResolvedValue([
@@ -133,7 +133,7 @@ describe('resolveSearchHitsToArtifacts', () => {
         collection_id: 'workspace-1',
         content: 'Welcome to Agience',
         context: '{}',
-        state: 'committed',
+        state: 'live',
       },
     ]);
 

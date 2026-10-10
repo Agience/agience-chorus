@@ -25,7 +25,7 @@ the corpus unreachable.
 The loop, and where each quantity comes from
 
   Order is information, so the tokens stream from the first word of the book. A bag of words would
-  destroy exactly the structure that teaches sequence, and `entroptics.sequence` exists to measure
+  destroy exactly the structure that teaches sequence, and the instrument's `sequence` exists to measure
   what ordering carries.
 
   For each token, with counts accumulated so far (never the whole-book totals — the reader does not
@@ -353,8 +353,8 @@ def main():
     # Matching is exact only: keyed lookup finds `dinner`, nothing here finds `dinnner`. A
     # misspelling precipitates as its own unit, which is honest — it says "I have not seen this."
     # `prism.minhash` over character shingles is the near-duplicate candidate generator for a second
-    # tier; entroptics is not a string hash — its `E` is a dense D×D covariance metric
-    # ([[entroptics-read-as-lsh-hash]]) — so it belongs in deciding whether a near match is within
+    # tier; the instrument is not a string hash — its `E` is a dense D×D covariance metric
+    # — so it belongs in deciding whether a near match is within
     # the corpus's own resolution, not in finding one.
     lex = Lexicon()
     buf = ""
@@ -379,7 +379,7 @@ def main():
         N += 1
         units_emitted += 1
         seen = lex.units.get(surface, 0) + 1
-        # `self_information_bits` is `-log2(p)` from `entroptics.entropy.surprisal_bits`, sharing its
+        # `self_information_bits` is `-log2(p)` from the instrument's `entropy.surprisal_bits`, sharing its
         # base and its clip with the rest of the conservation certificate, so the reader and the
         # instrument cannot disagree about what a bit is. The ceiling is the same read, not a second
         # one: the most surprising a unit can be right now is a unit seen exactly once, which is
@@ -767,10 +767,10 @@ def main():
             # everything below is measured by the read that produced it, and is recomputable from
             # (count, N) alone — no value here was chosen.
             #
-            # Draft vs real is the reading's own verdict, not an externally set flag: a unit that was
-            # never absorbed was never confirmed by a second encounter, so it is a hypothesis this
-            # reading raised and never met again. `state` is the store's existing discriminator.
-            "state": ("committed" if lex.condensed.get(tok, 0.0) > 0.0 else "draft"),
+            # Every unit is written live. Draft vs real is the reading's own verdict, carried by
+            # `condensed` (0 for a unit never absorbed, i.e. never confirmed by a second encounter)
+            # and by the mass fields below — not by `state`.
+            "state": "live",
             "condensed": round(lex.condensed.get(tok, 0.0), 6),
             "count": c, "corpus_tokens": N,
             # Mass and IC are different axes and both are kept. IC = -log2(count/N) is specificity,

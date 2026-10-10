@@ -172,7 +172,7 @@ export default function SidebarEnhanced({
           inputSchema,
           icon,
         }),
-        state: 'committed' as const,
+        state: 'live' as const,
         order_key: String(index).padStart(10, '0'),
       });
       index += 1;

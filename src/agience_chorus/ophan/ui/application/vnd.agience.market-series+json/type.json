@@ -4,7 +4,7 @@
   "inherits": [
     "application/vnd.agience.collection+json"
   ],
-  "description": "A market data series — a Collection (and therefore an Artifact) representing one instrument at one bar interval (e.g. BTCUSDT · 15m). Its members are immutable market-bars chunk artifacts. All container operations (read/update/delete/commit/commit_preview/export) are inherited from the collection type; the series identity is its content_type plus the symbol/interval/source context.",
+  "description": "A market data series — a Collection (and therefore an Artifact) representing one instrument at one bar interval (e.g. BTCUSDT · 15m). Its members are immutable market-bars chunk artifacts. It names the collection type in `inherits` for its container operations (read/update/delete/export); the series identity is its content_type plus the symbol/interval/source context.",
   "context_schema": {
     "symbol":      { "type": "string",  "description": "Instrument symbol (e.g. BTCUSDT, AAPL).", "index": ["lexical"], "mutable": false },
     "interval":    { "type": "string",  "description": "Bar interval (1m, 5m, 15m, 1h, 1d).",     "index": ["lexical"], "mutable": false },

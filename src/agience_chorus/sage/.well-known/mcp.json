@@ -28,7 +28,7 @@
     },
     {
       "name": "browse_collections",
-      "description": "List committed collections accessible to the current user"
+      "description": "List live collections accessible to the current user"
     },
     {
       "name": "search_azure",
@@ -69,7 +69,7 @@
     },
     {
       "uri_template": "agience://collections/{collection_id}/artifacts",
-      "description": "Browse committed artifacts in a collection"
+      "description": "Browse live artifacts in a collection"
     }
   ],
   "prompts": [],

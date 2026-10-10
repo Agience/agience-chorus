@@ -35,9 +35,6 @@ Two things here are chosen rather than measured: the delay depth, and the one-ho
 Everything else on this page is read off the instrument.
 """
 import argparse
-import math
-import os
-import sys
 
 import numpy as np
 
@@ -58,7 +55,7 @@ def main():
                      help="instrument rows per feature; T must exceed F or the correlation is degenerate")
     args = ap_.parse_args()
 
-    # One instrument. `test_only_the_instrument_seam_imports_entroptics` forbids `from entroptics import ...`
+    # One instrument: only `ember/optics.py` imports it, and ember's seam test forbids a direct import
     # here, because the bare door applies the entropy fold guard that destroys a sparse carrier. The
     # operator, its horizon, and the rule that it may not be rolled past it live in `ember/optics.py`
     # and are reached by name, via the host seam.

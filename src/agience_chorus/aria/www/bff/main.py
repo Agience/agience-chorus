@@ -4,8 +4,9 @@ The website (src/utils/api.ts) calls these relative routes under /api, which the
 shared Caddy proxies here while the full Agience stack (Origin/Mantle/Chorus)
 isn't running:
 
-  GET  /api/contact/nonce   GET /api/chat/nonce   -> bot-protection token (optional)
-  POST /api/contact         -> lead capture (contact form + newsletter subscribe)
+  GET  /api/contact/nonce   GET /api/chat/nonce   -> bot-protection token
+  POST /api/contact         -> lead capture (contact form + newsletter subscribe); needs the
+                               token, and is rate-limited per client and overall
   POST /api/chat            -> chat assistant (reached via lumen's op.respond, when wired)
   GET  /api/blog            -> blog list   GET /api/blog/{id} -> single post
 
@@ -14,13 +15,19 @@ configured, emailed and/or POSTed to a webhook (Slack/Discord/Zapier).
 """
 from __future__ import annotations
 
+import asyncio
 import base64
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import smtplib
 import ssl
+import threading
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
@@ -175,11 +182,33 @@ def _parse_maybe_json(value):
 
 # ── Nonce (bot-protection token) ──────────────────────────────────────────────
 # The SPA fetches these on load and replays the token as X-Agience-Challenge.
-# This stand-in issues an opaque token without verifying it; the cross-origin
-# guard in Caddy is what actually blocks unauthorized writes.
+# The token is `<expiry>.<random>.<hmac>`, signed with `BFF_NONCE_SECRET` (a
+# random per-process key when that is unset, so a restart invalidates tokens
+# issued before it), and POST /api/contact refuses a request whose token is
+# missing, forged or expired. It proves the caller fetched a token recently; the
+# rate limits below are what bound how much any caller can send.
+_NONCE_TTL = timedelta(minutes=30)
+_NONCE_KEY = (os.getenv("BFF_NONCE_SECRET") or "").encode() or secrets.token_bytes(32)
+
+
+def _nonce_sig(payload: str) -> str:
+    return hmac.new(_NONCE_KEY, payload.encode(), hashlib.sha256).hexdigest()
+
+
 def _nonce():
-    expires = datetime.now(timezone.utc) + timedelta(minutes=30)
-    return {"nonce": uuid.uuid4().hex, "expires_at": expires.isoformat()}
+    expires = datetime.now(timezone.utc) + _NONCE_TTL
+    payload = "%d.%s" % (int(expires.timestamp()), secrets.token_hex(16))
+    return {"nonce": "%s.%s" % (payload, _nonce_sig(payload)), "expires_at": expires.isoformat()}
+
+
+def _nonce_valid(token: Optional[str]) -> bool:
+    parts = (token or "").split(".")
+    if len(parts) != 3 or not parts[0].isdigit():
+        return False
+    payload = "%s.%s" % (parts[0], parts[1])
+    if not hmac.compare_digest(_nonce_sig(payload), parts[2]):
+        return False
+    return int(parts[0]) >= time.time()
 
 
 @app.get("/api/contact/nonce")
@@ -188,10 +217,87 @@ def nonce():
     return _nonce()
 
 
+# ── Limits on the unauthenticated write routes ────────────────────────────────
+# /api/contact sends mail on the same credential as sign-in codes, so an unbounded
+# sender could stop sign-in mail. Each client (by socket peer) and the route as a
+# whole get a sliding-window budget; a request over either is refused with 429
+# before anything is stored or sent.
+_CONTACT_MAX_BYTES = 16 * 1024
+_CONTACT_PER_CLIENT = (5, 600.0)          # requests, per seconds
+_CONTACT_GLOBAL = (60, 3600.0)
+_CHAT_MAX_BYTES = 64 * 1024
+_CHAT_MAX_CHARS = 2000
+
+
+class _Window:
+    """Sliding-window counters: at most `limit` events per `seconds`, per key."""
+
+    _MAX_KEYS = 10_000
+
+    def __init__(self, limit: int, seconds: float):
+        self.limit, self.seconds = limit, seconds
+        self._hits: dict[str, deque] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            q = self._hits.get(key)
+            if q is None:
+                if len(self._hits) >= self._MAX_KEYS:
+                    self._prune(now)
+                q = self._hits[key] = deque()
+            while q and now - q[0] > self.seconds:
+                q.popleft()
+            if len(q) >= self.limit:
+                return False
+            q.append(now)
+            return True
+
+    def _prune(self, now: float) -> None:
+        for k in [k for k, q in self._hits.items() if not q or now - q[-1] > self.seconds]:
+            del self._hits[k]
+        if len(self._hits) >= self._MAX_KEYS:
+            self._hits.clear()
+
+
+_contact_per_client = _Window(*_CONTACT_PER_CLIENT)
+_contact_global = _Window(*_CONTACT_GLOBAL)
+
+
+def _client_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+async def _read_json_capped(request: Request, cap: int) -> Any:
+    """The request body parsed as JSON, or a JSONResponse refusing it. Reading stops at `cap`."""
+    declared = request.headers.get("content-length")
+    if declared is not None and (not declared.isdigit() or int(declared) > cap):
+        return JSONResponse({"error": "request body too large"}, status_code=413)
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > cap:
+            return JSONResponse({"error": "request body too large"}, status_code=413)
+        chunks.append(chunk)
+    try:
+        return json.loads(b"".join(chunks) or b"null")
+    except ValueError:
+        return JSONResponse({"error": "request body is not JSON"}, status_code=400)
+
+
 # ── Contact + subscribe ───────────────────────────────────────────────────────
 @app.post("/api/contact")
 async def contact(request: Request, bg: BackgroundTasks):
-    payload = await request.json()
+    if not _nonce_valid(request.headers.get("x-agience-challenge")):
+        return JSONResponse({"error": "missing or expired challenge"}, status_code=403)
+    if not _contact_per_client.allow(_client_key(request)) or not _contact_global.allow("*"):
+        return JSONResponse({"error": "too many requests"}, status_code=429)
+    payload = await _read_json_capped(request, _CONTACT_MAX_BYTES)
+    if isinstance(payload, JSONResponse):
+        return payload
+    if not isinstance(payload, dict):
+        return JSONResponse({"error": "request body must be a JSON object"}, status_code=400)
     record = {
         "id": uuid.uuid4().hex,
         "received_at": _now_iso(),
@@ -264,24 +370,39 @@ def _reach_respond(query: str, carrier: dict) -> Optional[dict]:
 
 @app.post("/api/chat")
 async def chat(request: Request):
-    payload = await request.json()
-    messages = (payload.get("params") or {}).get("messages") or []
+    payload = await _read_json_capped(request, _CHAT_MAX_BYTES)
+    if isinstance(payload, JSONResponse):
+        return payload
+    params = payload.get("params") if isinstance(payload, dict) else None
+    messages = (params or {}).get("messages") if isinstance(params, dict) else None
+    messages = [m for m in messages if isinstance(m, dict)] if isinstance(messages, list) else []
     # The need is the latest user turn (full history is kept client-side for display).
     query = ""
     for m in reversed(messages):
-        if m.get("role", "user") == "user" and (m.get("content") or "").strip():
-            query = m["content"].strip()
+        if m.get("role", "user") == "user" and str(m.get("content") or "").strip():
+            query = str(m["content"]).strip()
             break
     if not query and messages:
-        query = (messages[-1].get("content") or "").strip()
+        query = str(messages[-1].get("content") or "").strip()
+    if len(query) > _CHAT_MAX_CHARS:
+        return JSONResponse({"error": "message too long (%d characters at most)" % _CHAT_MAX_CHARS},
+                            status_code=413)
 
     carrier = _respond_carrier()
     if carrier is None:
         # Dark: no live carrier connected. Degrade honestly rather than fabricate a reply.
         return JSONResponse({"offline": True, "grounded": False, "cited": [],
                              "text": _OFFLINE_TEXT}, status_code=200)
+    # Every caller of this route is anonymous. A slash command addresses the responder rather than
+    # asking it something — `/use` and `/collections` switch and list the collections it reads —
+    # so none reaches the responder from here.
+    if query.startswith("/"):
+        return JSONResponse({"offline": False, "grounded": False, "refused": True,
+                             "cited": [], "text": ""}, status_code=200)
     try:
-        evidence = _reach_respond(query, carrier)
+        # The responder is synchronous and can take seconds; on the event loop it would stall
+        # every route this process serves, so it runs in a worker thread.
+        evidence = await asyncio.to_thread(_reach_respond, query, carrier)
     except Exception as e:
         print(f"[bff] op.respond reach error: {e}", flush=True)
         evidence = None
@@ -347,6 +468,6 @@ def blog_post(post_id: str):
 def healthz():
     # `chat` reports whether a live op.respond carrier is wired: false while dark, which is
     # when the UI shows "assistant offline". It is true only when a real carrier is present.
+    # The lead addresses are not reported: this route is public.
     return {"ok": True, "ts": time.time(), "chat": bool(_respond_carrier()),
-            "email": "gmail" if _GMAIL_READY else ("smtp" if _SMTP_READY else False),
-            "lead_to": LEAD_TO, "lead_from": LEAD_FROM}
+            "email": "gmail" if _GMAIL_READY else ("smtp" if _SMTP_READY else False)}

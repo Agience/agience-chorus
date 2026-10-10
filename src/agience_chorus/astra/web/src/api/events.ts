@@ -7,6 +7,7 @@
 // active subscriptions.
 
 import { getRuntimeConfig } from '../config/runtime';
+import { normalizeArtifactStates } from '../utils/artifactState';
 
 /** Server-side filter applied before an event is delivered to a subscriber. */
 export type EventFilter = {
@@ -133,6 +134,7 @@ class EventsClient {
         parsed = JSON.parse(ev.data);
       } catch { return; }
       if (!parsed || typeof parsed !== 'object') return;
+      normalizeArtifactStates(parsed);
       const msg = parsed as Record<string, unknown>;
 
       if (typeof msg.ack === 'string') {

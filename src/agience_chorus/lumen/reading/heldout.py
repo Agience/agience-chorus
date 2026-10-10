@@ -6,7 +6,7 @@ r"""The held-out oracle — three reads, all of them the instrument's.
                   '--text','<corpus-dir>/pride-novel.txt']; \
         runpy.run_module('lumen.reading.heldout', run_name='__main__')"
 
-Every read here delegates to entroptics rather than re-implementing its own statistic:
+Every read here delegates to the instrument rather than re-implementing its own statistic:
 
     n-gram structure                  ->  `surrogate_significance` (block entropy vs shuffles)
     perplexity / log-loss             ->  the `H_n` ladder the same read returns
@@ -25,7 +25,7 @@ The three reads answer different questions; none of them substitutes for another
   3. completion — does the coupling rank a held-out unit above a permutation of itself?
      The instrument's own coupling, scored against the null the instrument computes.
 
-No perplexity number is reported. `entroptics.sequence`'s header is explicit that a collapsed rate
+No perplexity number is reported. The instrument's `sequence` header is explicit that a collapsed rate
 means almost nothing and that only a differential study makes sense — the `H_n` ladder is reported
 against its shuffle, which is the differential, and never as a single score to rank models by.
 """

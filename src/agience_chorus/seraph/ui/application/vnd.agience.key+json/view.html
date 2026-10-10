@@ -145,26 +145,7 @@
       </div>
     </div>
 
-    <!-- State 2: Key just revealed -->
-    <div id="revealSection" class="hidden">
-      <div class="label">Bearer Token</div>
-      <div class="copy-row">
-        <code id="revealedKey" style="user-select:all"></code>
-        <button class="copy-btn" onclick="copyText('revealedKey')" id="copyKeyBtn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-        </button>
-      </div>
-      <div class="warning" style="margin-top:8px">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:2px"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-        <span><strong>Save this key now.</strong> It will not be shown again.</span>
-      </div>
-      <button class="btn-rotate" onclick="handleRotate()" style="margin-top:8px" id="rotateBtn1">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
-        <span>Rotate key</span>
-      </button>
-    </div>
-
-    <!-- State 3: Key stored, not revealed -->
+    <!-- State 2: Key stored. Its secret was shown once, by the host, when it was created. -->
     <div id="storedSection" class="hidden">
       <div class="label">Bearer Token</div>
       <div class="copy-row">
@@ -221,7 +202,6 @@
     // =========================================================================
     let artifactId = null;
     let artifactContext = {};
-    let revealedKeyValue = null;
     let working = false;
 
     // =========================================================================
@@ -263,22 +243,15 @@
 
       // Status badge
       const badgeEl = document.getElementById('keyStatusBadge');
-      if (revealedKeyValue) {
-        badgeEl.innerHTML = '<span class="status-badge revealed"><span class="status-dot revealed"></span>Just generated</span>';
-      } else if (hasKeyStored) {
+      if (hasKeyStored) {
         badgeEl.innerHTML = '<span class="status-badge stored"><span class="status-dot stored"></span>Stored</span>';
       } else {
         badgeEl.innerHTML = '<span class="status-badge none"><span class="status-dot none"></span>No key</span>';
       }
 
       // Section visibility
-      document.getElementById('createSection').classList.toggle('hidden', hasKeyStored || !!revealedKeyValue);
-      document.getElementById('revealSection').classList.toggle('hidden', !revealedKeyValue);
-      document.getElementById('storedSection').classList.toggle('hidden', !hasKeyStored || !!revealedKeyValue);
-
-      if (revealedKeyValue) {
-        document.getElementById('revealedKey').textContent = revealedKeyValue;
-      }
+      document.getElementById('createSection').classList.toggle('hidden', hasKeyStored);
+      document.getElementById('storedSection').classList.toggle('hidden', !hasKeyStored);
     }
 
     // =========================================================================
@@ -300,11 +273,10 @@
           name: 'create_api_key',
           arguments: args
         });
-        // Parse the result to get key value
+        // The host shows the key's secret in its own dialog and returns the key record without it.
         const resultText = result?.content?.[0]?.text;
         if (resultText) {
           const created = JSON.parse(resultText);
-          revealedKeyValue = created.key;
           // Persist key metadata in artifact context
           const updatedContext = {
             ...artifactContext,
@@ -348,7 +320,6 @@
         const resultText = result?.content?.[0]?.text;
         if (resultText) {
           const created = JSON.parse(resultText);
-          revealedKeyValue = created.key;
           const updatedContext = {
             ...artifactContext,
             key: { api_key_id: created.id, name: keyName, scopes, resource_filters }
@@ -365,17 +336,6 @@
       } finally {
         setWorking(false);
       }
-    };
-
-    window.copyText = function(elementId) {
-      const text = document.getElementById(elementId).textContent;
-      navigator.clipboard.writeText(text).then(() => {
-        const btn = document.getElementById('copyKeyBtn');
-        if (btn) {
-          btn.classList.add('copied');
-          setTimeout(() => btn.classList.remove('copied'), 2000);
-        }
-      });
     };
 
     // =========================================================================

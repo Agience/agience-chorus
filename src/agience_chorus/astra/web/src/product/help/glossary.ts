@@ -26,20 +26,14 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
   {
     id: 'workspace',
     term: 'Workspace',
-    short: 'A private draft space for curation.',
-    body: 'A Workspace is an ephemeral, private area for ingesting and curating Notes before promoting them into a Collection.',
+    short: 'A private space for your Notes.',
+    body: 'A Workspace is a private area for creating, ingesting and curating Notes. Your Inbox is a Workspace.',
   },
   {
     id: 'collection',
     term: 'Collection',
     short: 'Durable, versioned truth.',
-    body: 'A Collection is durable storage for committed Notes with version history. Searching across Collections is the default way to retrieve durable knowledge.',
-  },
-  {
-    id: 'commit',
-    term: 'Commit',
-    short: 'The promotion boundary.',
-    body: 'Commit is the explicit promotion step that moves curated Notes from a Workspace into a Collection. Drafts and committed knowledge are intentionally kept separate.',
+    body: 'A Collection is durable storage for Notes with version history. Searching across Collections is the default way to retrieve durable knowledge.',
   },
   {
     id: 'source',

@@ -17,6 +17,7 @@ import type { CardActionId } from './CardContextItems';
 import type { Artifact } from '../../context/workspace/workspace.types';
 import { getContentType } from '@/registry/content-types';
 import { getArtifactColor, shouldShowStateBadge, getStateBadgeLabel } from '@/utils/artifact-visual-helpers';
+import type { CardRemoveMode } from '@/utils/artifact-permissions';
 
 interface CardTreeItemProps {
   artifact: Artifact;
@@ -26,8 +27,9 @@ interface CardTreeItemProps {
   onMouseDown?: (e: React.MouseEvent) => void;
   onToggleExpand?: (artifact: Artifact) => void;
   onOpen?: (artifact: Artifact) => void;
-  onRemove?: (artifact: Artifact) => void;
-  onRevert?: (artifact: Artifact) => void;
+  onRemove?: (artifact: Artifact, mode?: CardRemoveMode) => void;
+  /** The host destroys the artifact on the `delete` action; without it Delete is not offered. */
+  deleteEnabled?: boolean;
   onArchive?: (artifact: Artifact) => void;
   onRestore?: (artifact: Artifact) => void;
 }
@@ -51,7 +53,7 @@ export function CardTreeItem({
   onToggleExpand,
   onOpen,
   onRemove,
-  onRevert,
+  deleteEnabled = false,
   onArchive,
   onRestore,
 }: CardTreeItemProps) {
@@ -67,6 +69,8 @@ export function CardTreeItem({
         onOpen?.(actionArtifact);
         break;
       case 'delete':
+        onRemove?.(actionArtifact, 'delete');
+        break;
       case 'remove':
         onRemove?.(actionArtifact);
         break;
@@ -75,9 +79,6 @@ export function CardTreeItem({
         break;
       case 'restore':
         onRestore?.(actionArtifact);
-        break;
-      case 'revert':
-        onRevert?.(actionArtifact);
         break;
       default:
         break;
@@ -139,6 +140,7 @@ export function CardTreeItem({
           artifact={artifact}
           contentType={contentType}
           onAction={handleAction}
+          deleteEnabled={deleteEnabled}
         />
       </ContextMenuContent>
     </ContextMenu>

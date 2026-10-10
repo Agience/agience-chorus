@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from _fakes import _StubAnswerer
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from ember import LocalCache, answer_query, build
+from ember import LocalCache, answer_query
 from mantle.search.anchors.anchorset import AnchorSet
 DIM = 16
 MODEL = "test-embed"

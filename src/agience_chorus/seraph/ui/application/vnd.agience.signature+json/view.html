@@ -68,7 +68,7 @@ function ctx() {
   catch { return {}; }
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]); }
 function trunc(s, n) { return s && s.length > n ? s.slice(0, n) + '…' : (s || '—'); }
 
 const ALGO_LABELS = { 'ed25519': 'Ed25519', 'rsa-pss': 'RSA-PSS', 'sha256-rsa': 'SHA-256/RSA' };

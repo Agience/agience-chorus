@@ -21,7 +21,7 @@ export interface AgienceViewerContext {
   /** The artifact being rendered. */
   artifact: Artifact;
 
-  /** Current workspace ID, or null if viewing a committed collection artifact. */
+  /** Current workspace ID, or null if viewing an artifact from a collection. */
   workspaceId: string | null;
 
   /** Platform auth token (Bearer). Attach to any direct API calls. */

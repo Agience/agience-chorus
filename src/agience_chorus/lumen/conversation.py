@@ -403,7 +403,7 @@ def learn(target, text: str, *, principal: str = None, tri: Dict[str, Any] = Non
     # one person keep separate lineages; a new object is a new version of this artifact (same id).
     oid = "obs." + hashlib.sha256((d.id + "\n" + who + subj + rel).encode()).hexdigest()[:16]
     doc = {
-        "id": oid, "content_type": TRIPLE_TYPE, "state": "committed",
+        "id": oid, "content_type": TRIPLE_TYPE, "state": "live",
         # non-public via the grant on `private.<who>` (minted above); ownership = that grant, not a field
         "collection_id": f"private.{who}", "collections": [f"private.{who}"],
         "subject": subj, "relation": rel, "object": obj,
@@ -528,7 +528,7 @@ def _record_private(d, query: str, answer: str, acts) -> None:
         oid = "convo." + hashlib.sha256((d.id + "\n" + who + query + answer).encode()).hexdigest()[:16]
         doc = {
             "id": oid, "content_type": MESSAGE_TYPE,
-            "state": "committed", "collection_id": f"private.{who}",   # gated by the grant, not a flag
+            "state": "live", "collection_id": f"private.{who}",   # gated by the grant, not a flag
             "collections": [f"private.{who}"],
             "context": query, "content": answer,
             # The full set of concepts a turn activated, not a truncated prefix: what a turn activated

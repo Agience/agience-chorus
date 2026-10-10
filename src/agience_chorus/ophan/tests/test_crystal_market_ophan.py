@@ -6,7 +6,6 @@ hides where the waveform becomes an artifact. Each test below states the propert
 
 This filename must stay unique across chorus: pytest substitutes duplicate basenames silently.
 """
-import pytest
 
 from crystal.crystal_model import crystal_sha, validate
 from agience_chorus.ophan import crystal_market as cm

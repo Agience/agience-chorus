@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Artifact } from '../../context/workspace/workspace.types';
+import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import { CardListItem } from './CardListItem';
 import { getStableArtifactId } from '@/utils/artifact-identifiers';
 
@@ -39,10 +40,10 @@ interface CardListProps {
   isSelected?: (id: string) => boolean;
   /** Called when an artifact is dragged to a new position (index-based) */
   onReorder?: (artifactId: string, targetIndex: number, insertAfter?: boolean) => void;
-  /** Called when an artifact is deleted/removed */
-  onRemove?: (artifact: Artifact) => void;
-  /** Called when an artifact is reverted to previous state */
-  onRevert?: (artifact: Artifact) => void;
+  /** Called when an artifact is removed; `mode` is 'delete' when it should be destroyed */
+  onRemove?: (artifact: Artifact, mode?: CardRemoveMode) => void;
+  /** The host destroys the artifact on `onRemove(artifact, 'delete')`; without it Delete is not offered. */
+  deleteEnabled?: boolean;
   /** Called when an artifact is archived */
   onArchive?: (artifact: Artifact) => void;
   /** Called when an artifact is restored from archived state */
@@ -92,7 +93,7 @@ export default function CardList({
   isSelected,
   onReorder,
   onRemove,
-  onRevert,
+  deleteEnabled = false,
   onArchive,
   onRestore,
   onFileDrop,
@@ -145,7 +146,7 @@ export default function CardList({
   const handleDeleteViaRemove = useCallback((artifact: Artifact) => {
     const stableId = getArtifactListId(artifact, isShowingSearchResults);
     const deletedIndex = stableId ? artifacts.findIndex((c) => getArtifactListId(c, isShowingSearchResults) === stableId) : -1;
-    onRemove?.(artifact);
+    onRemove?.(artifact, 'delete');
     
     // Transfer hover state to next artifact at same position
     if (deletedIndex >= 0) {
@@ -162,9 +163,6 @@ export default function CardList({
     onRemove?.(artifact);
   }, [onRemove]);
 
-  const handleRevert = useCallback((artifact: Artifact) => {
-    onRevert?.(artifact);
-  }, [onRevert]);
 
   // Drag/drop handlers
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -313,8 +311,8 @@ export default function CardList({
             onMouseDown={(e) => onArtifactMouseDown?.(id, e)}
             onEdit={() => handleEdit(artifact)}
             onOpen={onOpenArtifact ? () => onOpenArtifact(artifact) : undefined}
-            onRemove={() => (artifact.state === 'draft' ? handleDeleteViaRemove(artifact) : handleRemove(artifact))}
-            onRevert={() => handleRevert(artifact)}
+            onRemove={(mode) => (mode === 'delete' ? handleDeleteViaRemove(artifact) : handleRemove(artifact))}
+            deleteEnabled={deleteEnabled}
             onArchive={!inPanel ? () => onArchive?.(artifact) : undefined}
             onRestore={() => onRestore?.(artifact)}
             onAddToWorkspace={onAddToWorkspace ? () => onAddToWorkspace(artifact) : undefined}
@@ -345,7 +343,7 @@ export default function CardList({
     handleEdit,
     handleDeleteViaRemove,
     handleRemove,
-    handleRevert,
+    deleteEnabled,
     onArchive,
     onRestore,
     onOpenArtifact,

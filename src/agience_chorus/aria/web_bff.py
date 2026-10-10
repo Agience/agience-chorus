@@ -168,7 +168,7 @@ def register_web_operators(artifact_store, graph_store=None, *, author: str = "a
     artifact_store.put_artifact(evolution.preserve_fitness(artifact_store, {
         "id": OP_WEB_BFF,
         "content_type": OPERATOR_CONTENT_TYPE,
-        "state": "committed",
+        "state": "live",
         "context": _OFFER,
         "content": (
             f"web-bff tekton {OP_WEB_BFF}: {_OFFER}. "

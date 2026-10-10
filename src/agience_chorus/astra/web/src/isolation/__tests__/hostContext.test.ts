@@ -16,7 +16,7 @@ function artifact(overrides: Partial<Artifact> = {}): Artifact {
     collection_id: 'ws-1',
     context: '{}',
     content: '',
-    state: 'draft',
+    state: 'live',
     ...overrides,
   } as Artifact;
 }

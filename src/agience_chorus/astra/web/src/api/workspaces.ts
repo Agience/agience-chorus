@@ -9,10 +9,6 @@ import {
   WorkspaceUpdate,
 } from './types/workspace';
 import { ArtifactResponse, ArtifactCreate, ArtifactUpdate } from './types/artifact';
-import {
-  type WorkspaceCommitRequest,
-  type WorkspaceCommitResponse,
-} from './types/workspace_commit';
 
 // list all workspaces accessible to the caller
 export function listWorkspaces(): Promise<WorkspaceResponse[]> {
@@ -108,13 +104,6 @@ export async function getWorkspaceArtifactsBatchGlobal(
   return postList<ArtifactResponse>('/artifacts/batch', { artifact_ids: artifactIds });
 }
 
-export async function revertWorkspaceArtifact(
-  _workspaceId: string,
-  artifactId: string
-): Promise<ArtifactResponse> {
-  return post(`/artifacts/${artifactId}/revert`, {});
-}
-
 // move artifact between workspaces
 export async function moveArtifactToWorkspace(
   _sourceWorkspaceId: string,
@@ -122,16 +111,6 @@ export async function moveArtifactToWorkspace(
   targetWorkspaceId: string
 ): Promise<ArtifactResponse> {
   return post(`/artifacts/${artifactId}/op/move`, { target_container_id: targetWorkspaceId });
-}
-
-// Commit drafts to their collections. Pass `artifact_ids` to commit a subset
-// (per-card or multi-select); omit to commit every draft in the workspace.
-// Commit is a type operation dispatched via the generic op endpoint.
-export async function commitWorkspace(
-  workspaceId: string,
-  input?: WorkspaceCommitRequest
-): Promise<WorkspaceCommitResponse> {
-  return post(`/artifacts/${workspaceId}/op/commit`, input);
 }
 
 // find artifacts similar to a freeform text input

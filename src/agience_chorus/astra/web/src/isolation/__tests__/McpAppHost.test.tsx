@@ -11,20 +11,26 @@
  *   - CSP meta tag is injected into srcdoc before the caller-supplied HTML
  *   - postMessage events from a different window are ignored (origin isolation)
  *   - ui/initialize returns the protocol version + host context
- *   - tools/call with update_artifact / create_artifact / create_api_key /
- *     delete_api_key routes to the right platform helper
+ *   - tools/call with update_artifact / create_artifact routes to the right
+ *     platform helper; update_artifact writes only the hosted artifact
+ *   - create_api_key / delete_api_key run only after the host's confirmation
+ *     dialog approves them, delete only for the key recorded on the hosted
+ *     artifact, and a new key's secret is never posted into the iframe
  *   - tools/call with an unknown tool proxies through the MCP backend
- *   - ui/open-link routes agience:// links to host callbacks and external
- *     URLs through window.open
+ *   - ui/open-link routes agience:// links to host callbacks, http(s) URLs
+ *     through window.open, and refuses every other scheme
  *   - unknown JSON-RPC methods respond with -32601 method-not-found
  *   - ui/notifications/size-changed resizes the iframe
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, waitFor, cleanup } from '@testing-library/react';
+import type { ReactElement } from 'react';
 
 import McpAppHost from '../McpAppHost';
 import type { Artifact } from '@/context/workspace/workspace.types';
+import { ConfirmContext } from '@/context/dialog/ConfirmContext';
+import type { ConfirmOptions } from '@/context/dialog/types';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -70,7 +76,7 @@ function makeArtifact(overrides: Partial<Artifact> = {}): Artifact {
     collection_id: 'ws-1',
     context: '{"content_type":"text/html"}',
     content: 'hello',
-    state: 'draft',
+    state: 'live',
     ...overrides,
   } as Artifact;
 }
@@ -120,6 +126,21 @@ function wireIframe(container: HTMLElement) {
 
 async function nextTick() {
   await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** Render under a host confirmation dialog whose answers the test scripts. */
+function renderWithConfirm(ui: ReactElement, answers: boolean[]) {
+  const confirmMock = vi.fn(async (_options: ConfirmOptions) => answers.shift() ?? false);
+  const utils = render(
+    <ConfirmContext.Provider value={{ confirm: confirmMock }}>{ui}</ConfirmContext.Provider>,
+  );
+  return { ...utils, confirmMock };
+}
+
+function responseFor(posted: Array<{ message: unknown }>, id: number) {
+  return posted.find((p) => (p.message as { id?: number }).id === id)?.message as
+    | { result?: { content: Array<{ text: string }> }; error?: { code: number; message: string } }
+    | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,11 +365,50 @@ describe('McpAppHost', () => {
       expect(JSON.parse(text)).toEqual({ id: 'new-art' });
     });
 
-    it('routes create_api_key via dynamic import', async () => {
-      createAPIKeyMock.mockResolvedValue({ id: 'k-1', raw: 'agc_xxx' });
+    it('update_artifact refuses an id other than the hosted artifact', async () => {
+      updateArtifactMock.mockResolvedValue(undefined);
       const { container } = render(
-        <McpAppHost artifact={makeArtifact()} html="" />,
+        <McpAppHost artifact={makeArtifact({ id: 'art-1' })} html="" />,
       );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+
+      dispatchFromIframe({
+        jsonrpc: '2.0',
+        id: 14,
+        method: 'tools/call',
+        params: { name: 'update_artifact', arguments: { id: 'victim', patch: { content: 'x' } } },
+      });
+      await waitFor(() => expect(responseFor(posted, 14)).toBeDefined());
+
+      expect(updateArtifactMock).not.toHaveBeenCalled();
+      expect(responseFor(posted, 14)!.error!.code).toBe(-32000);
+    });
+
+    it('update_artifact keeps the hosted id when the patch carries its own id', async () => {
+      updateArtifactMock.mockResolvedValue(undefined);
+      const { container } = render(
+        <McpAppHost artifact={makeArtifact({ id: 'art-1' })} html="" />,
+      );
+      const { dispatchFromIframe } = wireIframe(container);
+
+      dispatchFromIframe({
+        jsonrpc: '2.0',
+        id: 15,
+        method: 'tools/call',
+        params: { name: 'update_artifact', arguments: { patch: { id: 'victim', content: 'x' } } },
+      });
+      await waitFor(() => expect(updateArtifactMock).toHaveBeenCalledTimes(1));
+
+      expect(updateArtifactMock.mock.calls[0][0]).toMatchObject({ id: 'art-1', content: 'x' });
+    });
+  });
+
+  describe('tools/call credential tools', () => {
+    const KEY_ARTIFACT_CONTEXT = JSON.stringify({ key: { api_key_id: 'k-own' } });
+
+    it('create_api_key without a host confirmation dialog creates nothing', async () => {
+      createAPIKeyMock.mockResolvedValue({ id: 'k-1', key: 'agc_secret' });
+      const { container } = render(<McpAppHost artifact={makeArtifact()} html="" />);
       const { posted, dispatchFromIframe } = wireIframe(container);
 
       dispatchFromIframe({
@@ -357,16 +417,65 @@ describe('McpAppHost', () => {
         method: 'tools/call',
         params: { name: 'create_api_key', arguments: { name: 'test' } },
       });
-      await waitFor(() => expect(createAPIKeyMock).toHaveBeenCalled());
+      await waitFor(() => expect(responseFor(posted, 10)).toBeDefined());
 
-      const response = posted.find((p) => (p.message as { id?: number }).id === 10);
-      expect(response).toBeDefined();
+      expect(createAPIKeyMock).not.toHaveBeenCalled();
+      expect(responseFor(posted, 10)!.error).toBeDefined();
     });
 
-    it('routes delete_api_key via dynamic import', async () => {
-      deleteAPIKeyMock.mockResolvedValue(undefined);
-      const { container } = render(
+    it('create_api_key declined in the host dialog creates nothing', async () => {
+      createAPIKeyMock.mockResolvedValue({ id: 'k-1', key: 'agc_secret' });
+      const { container, confirmMock } = renderWithConfirm(
         <McpAppHost artifact={makeArtifact()} html="" />,
+        [false],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+
+      dispatchFromIframe({
+        jsonrpc: '2.0',
+        id: 16,
+        method: 'tools/call',
+        params: { name: 'create_api_key', arguments: { name: 'test' } },
+      });
+      await waitFor(() => expect(responseFor(posted, 16)).toBeDefined());
+
+      expect(confirmMock).toHaveBeenCalledTimes(1);
+      expect(createAPIKeyMock).not.toHaveBeenCalled();
+      expect(responseFor(posted, 16)!.error).toBeDefined();
+    });
+
+    it('create_api_key approved shows the secret in the host and never posts it to the iframe', async () => {
+      createAPIKeyMock.mockResolvedValue({ id: 'k-1', name: 'test', key: 'agc_secret' });
+      const { container, confirmMock } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact()} html="" />,
+        [true, true],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+
+      dispatchFromIframe({
+        jsonrpc: '2.0',
+        id: 17,
+        method: 'tools/call',
+        params: { name: 'create_api_key', arguments: { name: 'test' } },
+      });
+      await waitFor(() => expect(responseFor(posted, 17)).toBeDefined());
+
+      expect(createAPIKeyMock).toHaveBeenCalledWith({ name: 'test' });
+      // The second host dialog carries the secret.
+      const secretDialog = confirmMock.mock.calls[1][0];
+      const shown = render(<>{secretDialog.customContent}</>);
+      expect(shown.getByTestId('mcp-app-host-new-key').textContent).toBe('agc_secret');
+      // Nothing that crossed into the iframe mentions it.
+      expect(JSON.stringify(posted)).not.toContain('agc_secret');
+      const record = JSON.parse(responseFor(posted, 17)!.result!.content[0].text);
+      expect(record).toEqual({ id: 'k-1', name: 'test' });
+    });
+
+    it('delete_api_key refuses a key the hosted artifact does not record', async () => {
+      deleteAPIKeyMock.mockResolvedValue(undefined);
+      const { container, confirmMock } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ context: KEY_ARTIFACT_CONTEXT })} html="" />,
+        [true],
       );
       const { posted, dispatchFromIframe } = wireIframe(container);
 
@@ -374,13 +483,54 @@ describe('McpAppHost', () => {
         jsonrpc: '2.0',
         id: 11,
         method: 'tools/call',
-        params: { name: 'delete_api_key', arguments: { id: 'k-1' } },
+        params: { name: 'delete_api_key', arguments: { id: 'k-someone-else' } },
       });
-      await waitFor(() => expect(deleteAPIKeyMock).toHaveBeenCalledWith('k-1'));
+      await waitFor(() => expect(responseFor(posted, 11)).toBeDefined());
 
-      const response = posted.find((p) => (p.message as { id?: number }).id === 11);
-      expect(response).toBeDefined();
+      expect(confirmMock).not.toHaveBeenCalled();
+      expect(deleteAPIKeyMock).not.toHaveBeenCalled();
+      expect(responseFor(posted, 11)!.error).toBeDefined();
     });
+
+    it('delete_api_key declined in the host dialog revokes nothing', async () => {
+      deleteAPIKeyMock.mockResolvedValue(undefined);
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ context: KEY_ARTIFACT_CONTEXT })} html="" />,
+        [false],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+
+      dispatchFromIframe({
+        jsonrpc: '2.0',
+        id: 18,
+        method: 'tools/call',
+        params: { name: 'delete_api_key', arguments: { id: 'k-own' } },
+      });
+      await waitFor(() => expect(responseFor(posted, 18)).toBeDefined());
+
+      expect(deleteAPIKeyMock).not.toHaveBeenCalled();
+    });
+
+    it('delete_api_key revokes the recorded key once the user approves', async () => {
+      deleteAPIKeyMock.mockResolvedValue(undefined);
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ context: KEY_ARTIFACT_CONTEXT })} html="" />,
+        [true],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+
+      dispatchFromIframe({
+        jsonrpc: '2.0',
+        id: 19,
+        method: 'tools/call',
+        params: { name: 'delete_api_key', arguments: { id: 'k-own' } },
+      });
+      await waitFor(() => expect(deleteAPIKeyMock).toHaveBeenCalledWith('k-own'));
+      await waitFor(() => expect(responseFor(posted, 19)!.result).toBeDefined());
+    });
+  });
+
+  describe('tools/call proxied tools', () => {
 
     it('unknown tools proxy through the artifact invoke endpoint', async () => {
       proxyToolCallMock.mockResolvedValue({
@@ -478,6 +628,29 @@ describe('McpAppHost', () => {
         '_blank',
         'noopener,noreferrer',
       );
+    });
+
+    it.each([
+      'javascript:alert(document.domain)',
+      'JaVaScRiPt:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'blob:https://example.com/0000',
+      'file:///etc/passwd',
+      '//example.com/scheme-relative',
+    ])('refuses to open %s', async (url) => {
+      const windowOpen = vi.spyOn(window, 'open').mockReturnValue(null);
+      windowOpen.mockClear();
+      const { container } = render(
+        <McpAppHost artifact={makeArtifact()} html="" />,
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+
+      dispatchFromIframe({ jsonrpc: '2.0', id: 23, method: 'ui/open-link', params: { url } });
+      await nextTick();
+
+      expect(windowOpen).not.toHaveBeenCalled();
+      expect(responseFor(posted, 23)!.error!.code).toBe(-32000);
+      windowOpen.mockRestore();
     });
 
     it('missing url returns -32000 error', async () => {

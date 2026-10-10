@@ -176,7 +176,7 @@ def test_observed_extent_defaults_to_the_evidence_not_wider():
 # ── order, and invalid input ─────────────────────────────────────────────────────────────────────
 
 def test_rows_are_time_ordered_regardless_of_input_order():
-    """The entroptics Screen is ordered — shuffling destroys coherence. Fails if the join ever
+    """The instrument's Screen is ordered — shuffling destroys coherence. Fails if the join ever
     iterates a dict rather than sorting on the bucket."""
     a = mp.plane("a", timestamps=[_ts(1800), _ts(0), _ts(900)],
                  rows=[[3.0], [1.0], [2.0]], columns=["x"],
@@ -461,9 +461,10 @@ def _window(coupled=True, n=60, seed=0):
 
 def test_pooling_certifies_what_one_window_cannot():
     """The point of the living Screen, shown on the independent arm because that is where one
-    window is genuinely undecided: it estimates k=2 but reports the interval (1,2) — "it could be one,
-    I cannot yet tell". A second window collapses the interval onto the count and it certifies. The
-    one-shot read cannot express that uncertainty at all; it returns a bare number.
+    window is genuinely undecided: it estimates k=2 but reports an interval around it that is not a
+    point ((0,7) under the instrument (0.2.8)) — "it could be another count, I cannot yet tell". Pooled
+    windows collapse the interval onto the count and it certifies. The one-shot read cannot express
+    that uncertainty at all; it returns a bare number.
 
     Fails if `certified` is ever computed from anything but the interval collapsing — the only
     honest route to certification is more evidence, never a loosened tolerance."""
@@ -471,7 +472,8 @@ def test_pooling_certifies_what_one_window_cannot():
     mp.accumulate(h, _window(coupled=False, seed=1))
     one = mp.accumulated_market_read(h, read=INSTRUMENT)
     assert one["k_signal"] == 2
-    assert one["certified"] is False and one["interval"] == (1, 2)
+    lo, hi = one["interval"]
+    assert one["certified"] is False and lo <= 2 <= hi and lo < hi, one["interval"]
 
     for s in range(2, 6):
         mp.accumulate(h, _window(coupled=False, seed=s))
@@ -496,18 +498,18 @@ def test_the_band_shrinks_monotonically_and_is_the_progress_reading():
 
 def test_certification_is_NOT_a_latch_and_more_evidence_can_UNcertify():
     """A screen can certify and then stop being certified as more evidence arrives: the band shrinks
-    monotonically but the estimate moves too, so a tightening interval can straddle again. On 6-row
-    windows (thin enough to see it): planes=2 certifies (1,1); planes=4 reads (1,2) and does not.
+    monotonically but the estimate moves too, so a tightening interval can straddle again. On 30-row
+    independent windows under the instrument (0.2.8): planes=6 certifies; planes=7 does not.
 
     That is the instrument being honest, not flapping. `certified` describes the evidence pooled right
     now. A caller that caches "this basket certified" and stops re-reading has cached an expired fact.
 
     Fails if `certified` is ever made sticky to look more stable — which would be a tolerance
     loosening wearing a cache's clothes."""
-    h = mp.market_accumulator(_window(n=6, seed=1), read=INSTRUMENT)
+    h = mp.market_accumulator(_window(coupled=False, n=30, seed=1), read=INSTRUMENT)
     seen = []
-    for s in range(1, 6):
-        mp.accumulate(h, _window(n=6, seed=s))
+    for s in range(1, 8):
+        mp.accumulate(h, _window(coupled=False, n=30, seed=s))
         seen.append(mp.accumulated_market_read(h, read=INSTRUMENT)["certified"])
     assert True in seen and seen[-1] is False, (
         "expected certification to be reached and then LOST as the estimate moved; got %s" % seen)
@@ -516,10 +518,11 @@ def test_certification_is_NOT_a_latch_and_more_evidence_can_UNcertify():
 def test_pooling_separates_coupled_from_independent_and_CERTIFIES_both():
     """The negative control, and here it is stronger than the one-shot version: both arms certify,
     so the difference is not "one read was noisier" — it is two settled, incompatible answers.
-    Coupled resolves one driver spanning both planes; independent resolves two."""
+    Coupled resolves one driver spanning both planes; independent resolves two. Seven planes: under
+    the instrument (0.2.8), the coupled arm settles at the sixth and the independent arm at the fourth."""
     def pooled(coupled):
         h = mp.market_accumulator(_window(coupled=coupled, seed=1), read=INSTRUMENT)
-        for s in range(1, 6):
+        for s in range(1, 8):
             mp.accumulate(h, _window(coupled=coupled, seed=s))
         return mp.accumulated_market_read(h, read=INSTRUMENT)
 
@@ -532,7 +535,7 @@ def test_pooling_separates_coupled_from_independent_and_CERTIFIES_both():
 def test_a_changed_basis_refuses_and_names_what_moved():
     """The guard the whole pooling path stands on, and the failure it prevents is silent.
 
-    entroptics and beacon both check only that `F` is constant. So a basket that loses ETHUSDT and
+    The instrument and beacon both check only that `F` is constant. So a basket that loses ETHUSDT and
     gains SOLUSDT between windows pools cleanly: same width, well-formed covariance, a confident
     certified count — of nothing. Nothing downstream can detect it, because the arithmetic never
     breaks. `F` is not the identity of a basis; the names are.

@@ -6,9 +6,11 @@ import CardList from '@/components/common/CardList';
 import { addArtifactToCollection, listCollectionArtifacts, removeArtifactFromCollection, subscribeCollectionEvents } from '@/api/collections';
 import { AGIENCE_DRAG_CONTENT_TYPE, getDroppedArtifactIds } from '@/dnd/agienceDrag';
 import { useWorkspace } from '@/hooks/useWorkspace';
-import { useWorkspaces } from '@/hooks/useWorkspaces';
 import type { Artifact } from '@/context/workspace/workspace.types';
 import { getStableArtifactId } from '@/utils/artifact-identifiers';
+import type { CardRemoveMode } from '@/utils/artifact-permissions';
+import { useConfirm } from '@/context/dialog/useConfirm';
+import { BUTTON_LABELS, CARD_CONFIRM } from '@/constants/strings';
 
 type CollectionViewMode = 'grid' | 'list';
 
@@ -64,14 +66,14 @@ export default function CollectionArtifactViewer({
   mode?: string;
   onOpenArtifact?: (artifact: Artifact) => void;
 }) {
-  const { artifacts: workspaceArtifacts } = useWorkspace();
-  const { activeWorkspaceId } = useWorkspaces();
+  const { artifacts: workspaceArtifacts, deleteArtifact } = useWorkspace();
+  const dangerConfirm = useConfirm();
 
   // A collection artifact is the collection. Its id is the container_id
   // for the list API. No prefix decoding or context lookups needed.
   const collectionId = useMemo(() => artifact.id ?? '', [artifact.id]);
 
-  const [committedItems, setCommittedItems] = useState<Artifact[]>([]);
+  const [memberItems, setMemberItems] = useState<Artifact[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [viewMode, setViewMode] = useState<CollectionViewMode>(mode === 'list' ? 'list' : 'grid');
   const [dropActive, setDropActive] = useState(false);
@@ -82,23 +84,21 @@ export default function CollectionArtifactViewer({
 
   const reloadArtifacts = useCallback(async () => {
     if (!collectionId) {
-      setCommittedItems([]);
+      setMemberItems([]);
       return;
     }
 
     setIsLoading(true);
     try {
-      // Pass the active workspace so a draft we linked in (homed in our workspace)
-      // shows here within our context — the server scopes it to drafts we can read.
-      const next = await listCollectionArtifacts(collectionId, activeWorkspaceId || undefined);
-      setCommittedItems(next as Artifact[]);
+      const next = await listCollectionArtifacts(collectionId);
+      setMemberItems(next as Artifact[]);
     } catch (error) {
       console.error('Failed to load collection artifacts:', error);
-      setCommittedItems([]);
+      setMemberItems([]);
     } finally {
       setIsLoading(false);
     }
-  }, [collectionId, activeWorkspaceId]);
+  }, [collectionId]);
 
   useEffect(() => {
     void reloadArtifacts();
@@ -110,14 +110,14 @@ export default function CollectionArtifactViewer({
 
     const unsubscribe = subscribeCollectionEvents(collectionId, {
       onArtifactCreated: (artifact) => {
-        setCommittedItems(prev => {
+        setMemberItems(prev => {
           const key = String((artifact as Artifact).root_id ?? artifact.id);
           if (prev.some(c => String(c.root_id ?? c.id) === key)) return prev;
           return [...prev, artifact as Artifact];
         });
       },
       onArtifactUpdated: (artifact) => {
-        setCommittedItems(prev =>
+        setMemberItems(prev =>
           prev.map(c => {
             const cKey = String(c.root_id ?? c.id);
             const aKey = String((artifact as Artifact).root_id ?? artifact.id);
@@ -126,7 +126,7 @@ export default function CollectionArtifactViewer({
         );
       },
       onArtifactDeleted: (artifactId) => {
-        setCommittedItems(prev =>
+        setMemberItems(prev =>
           prev.filter(c => String(c.root_id ?? c.id) !== String(artifactId))
         );
       },
@@ -159,20 +159,34 @@ export default function CollectionArtifactViewer({
       if (!byId.has(key)) byId.set(key, candidate);
     };
 
-    committedItems.forEach(addItem);
+    memberItems.forEach(addItem);
     pendingWorkspaceItems.forEach(addItem);
 
     return Array.from(byId.values());
-  }, [committedItems, pendingWorkspaceItems]);
+  }, [memberItems, pendingWorkspaceItems]);
 
-  const handleRemove = useCallback(async (item: Artifact) => {
+  // `mode === 'delete'` destroys the artifact (DELETE /artifacts/{id}) after a confirmation;
+  // otherwise it is unlinked from this collection.
+  const handleRemove = useCallback(async (item: Artifact, mode?: CardRemoveMode) => {
     if (!collectionId) return;
 
     const rootId = String(item.root_id ?? item.id ?? '').trim();
     if (!rootId) return;
-    await removeArtifactFromCollection(collectionId, rootId);
-    setCommittedItems((prev) => prev.filter((candidate) => String(candidate.root_id ?? candidate.id ?? '') !== rootId));
-  }, [collectionId]);
+
+    if (mode === 'delete') {
+      const confirmed = await dangerConfirm.confirm({
+        title: CARD_CONFIRM.DELETE_PERMANENT_TITLE,
+        description: CARD_CONFIRM.DELETE_PERMANENT_DESCRIPTION,
+        confirmLabel: CARD_CONFIRM.DELETE_PERMANENT_CONFIRM,
+        cancelLabel: BUTTON_LABELS.CANCEL,
+      });
+      if (!confirmed) return;
+      if (!(await deleteArtifact(String(item.id ?? rootId)))) return;
+    } else {
+      await removeArtifactFromCollection(collectionId, rootId);
+    }
+    setMemberItems((prev) => prev.filter((candidate) => String(candidate.root_id ?? candidate.id ?? '') !== rootId));
+  }, [collectionId, dangerConfirm, deleteArtifact]);
 
   const applyDroppedArtifacts = useCallback(async (
     ids: string[],
@@ -280,6 +294,7 @@ export default function CollectionArtifactViewer({
               activeSource={collectionId ? { type: 'collection', id: collectionId } : null}
               onOpenArtifact={onOpenArtifact}
               onRemove={handleRemove}
+              deleteEnabled
               onArtifactDrop={(_insertIndex, draggedIds, dragPayload) => {
                 void applyDroppedArtifacts(draggedIds, {
                   sourceType: dragPayload?.sourceType,
@@ -297,6 +312,7 @@ export default function CollectionArtifactViewer({
             sourceCollectionId={collectionId || undefined}
             onOpenArtifact={onOpenArtifact}
             onRemove={handleRemove}
+            deleteEnabled
             onArtifactDrop={(_insertIndex, draggedIds, dragPayload) => {
               void applyDroppedArtifacts(draggedIds, {
                 sourceType: dragPayload?.sourceType,

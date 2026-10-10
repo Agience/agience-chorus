@@ -17,9 +17,8 @@ hold no real text, so they are never a content answer.
 """
 from __future__ import annotations
 
-import math
 import re
-from typing import List, Sequence, Tuple, Any, Dict, Optional
+from typing import List, Tuple, Dict, Optional
 
 from agience_chorus.sage.answer_shape import Answer          # sage-local; ember.runtime.engine exports no Answer type
 from mantle.shard.content import resolve_text, _summary
@@ -27,7 +26,7 @@ from mantle.shard.content import resolve_text, _summary
 # shared by both the reach path (the `match` seam) and this recall path. It and the index below sit
 # at chorus's `src/` top level, vendored from mantle, which holds neither: `corpus_fts.py` states
 # what that vendoring obliges, and that ember carries a second copy that must not diverge.
-from agience_chorus.corpus_stats import terms, _q, _df, _corpus_rows, _salient, _match_expr
+from agience_chorus.corpus_stats import terms, _df, _salient, _match_expr
 import agience_chorus.corpus_fts as _fts   # the index — one implementation, in the store
 
 # `_projection` is resolved through the declared host seam rather than imported directly from
@@ -185,7 +184,6 @@ def search(store, query: str, *, k: int = 8, id_prefix: str | None = None
         query                     global   canon-scoped
         holographic compression    0/6        6/6   341ms -> 5ms
         semantic coherence         0/6        6/6   151ms -> 0ms
-        entroptics instrument        1/6        6/6    92ms -> 2ms
         adaptive cut resolution    1/6        6/6    50ms -> 25ms
 
     Same defect and same fix as `_page_canon`'s 615x: the work is the rows touched, and the LIMIT
@@ -227,7 +225,7 @@ def search(store, query: str, *, k: int = 8, id_prefix: str | None = None
     rows = conn.execute(
         "SELECT v.id, v.ct, bm25(%s) AS s FROM %s "
         "JOIN %s m ON m.fts_rowid = %s.rowid JOIN vertex v ON v.id = m.vertex_id "
-        # NOTE: `vertex` has no `state` column — state rides in the doc JSON — so committed/archived
+        # NOTE: `vertex` has no `state` column — state rides in the doc JSON — so live/archived
         # is not filtered here; archived rows never enter the index in the first place.
         "WHERE %s MATCH ? AND v.ct IN (%s) %sORDER BY s ASC LIMIT ?"
         % (_fts.FTS_TABLE, _fts.FTS_TABLE, _fts.MAP_TABLE, _fts.FTS_TABLE, _fts.FTS_TABLE, ph, scope),
@@ -459,7 +457,8 @@ def _hyper_closure(name: str) -> set:
             for h in hs:
                 hn = h if isinstance(h, str) else h.name()
                 if hn and hn not in seen:
-                    seen.add(hn); nxt.append(hn)
+                    seen.add(hn)
+                    nxt.append(hn)
         frontier = nxt
         if not nxt:
             break
@@ -574,11 +573,13 @@ def compare_answer(store, query: str) -> Optional[Answer]:
         return None
     best, best_score, best_depth = None, -(10 ** 9), 0
     for sx in xs:
-        cx = _hyper_closure(sx); lx = len(cx)
+        cx = _hyper_closure(sx)
+        lx = len(cx)
         for sy in ys:
             if sx == sy:
                 continue
-            cy = _hyper_closure(sy); ly = len(cy)
+            cy = _hyper_closure(sy)
+            ly = len(cy)
             for c in (cx & cy) - {sx, sy}:
                 lc = len(_hyper_closure(c))
                 # prefer the LCS closest to both senses (the most specific real relationship), not just
@@ -875,9 +876,13 @@ def wedge_answer(store, query: str) -> Optional[Answer]:
     except ImportError:
         from agience_chorus.sage import wedge                                 # (sage/ on path)
     if re.search(r"\b(python|code|py|compile|program|function)\b", head, re.I):
-        v = wedge.check_python(claim); kind = "python"; act = "compiles"
+        v = wedge.check_python(claim)
+        kind = "python"
+        act = "compiles"
     elif re.search(r"\b(math|latex|equation|expression|formula|algebra)\b", head, re.I):
-        v = wedge.check_math(claim); kind = "math"; act = "parses"
+        v = wedge.check_math(claim)
+        kind = "math"
+        act = "parses"
     else:
         return None
     if v.get("verified"):

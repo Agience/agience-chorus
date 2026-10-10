@@ -47,7 +47,6 @@ from __future__ import annotations
 import argparse
 import collections
 import functools
-import json
 import os
 import sqlite3
 import sys

@@ -8,7 +8,6 @@ built from chorus source; ember is the engine that runs them, so the test belong
 beside the operators. Tests in that file needing no payload stayed in ember.
 """
 from __future__ import annotations
-import math
 import pytest
 from ember.ontology import match
 from _fakes import _install_offline_wordnet
@@ -29,7 +28,7 @@ def wn_ready():
 def store(wn_ready):
     s = _FakeStore()
     for oid, offer in PANEL:
-        s.artifacts.put_artifact({"id": oid, "content_type": OT, "state": "committed",
+        s.artifacts.put_artifact({"id": oid, "content_type": OT, "state": "live",
                                   "context": offer})
     match.invalidate(s)
     return s

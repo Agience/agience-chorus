@@ -13,7 +13,7 @@ Implemented paths:
 | `search` | Lexical BM25 search across workspaces and collections |
 | `corpus_search` | Rank this node's corpus by what the question is about; returns only artifacts the caller may read |
 | `get_artifact` | Fetch a single artifact by ID |
-| `browse_collections` | List committed collections visible to the caller |
+| `browse_collections` | List live collections visible to the caller |
 | `web_retrieve` | Fetch a URL, extract text, persist it as a text/markdown artifact |
 | `research` | Search, deepen each hit, assemble a budgeted evidence digest with citations |
 | `cite_sources` | Produce a provenance receipt: id, title, content type, length, sha256 per cited card |

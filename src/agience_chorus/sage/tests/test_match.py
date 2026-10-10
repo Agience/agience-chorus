@@ -248,7 +248,7 @@ def wn_ready():
 def store(wn_ready):
     s = _FakeStore()
     for oid, offer in PANEL:
-        s.artifacts.put_artifact({"id": oid, "content_type": OT, "state": "committed",
+        s.artifacts.put_artifact({"id": oid, "content_type": OT, "state": "live",
                                   "context": offer})
     EM.invalidate(s)
     return s
@@ -336,9 +336,9 @@ def test_offers_that_never_grounded_are_reported_not_dropped(wn_ready):
     """"no operator matched" must stay distinguishable from "some operators could never be
     measured" — a real miss versus a blind spot."""
     s = _FakeStore()
-    s.artifacts.put_artifact({"id": "op.a", "content_type": OT, "state": "committed",
+    s.artifacts.put_artifact({"id": "op.a", "content_type": OT, "state": "live",
                               "context": "describes python source code"})
-    s.artifacts.put_artifact({"id": "op.blank", "content_type": OT, "state": "committed",
+    s.artifacts.put_artifact({"id": "op.blank", "content_type": OT, "state": "live",
                               "context": "!!! ??? ..."})
     EM.invalidate(s)
     r = M.select(s, "python code")
@@ -377,7 +377,7 @@ def test_offer_cache_does_not_leak_between_stores(wn_ready):
     """An unkeyed cache serves one store's offers to another — the defect `genesis`'s
     `_ARTIFACT_COUNT_CACHE` and `_METRICS_CACHE` have."""
     a, b = _FakeStore(), _FakeStore()
-    a.artifacts.put_artifact({"id": "op.only.in.a", "content_type": OT, "state": "committed",
+    a.artifacts.put_artifact({"id": "op.only.in.a", "content_type": OT, "state": "live",
                               "context": "describes python source code"})
     EM.invalidate(a)
     EM.invalidate(b)
@@ -387,11 +387,11 @@ def test_offer_cache_does_not_leak_between_stores(wn_ready):
 
 def test_invalidate_picks_up_a_new_operator(wn_ready):
     s = _FakeStore()
-    s.artifacts.put_artifact({"id": "op.a", "content_type": OT, "state": "committed",
+    s.artifacts.put_artifact({"id": "op.a", "content_type": OT, "state": "live",
                               "context": "describes python source code"})
     EM.invalidate(s)
     assert M.select(s, "python code")["considered"] == 1
-    s.artifacts.put_artifact({"id": "op.b", "content_type": OT, "state": "committed",
+    s.artifacts.put_artifact({"id": "op.b", "content_type": OT, "state": "live",
                               "context": "describes markdown documents"})
     EM.invalidate(s)
     assert M.select(s, "python code")["considered"] == 2

@@ -8,6 +8,8 @@ import { BulkTagDialog, type BulkTagApplyRequest } from '../modals/BulkTagDialog
 import { addArtifactToCollection } from '../../api/collections';
 import { useConfirm } from '../../context/dialog/useConfirm';
 import { BULK_CONFIRM, BUTTON_LABELS } from '@/constants/strings';
+import { canDeleteArtifact } from '@/utils/artifact-permissions';
+import { useCurrentUserId } from '@/hooks/useCurrentUserId';
 import { getContentType } from '@/registry/content-types';
 import ContainerCardViewer from '@/components/containers/ContainerCardViewer';
 import ViewCardViewer from '@/components/view/ViewCardViewer';
@@ -124,8 +126,9 @@ function EmptyState() {
  * MultiSelectSummary - Show summary when multiple artifacts selected
  */
 function MultiSelectSummary({ count, onClose }: { count: number; onClose?: () => void }) {
-  const { artifacts, selectedArtifactIds, removeArtifact, updateArtifact, unselectAllArtifacts } = useWorkspace();
+  const { artifacts, selectedArtifactIds, removeArtifact, deleteArtifact, updateArtifact, unselectAllArtifacts } = useWorkspace();
   const dangerConfirm = useConfirm();
+  const currentUserId = useCurrentUserId();
   const [showCollectionPicker, setShowCollectionPicker] = useState(false);
   const [showBulkTagDialog, setShowBulkTagDialog] = useState(false);
   
@@ -199,8 +202,14 @@ function MultiSelectSummary({ count, onClose }: { count: number; onClose?: () =>
     });
     
     if (confirmed) {
+      // Destroy what the user may delete; unlink the rest from the workspace.
       for (const artifactId of selectedArtifactIds) {
-        await removeArtifact(artifactId);
+        const artifact = artifacts.find(c => String(c.id) === artifactId);
+        if (artifact && canDeleteArtifact(artifact, currentUserId)) {
+          await deleteArtifact(artifactId);
+        } else {
+          await removeArtifact(artifactId);
+        }
       }
       unselectAllArtifacts();
       onClose?.();
@@ -245,16 +254,6 @@ function MultiSelectSummary({ count, onClose }: { count: number; onClose?: () =>
             <div key={artifact.id} className="flex items-center gap-2 text-sm">
               <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></div>
               <span className="text-gray-700 truncate flex-1">{artifact.title}</span>
-              {artifact.state === 'draft' && (
-                <span className="px-1.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 rounded flex-shrink-0">
-                  New
-                </span>
-              )}
-              {artifact.state === 'committed' && (
-                <span className="px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded flex-shrink-0">
-                  Modified
-                </span>
-              )}
               {artifact.state === 'archived' && (
                 <span className="px-1.5 py-0.5 text-xs font-medium bg-red-100 text-red-700 rounded flex-shrink-0">
                   Archived

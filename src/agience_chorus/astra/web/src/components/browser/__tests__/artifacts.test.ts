@@ -6,8 +6,8 @@ import { deriveArtifactCountArtifacts } from '@/components/browser/artifacts';
 describe('deriveArtifactCountArtifacts', () => {
   it('returns searchFilteredArtifacts when not showing search results', () => {
     const sourceArtifacts: ArtifactResponse[] = [
-      { id: 'source-1', context: '{}', content: '', state: 'committed' },
-      { id: 'artifact-1', context: '{}', content: '', state: 'committed' },
+      { id: 'source-1', context: '{}', content: '', state: 'live' },
+      { id: 'artifact-1', context: '{}', content: '', state: 'live' },
     ];
 
     const result = deriveArtifactCountArtifacts({
@@ -21,7 +21,7 @@ describe('deriveArtifactCountArtifacts', () => {
 
   it('returns resolvedDisplayArtifacts when showing search results', () => {
     const searchArtifacts: ArtifactResponse[] = [
-      { id: 'hit-1', context: '{}', content: '', state: 'committed' },
+      { id: 'hit-1', context: '{}', content: '', state: 'live' },
     ];
 
     const result = deriveArtifactCountArtifacts({

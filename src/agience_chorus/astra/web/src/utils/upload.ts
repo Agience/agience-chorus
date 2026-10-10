@@ -16,6 +16,26 @@
 import { updateUploadStatus } from '../api/workspaces';
 
 /**
+ * An artifact context string with `upload` set to uploading at `progress` (0 to 1), for the
+ * optimistic progress bar. `upload` is owned by the store and written only through
+ * `PATCH /artifacts/{id}/upload-status`; this value is for local state and is never sent as
+ * part of a context. Null when the context is not a JSON object.
+ */
+export function withUploadProgress(context: string | undefined | null, progress: number): string | null {
+  if (!context) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(context);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const ctx = parsed as Record<string, unknown>;
+  const prior = ctx.upload && typeof ctx.upload === 'object' ? (ctx.upload as Record<string, unknown>) : {};
+  return JSON.stringify({ ...ctx, upload: { ...prior, status: 'uploading', progress } });
+}
+
+/**
  * PUT a file to Mantle, reporting progress to the caller and to the server.
  */
 export async function uploadWithProgress(

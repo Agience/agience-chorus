@@ -47,7 +47,7 @@ def index_code(store, paths, *, author: str = "ember-local") -> int:
                 for s in symbols:
                     lemmas = list(dict.fromkeys([s.name.lower(), s.qualname.lower()]))
                     docs.append({
-                        "id": s.id(), "content_type": SYMBOL_CONTENT_TYPE, "state": "committed",
+                        "id": s.id(), "content_type": SYMBOL_CONTENT_TYPE, "state": "live",
                         "context": s.offer(), "content": s.offer(), "created_by": author,
                         "lemmas": lemmas, "calls": [c.lower() for c in s.calls],
                         "kind": s.kind, "path": s.path, "line": s.line, "sym": s.name,
@@ -66,7 +66,7 @@ def index_file(store, path: str, *, author: str = "ember-local") -> int:
     docs = []
     for s in extract(p.as_posix(), text)[0]:
         docs.append({
-            "id": s.id(), "content_type": SYMBOL_CONTENT_TYPE, "state": "committed",
+            "id": s.id(), "content_type": SYMBOL_CONTENT_TYPE, "state": "live",
             "context": s.offer(), "content": s.offer(), "created_by": author,
             "lemmas": list(dict.fromkeys([s.name.lower(), s.qualname.lower()])),
             "calls": [c.lower() for c in s.calls], "kind": s.kind,

@@ -15,7 +15,6 @@ from __future__ import annotations
 import sys
 import types
 
-import pytest
 
 from agience_chorus.astra import sources
 from agience_chorus.astra import sources as S

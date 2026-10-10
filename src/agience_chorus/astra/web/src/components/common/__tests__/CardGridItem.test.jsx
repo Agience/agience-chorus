@@ -6,6 +6,7 @@ import { CardGridItem } from '../CardGridItem';
 import { mockArtifact } from '../../../../tests/utils/helpers';
 import { addArtifactToCollection } from '@/api/collections';
 import { CONTENT_TYPES, setRuntimeContentTypes } from '@/registry/content-types';
+import { AuthContext } from '@/context/auth/AuthContext';
 
 // Spy on the membership API so member-drop tests can assert the edge add.
 vi.mock('@/api/collections', () => ({
@@ -60,7 +61,7 @@ describe('CardGridItem', () => {
     it('renders artifact with title', () => {
       const artifact = mockArtifact({ 
         id: '1', 
-        state: 'committed',
+        state: 'live',
         context: JSON.stringify({ title: 'Test Artifact Title' })
       });
       render(<CardGridItem artifact={artifact} />);
@@ -71,7 +72,7 @@ describe('CardGridItem', () => {
     it('renders artifact with description when no title', () => {
       const artifact = mockArtifact({ 
         id: '1', 
-        state: 'committed',
+        state: 'live',
         content: 'Test artifact description that should be visible'
       });
       render(<CardGridItem artifact={artifact} />);
@@ -79,19 +80,12 @@ describe('CardGridItem', () => {
       expect(screen.getByText(/Test artifact description/)).toBeInTheDocument();
     });
 
-    it('renders state badge for draft artifacts', () => {
-      const artifact = mockArtifact({ id: '1', state: 'draft' });
+    it('renders a live artifact without a state badge', () => {
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       render(<CardGridItem artifact={artifact} />);
 
-      expect(screen.getByText('Draft')).toBeInTheDocument();
-    });
-
-    it('does not render state badge for committed artifacts', () => {
-      const artifact = mockArtifact({ id: '1', state: 'committed' });
-      render(<CardGridItem artifact={artifact} />);
-
-      // committed = normal published state, no badge needed
-      expect(screen.queryByText('Modified')).not.toBeInTheDocument();
+      expect(screen.getByTestId('artifact-1')).toBeInTheDocument();
+      expect(screen.queryByText('Archived')).not.toBeInTheDocument();
     });
 
     it('renders state badge for archived artifacts', () => {
@@ -102,7 +96,7 @@ describe('CardGridItem', () => {
     });
 
     it('does not render state badge for unmodified artifacts', () => {
-      const artifact = mockArtifact({ id: '1', state: 'committed' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       render(<CardGridItem artifact={artifact} />);
       
       // Unmodified badge should not be shown (too noisy)
@@ -114,7 +108,7 @@ describe('CardGridItem', () => {
   describe('State-Specific Actions', () => {
     it('shows delete action for new artifacts when not in panel', async () => {
       const onRemove = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'draft' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       
       const { container } = render(<CardGridItem artifact={artifact} onRemove={onRemove} />);
       
@@ -127,22 +121,12 @@ describe('CardGridItem', () => {
 
     it('shows remove action for unmodified artifacts', async () => {
       const onRemove = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'committed' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       
       const { container } = render(<CardGridItem artifact={artifact} onRemove={onRemove} />);
       fireEvent.mouseEnter(container.firstChild);
       
       // Unmodified artifacts get "remove from workspace" action
-    });
-
-    it('shows revert action for modified artifacts', async () => {
-      const onRevert = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'draft' });
-      
-      const { container } = render(<CardGridItem artifact={artifact} onRevert={onRevert} />);
-      fireEvent.mouseEnter(container.firstChild);
-      
-      // Modified artifacts get "revert" action
     });
 
     it('shows restore action for archived artifacts', async () => {
@@ -158,7 +142,7 @@ describe('CardGridItem', () => {
     it('hides lifecycle actions while processing is pending', () => {
       const artifact = mockArtifact({
         id: '1',
-        state: 'committed',
+        state: 'live',
         context: JSON.stringify({
           title: 'Pending audio',
           processing: {
@@ -181,10 +165,10 @@ describe('CardGridItem', () => {
       expect(screen.queryByText('Remove from workspace')).not.toBeInTheDocument();
     });
 
-    it('keeps delete available for new artifacts during upload', () => {
+    it('keeps the remove button available during upload so it can be cancelled', () => {
       const artifact = mockArtifact({
         id: '1',
-        state: 'draft',
+        state: 'live',
         context: JSON.stringify({
           title: 'Uploading file',
           upload: { status: 'in-progress', progress: 0.2 },
@@ -202,15 +186,15 @@ describe('CardGridItem', () => {
       // (mouseenter does not bubble, so we must target the element with onMouseEnter)
       fireEvent.mouseEnter(screen.getByTestId('artifact-1'));
 
-      // Delete button is icon-only; the title prop is spread onto the <button> element
-      expect(screen.getByTitle('Delete')).toBeInTheDocument();
+      // The button is icon-only; the title prop is spread onto the <button> element
+      expect(screen.getByTitle('Remove from workspace')).toBeInTheDocument();
     });
   });
 
   describe('Panel Mode', () => {
     it('shows X button to remove from panel when in panel mode', async () => {
       const onRemove = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'committed' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       
       const { container } = render(<CardGridItem artifact={artifact} onRemove={onRemove} inPanel />);
       fireEvent.mouseEnter(container.firstChild);
@@ -219,13 +203,12 @@ describe('CardGridItem', () => {
     });
 
     it('hides workspace-specific actions in panel mode', () => {
-      const artifact = mockArtifact({ id: '1', state: 'draft' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       
       const { container } = render(
         <CardGridItem 
           artifact={artifact} 
           onRemove={vi.fn()} 
-          onRevert={vi.fn()}
           onArchive={vi.fn()}
           inPanel 
         />
@@ -238,7 +221,7 @@ describe('CardGridItem', () => {
 
   describe('Selection', () => {
     it('applies selection styling when isSelected=true', () => {
-      const artifact = mockArtifact({ id: '1', state: 'committed' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       const { container } = render(<CardGridItem artifact={artifact} isSelected selectable />);
       
       // Selected artifacts have ring-2 ring-purple-600 classes
@@ -249,7 +232,7 @@ describe('CardGridItem', () => {
     it('calls onMouseDown when clicked and selectable', async () => {
       const user = userEvent.setup();
       const onMouseDown = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'committed' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       
       render(
         <CardGridItem artifact={artifact} onMouseDown={onMouseDown} selectable />
@@ -262,7 +245,7 @@ describe('CardGridItem', () => {
 
     it('invokes onMouseDown once during drag initiation to ensure selection', () => {
       const onMouseDown = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'committed' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
 
       render(
         <CardGridItem artifact={artifact} onMouseDown={onMouseDown} draggable selectable />
@@ -286,7 +269,7 @@ describe('CardGridItem', () => {
 
   describe('Drag and Drop', () => {
     it('sets drag data with artifact IDs on dragStart', () => {
-      const artifact = mockArtifact({ id: '1', collection_id: 'ws-1', state: 'committed' });
+      const artifact = mockArtifact({ id: '1', collection_id: 'ws-1', state: 'live' });
       const dragData = { ids: ['1'] };
       
       render(
@@ -314,7 +297,7 @@ describe('CardGridItem', () => {
     });
 
     it('drags multiple selected artifacts when isSelected=true', () => {
-      const artifact = mockArtifact({ id: '2', collection_id: 'ws-1', state: 'committed' });
+      const artifact = mockArtifact({ id: '2', collection_id: 'ws-1', state: 'live' });
       const dragData = { ids: ['1', '2', '3'] };
       
       render(
@@ -346,7 +329,7 @@ describe('CardGridItem', () => {
         id: '1', 
         collection_id: 'ws-1',
         collection_ids: ['coll-1'],
-        state: 'committed' 
+        state: 'live' 
       });
       
       render(
@@ -380,7 +363,7 @@ describe('CardGridItem', () => {
   describe('Edit Mode', () => {
     it('calls onEdit when artifact is double-clicked and editable', async () => {
       const onEdit = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'committed' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       const user = userEvent.setup();
 
       render(<CardGridItem artifact={artifact} onEdit={onEdit} editable />);
@@ -392,7 +375,7 @@ describe('CardGridItem', () => {
 
     it('does not open edit when editable=false', async () => {
       const onEdit = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'committed' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       const user = userEvent.setup();
 
       render(<CardGridItem artifact={artifact} onEdit={onEdit} editable={false} />);
@@ -405,7 +388,7 @@ describe('CardGridItem', () => {
 
   describe('Force Hover', () => {
     it('applies hover state when forceHover=true', () => {
-      const artifact = mockArtifact({ id: '1', state: 'committed' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       
       const { container, rerender } = render(<CardGridItem artifact={artifact} />);
       
@@ -424,7 +407,7 @@ describe('CardGridItem', () => {
     it('does not show ghost effect (membership changes are immediate via edges)', () => {
       const artifact = mockArtifact({
         id: '1',
-        state: 'draft',
+        state: 'live',
         committed_collection_ids: ['coll-1', 'coll-2'],
       });
 
@@ -436,7 +419,7 @@ describe('CardGridItem', () => {
 
     it('calls onAssignCollections when collection assignment button clicked', async () => {
       const onAssignCollections = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'draft' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       
       const { container } = render(
         <CardGridItem 
@@ -456,7 +439,7 @@ describe('CardGridItem', () => {
   describe('Search Results Mode', () => {
     it('shows add to workspace action in search results mode', () => {
       const onAddToWorkspace = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'committed' });
+      const artifact = mockArtifact({ id: '1', state: 'live' });
       
       const { container } = render(
         <CardGridItem 
@@ -476,7 +459,7 @@ describe('CardGridItem', () => {
         id: 'workspace-artifact-1',
         root_id: 'root-1',
         collection_id: 'ws-1',
-        state: 'committed',
+        state: 'live',
       });
 
       render(
@@ -543,7 +526,7 @@ describe('CardGridItem', () => {
 
     it('adds via the shared agienceDrag convention (the regression case)', () => {
       const collection = mockArtifact({
-        id: 'coll-1', root_id: 'coll-1', state: 'committed',
+        id: 'coll-1', root_id: 'coll-1', state: 'live',
         content_type: 'application/vnd.agience.collection+json',
         context: JSON.stringify({ title: 'My Collection' }),
       });
@@ -562,7 +545,7 @@ describe('CardGridItem', () => {
 
     it('adds via the legacy card-grid convention (versionIds preferred)', () => {
       const collection = mockArtifact({
-        id: 'coll-2', root_id: 'coll-2', state: 'committed',
+        id: 'coll-2', root_id: 'coll-2', state: 'live',
         content_type: 'application/vnd.agience.collection+json',
         context: JSON.stringify({ title: 'My Collection' }),
       });
@@ -584,7 +567,7 @@ describe('CardGridItem', () => {
     it('handles artifact with upload progress', () => {
       const artifact = mockArtifact({ 
         id: '1', 
-        state: 'draft',
+        state: 'live',
         context: JSON.stringify({
           upload: {
             status: 'uploading',
@@ -603,7 +586,7 @@ describe('CardGridItem', () => {
       const longTitle = 'A'.repeat(200);
       const artifact = mockArtifact({
         id: '1',
-        state: 'committed',
+        state: 'live',
         context: JSON.stringify({ title: longTitle })
       });
       
@@ -617,13 +600,55 @@ describe('CardGridItem', () => {
       const artifact = mockArtifact({ 
         id: '1',
         context: JSON.stringify({ title: 'Context Heading' }),
-        state: 'committed' 
+        state: 'live' 
       });
       
       render(<CardGridItem artifact={artifact} />);
       
       // Context heading should be displayed
       expect(screen.getByText('Context Heading')).toBeInTheDocument();
+    });
+  });
+
+  describe('Delete', () => {
+    const asUser = (id, ui) => (
+      <AuthContext.Provider value={{ user: { id } }}>{ui}</AuthContext.Provider>
+    );
+
+    it('offers Delete on a card the user created, and asks for destruction', () => {
+      const onRemove = vi.fn();
+      const artifact = mockArtifact({ id: '1', state: 'live', created_by: 'u1' });
+      render(asUser('u1', <CardGridItem artifact={artifact} onRemove={onRemove} deleteEnabled />));
+
+      fireEvent.click(screen.getByText('Delete'));
+
+      expect(onRemove).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }), 'delete');
+    });
+
+    it('does not offer Delete on a card someone else created', () => {
+      const artifact = mockArtifact({ id: '1', state: 'live', created_by: 'u2' });
+      render(asUser('u1', <CardGridItem artifact={artifact} onRemove={vi.fn()} deleteEnabled />));
+
+      expect(screen.queryByText('Delete')).not.toBeInTheDocument();
+    });
+
+    it('does not offer Delete when the host cannot delete, even on a card the user created', () => {
+      const artifact = mockArtifact({ id: '1', state: 'live', created_by: 'u1' });
+      render(asUser('u1', <CardGridItem artifact={artifact} onRemove={vi.fn()} />));
+
+      expect(screen.queryByText('Delete')).not.toBeInTheDocument();
+      expect(screen.getByText('Remove from workspace')).toBeInTheDocument();
+    });
+
+    it('Remove from workspace unlinks rather than deletes', () => {
+      const onRemove = vi.fn();
+      const artifact = mockArtifact({ id: '1', state: 'live', created_by: 'u1' });
+      render(asUser('u1', <CardGridItem artifact={artifact} onRemove={onRemove} deleteEnabled />));
+
+      fireEvent.click(screen.getByText('Remove from workspace'));
+
+      expect(onRemove).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }));
+      expect(onRemove.mock.calls[0][1]).toBeUndefined();
     });
   });
 });

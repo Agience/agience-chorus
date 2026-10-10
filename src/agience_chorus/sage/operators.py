@@ -189,7 +189,7 @@ def register_operators(artifact_store, graph_store=None, *, author: str = "ember
         evolution.put_operator(artifact_store, {
             "id": op.name,
             "content_type": OPERATOR_CONTENT_TYPE,
-            "state": "committed",
+            "state": "live",
             "context": op.offer,
             "content": f"describe-operator {op.name}: {op.offer}",
             "created_by": author,

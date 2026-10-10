@@ -38,17 +38,12 @@ export const GLOSSARY = {
   workspace: {
     term: 'Workspace',
     definition:
-      'A private draft area for ingesting and curating Notes before promoting them to durable truth.',
+      'A private space for creating, ingesting and curating Notes.',
   },
   collection: {
     term: 'Collection',
     definition:
-      'A durable, versioned library of committed Notes.',
-  },
-  commit: {
-    term: 'Commit',
-    definition:
-      'The explicit promotion step that moves curated Notes from a Workspace into a Collection.',
+      'A durable, versioned library of Notes.',
   },
   source: {
     term: 'Source',
@@ -73,9 +68,5 @@ export const TOOLTIPS = {
       'Evidence is optional metadata that links a Note back to source text or an artifact.',
     source:
       'Source metadata points back to the transcript or artifact this Note came from.',
-  },
-  commit: {
-    preview:
-      'Preview what will be added/updated/removed before committing to a collection.',
   },
 } as const;

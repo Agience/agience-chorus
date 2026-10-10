@@ -8,15 +8,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-type ArtifactState = 'all' | 'draft' | 'committed' | 'archived';
-type SortOption = 'recent' | 'title' | 'created' | 'committed' | 'manual';
+type ArtifactState = 'all' | 'archived';
+type SortOption = 'recent' | 'title' | 'created' | 'modified' | 'manual';
 type ViewOption = 'grid' | 'list' | 'compact';
 
 interface FilterBarProps {
   counts: {
     total: number;
-    new: number;
-    modified: number;
     archived: number;
   };
   activeFilter: ArtifactState;
@@ -40,8 +38,6 @@ export default function FilterBar({
 }: FilterBarProps) {
   const filters: { key: ArtifactState; label: string; count: number }[] = [
     { key: 'all', label: 'All', count: counts.total },
-    { key: 'draft', label: 'New', count: counts.new },
-    { key: 'committed', label: 'Modified', count: counts.modified },
     { key: 'archived', label: 'Archived', count: counts.archived },
   ];
 
@@ -49,7 +45,7 @@ export default function FilterBar({
     { value: 'recent' as const, label: 'Recent' },
     { value: 'title' as const, label: 'Title' },
     { value: 'created' as const, label: 'Created' },
-    { value: 'committed' as const, label: 'Modified' },
+    { value: 'modified' as const, label: 'Modified' },
     { value: 'manual' as const, label: 'Manual Order' },
   ];
 
@@ -73,8 +69,6 @@ export default function FilterBar({
           const getSelectedColor = () => {
             switch (filter.key) {
               case 'all': return 'bg-primary-600 text-white';
-              case 'draft': return 'bg-green-500 text-white';
-              case 'committed': return 'bg-amber-500 text-white';
               case 'archived': return 'bg-red-500 text-white';
               default: return 'bg-gray-400 text-white';
             }

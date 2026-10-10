@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Artifact } from '../../context/workspace/workspace.types';
+import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import { CardGridItem } from './CardGridItem';
 import { useWorkspace } from '../../context/workspace/WorkspaceContext';
 import { getStableArtifactId } from '@/utils/artifact-identifiers';
@@ -54,8 +55,9 @@ interface CardGridProps {
   isShowingSearchResults?: boolean;
   onArtifactMouseDown?: (id: string, e: React.MouseEvent) => void;
   onOpenArtifact?: (artifact: Artifact) => void;
-  onRemove?: (artifact: Artifact) => void;
-  onRevert?: (artifact: Artifact) => void;
+  onRemove?: (artifact: Artifact, mode?: CardRemoveMode) => void;
+  /** The host destroys the artifact on `onRemove(artifact, 'delete')`; without it Delete is not offered. */
+  deleteEnabled?: boolean;
   onAddToWorkspace?: (artifact: Artifact) => void;
   onAssignCollections?: (artifact: Artifact) => void;
   onOrder?: (orderedIds: string[]) => void;
@@ -92,7 +94,7 @@ export default function CardGrid({
   onArtifactMouseDown,
   onOpenArtifact,
   onRemove,
-  onRevert,
+  deleteEnabled = false,
   onAddToWorkspace,
   onAssignCollections,
   onOrder,
@@ -217,7 +219,7 @@ export default function CardGrid({
         preventEditRef.current = false;
       }, 300);
     }
-    onRemove?.(artifact);
+    onRemove?.(artifact, 'delete');
   };
   const handleRemove = (artifact: Artifact) => {
     const stableId = getId(artifact);
@@ -233,7 +235,6 @@ export default function CardGrid({
     }
     onRemove?.(artifact);
   };
-  const handleRevert = (artifact: Artifact) => onRevert?.(artifact);
 
   // DnD state
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -793,15 +794,15 @@ export default function CardGrid({
                   onMouseDown={(e) => onArtifactMouseDown?.(id, e)}
                   onEdit={(c) => handleEdit(c)}
                   onOpen={onOpenArtifact}
-                  onRemove={(c) => (c.state === 'draft' ? handleDeleteViaRemove(c) : handleRemove(c))}
-                  onRevert={handleRevert}
+                  onRemove={(c, mode) => (mode === 'delete' ? handleDeleteViaRemove(c) : handleRemove(c))}
+                  deleteEnabled={deleteEnabled}
                   onArchive={!inPanel ? async (c) => {
                     if (!c.id) return;
                     await updateArtifact({ id: String(c.id), state: 'archived' });
                   } : undefined}
                   onRestore={async (c) => {
                     if (!c.id) return;
-                    await updateArtifact({ id: String(c.id), state: 'committed' });
+                    await updateArtifact({ id: String(c.id), state: 'live' });
                   }}
                   onAddToWorkspace={onAddToWorkspace}
                   onAssignCollections={onAssignCollections}

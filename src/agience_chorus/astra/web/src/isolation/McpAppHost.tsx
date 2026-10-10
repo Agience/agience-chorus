@@ -7,8 +7,9 @@
  * Spec: https://modelcontextprotocol.io/extensions/apps/overview (SEP-1865)
  */
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useContext, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { Artifact } from '@/context/workspace/workspace.types';
+import { ConfirmContext } from '@/context/dialog/ConfirmContext';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useArtifactContent } from '@/hooks/useArtifactContent';
@@ -16,6 +17,7 @@ import { subscribeEvents } from '@/api/events';
 import { proxyToolCall } from '@/api/mcp';
 import { buildHostContext } from './hostContext';
 import { buildCspMetaTag } from './csp';
+import { isWebUrl } from './openLink';
 import { getAgienceDragPayload } from '@/dnd/agienceDrag';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
 
@@ -66,6 +68,17 @@ interface JsonRpcNotification {
   params?: Record<string, unknown>;
 }
 
+/**
+ * The API key ids an artifact's context records as its own: `key.api_key_id` (the key artifact
+ * view) and `api_key.id` (the MCP client view).
+ */
+function recordedKeyIds(artifact: Artifact): string[] {
+  const ctx = safeParseArtifactContext(artifact.context) as Record<string, unknown>;
+  const key = ctx.key as { api_key_id?: unknown } | undefined;
+  const apiKey = ctx.api_key as { id?: unknown } | undefined;
+  return [key?.api_key_id, apiKey?.id].filter((v): v is string => typeof v === 'string' && v !== '');
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -88,6 +101,10 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
   const [initialized, setInitialized] = useState(false);
   const { updateArtifact, createArtifact } = useWorkspace();
   const { activeWorkspaceId } = useWorkspaces();
+  // Host-owned confirmation dialog. It renders in the host document, so the sandboxed view can
+  // neither see nor click it. Absent (no DialogProvider above this host), credential tools refuse.
+  const confirmDialog = useContext(ConfirmContext);
+  const credentialRequestPending = useRef(false);
   const { content: resolvedContent } = useArtifactContent(artifact);
 
   // Assemble the HTML with CSP meta tag injected
@@ -123,7 +140,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [artifact, resolvedContent, updateArtifact, createArtifact, activeWorkspaceId, onOpenArtifact, onOpenCollection],
+    [artifact, resolvedContent, updateArtifact, createArtifact, activeWorkspaceId, onOpenArtifact, onOpenCollection, confirmDialog],
   );
 
   function sendResponse(id: number, result: unknown) {
@@ -197,8 +214,12 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           } else if (url.startsWith('agience://collection/') && onOpenCollection) {
             const collectionId = url.replace('agience://collection/', '');
             onOpenCollection(collectionId);
-          } else {
+          } else if (isWebUrl(url)) {
             window.open(url, '_blank', 'noopener,noreferrer');
+          } else {
+            // javascript:, data:, blob:, file: and every other scheme stay closed.
+            sendError(req.id, -32000, 'Only http and https links can be opened');
+            break;
           }
           sendResponse(req.id, {});
         } else {
@@ -240,11 +261,17 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
     // Handle platform tools that the host provides directly
     switch (toolName) {
       case 'update_artifact': {
+        // A view edits the artifact it is hosted for and no other. The id is the host's, and it is
+        // applied after the patch so a patch carrying its own `id` cannot redirect the write.
+        const requestedId = toolArgs.id;
+        if (requestedId !== undefined && requestedId !== null && String(requestedId) !== String(artifact.id)) {
+          sendError(req.id, -32000, 'update_artifact is limited to the hosted artifact');
+          return;
+        }
         try {
-          const id = (toolArgs.id as string) ?? String(artifact.id);
           const patch = toolArgs.patch as Record<string, unknown> | undefined;
           if (patch) {
-            await updateArtifact({ id, ...(patch as Record<string, unknown>) } as Parameters<typeof updateArtifact>[0]);
+            await updateArtifact({ ...patch, id: artifact.id } as Parameters<typeof updateArtifact>[0]);
           }
           sendResponse(req.id, { content: [{ type: 'text', text: 'OK' }] });
         } catch (e) {
@@ -265,27 +292,101 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         return;
       }
 
+      // Credential tools. Each runs only after the user approves it in the host's own dialog, one
+      // request at a time. A new key's secret is shown in that host dialog and is never posted
+      // into the view: the view receives the key's record without `key`.
       case 'create_api_key': {
+        if (!confirmDialog) {
+          sendError(req.id, -32000, 'create_api_key needs the host confirmation dialog');
+          return;
+        }
+        if (credentialRequestPending.current) {
+          sendError(req.id, -32000, 'Another credential request is awaiting the user');
+          return;
+        }
+        credentialRequestPending.current = true;
         try {
+          const keyName = typeof toolArgs.name === 'string' && toolArgs.name ? toolArgs.name : 'API key';
+          const approved = await confirmDialog.confirm({
+            title: 'Create an API key?',
+            description: `This artifact's view is asking to create the API key "${keyName}" with the settings below. Anyone holding the key can act with them.`,
+            customContent: (
+              <pre className="max-h-48 overflow-auto rounded bg-gray-50 p-2 text-xs">
+                {JSON.stringify(toolArgs, null, 2)}
+              </pre>
+            ),
+            confirmLabel: 'Create key',
+            tone: 'warn',
+          });
+          if (!approved) {
+            sendError(req.id, -32000, 'The user declined to create an API key');
+            return;
+          }
           const { createAPIKey } = await import('@/api/apiKeys');
           const created = await createAPIKey((toolArgs as unknown) as Parameters<typeof createAPIKey>[0]);
+          const { key: secret, ...record } = created;
+          if (secret) {
+            await confirmDialog.confirm({
+              title: 'Copy your new API key',
+              description: 'It is shown once, here, and cannot be shown again.',
+              customContent: (
+                <code
+                  data-testid="mcp-app-host-new-key"
+                  className="block select-all break-all rounded bg-gray-50 p-2 text-xs"
+                >
+                  {secret}
+                </code>
+              ),
+              confirmLabel: 'Done',
+              cancelLabel: 'Close',
+              tone: 'warn',
+            });
+          }
           sendResponse(req.id, {
-            content: [{ type: 'text', text: JSON.stringify(created) }],
+            content: [{ type: 'text', text: JSON.stringify(record) }],
           });
         } catch (e) {
           sendError(req.id, -32000, `Create API key failed: ${e}`);
+        } finally {
+          credentialRequestPending.current = false;
         }
         return;
       }
 
       case 'delete_api_key': {
+        // Only the key recorded on the hosted artifact can be revoked from its view.
+        const keyId = typeof toolArgs.id === 'string' ? toolArgs.id : '';
+        if (!keyId || !recordedKeyIds(artifact).includes(keyId)) {
+          sendError(req.id, -32000, 'delete_api_key is limited to the key recorded on the hosted artifact');
+          return;
+        }
+        if (!confirmDialog) {
+          sendError(req.id, -32000, 'delete_api_key needs the host confirmation dialog');
+          return;
+        }
+        if (credentialRequestPending.current) {
+          sendError(req.id, -32000, 'Another credential request is awaiting the user');
+          return;
+        }
+        credentialRequestPending.current = true;
         try {
+          const approved = await confirmDialog.confirm({
+            title: 'Revoke this API key?',
+            description: `This artifact's view is asking to revoke the API key ${keyId}. Anything using it stops working.`,
+            confirmLabel: 'Revoke key',
+            tone: 'danger',
+          });
+          if (!approved) {
+            sendError(req.id, -32000, 'The user declined to revoke the API key');
+            return;
+          }
           const { deleteAPIKey } = await import('@/api/apiKeys');
-          const id = toolArgs.id as string;
-          await deleteAPIKey(id);
+          await deleteAPIKey(keyId);
           sendResponse(req.id, { content: [{ type: 'text', text: 'OK' }] });
         } catch (e) {
           sendError(req.id, -32000, `Delete API key failed: ${e}`);
+        } finally {
+          credentialRequestPending.current = false;
         }
         return;
       }

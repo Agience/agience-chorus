@@ -1,6 +1,6 @@
 // src/context/workspace/__tests__/WorkspaceProvider.test.jsx
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { WorkspaceProvider } from '../WorkspaceProvider';
 import { useWorkspace } from '../WorkspaceContext';
@@ -12,8 +12,7 @@ vi.mock('../../../api/workspaces', () => ({
   addArtifactToWorkspace: vi.fn(),
   updateWorkspaceArtifact: vi.fn(),
   removeWorkspaceArtifact: vi.fn(),
-  revertWorkspaceArtifact: vi.fn(),
-  commitWorkspace: vi.fn(),
+  deleteWorkspaceArtifact: vi.fn(),
   orderWorkspaceArtifacts: vi.fn(),
   subscribeWorkspaceEvents: vi.fn(() => () => {}),
 }));
@@ -51,9 +50,9 @@ import {
   addArtifactToWorkspace,
   updateWorkspaceArtifact,
   removeWorkspaceArtifact,
-  revertWorkspaceArtifact,
-  commitWorkspace,
+  deleteWorkspaceArtifact,
 } from '../../../api/workspaces';
+import { toast } from 'sonner';
 
 import { extractInformation } from '../../../api/agent';
 
@@ -65,7 +64,6 @@ function TestConsumer() {
     <div>
       <div data-testid="artifact-count">{workspace.artifacts.length}</div>
       <div data-testid="selected-count">{workspace.selectedArtifactIds.length}</div>
-      <div data-testid="committing">{workspace.isCommitting ? 'yes' : 'no'}</div>
       <button onClick={() => workspace.addArtifact({ content: 'New artifact content' })}>
         Add Artifact
       </button>
@@ -89,9 +87,9 @@ function TestConsumer() {
 
 describe('WorkspaceProvider', () => {
   const mockArtifacts = [
-    mockArtifact({ id: '1', title: 'Artifact 1', state: 'committed' }),
-    mockArtifact({ id: '2', title: 'Artifact 2', state: 'draft' }),
-    mockArtifact({ id: '3', title: 'Artifact 3', state: 'draft' }),
+    mockArtifact({ id: '1', title: 'Artifact 1', state: 'live' }),
+    mockArtifact({ id: '2', title: 'Artifact 2', state: 'live' }),
+    mockArtifact({ id: '3', title: 'Artifact 3', state: 'live' }),
   ];
 
   afterEach(() => {
@@ -204,7 +202,7 @@ describe('WorkspaceProvider', () => {
   describe('Add Artifact', () => {
     it('adds new artifact via addArtifact()', async () => {
       const user = userEvent.setup();
-      const newArtifact = mockArtifact({ id: '4', title: 'New Artifact', state: 'draft' });
+      const newArtifact = mockArtifact({ id: '4', title: 'New Artifact', state: 'live' });
       addArtifactToWorkspace.mockResolvedValueOnce(newArtifact);
       
       render(
@@ -258,80 +256,6 @@ describe('WorkspaceProvider', () => {
     });
   });
 
-  describe('Commit Workspace', () => {
-    it('commits via commitCurrentWorkspace() and updates artifacts (debounced)', async () => {
-      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-      commitWorkspace.mockResolvedValueOnce({
-        workspace_id: 'ws-1',
-        plan: {
-          artifacts: [],
-          collections: [],
-          total_artifacts: 1,
-          total_adds: 1,
-          total_removes: 0,
-          blocked_collections: [],
-        },
-        dry_run: false,
-        updated_workspace_artifacts: [
-          {
-            id: '2',
-            workspace_id: 'ws-1',
-            state: 'committed',
-            context: JSON.stringify({ title: 'Artifact 2' }),
-            content: 'Updated content',
-            order_key: 'U',
-            created_time: '2024-01-01T00:00:00Z',
-            modified_time: '2024-01-01T00:00:00Z',
-          },
-        ],
-        deleted_workspace_artifact_ids: [],
-        skipped_workspace_artifact_ids: [],
-        per_collection: [],
-      });
-
-      function CommitConsumer() {
-        const workspace = useWorkspace();
-
-        return (
-          <div>
-            <div data-testid="artifact-2-state">{workspace.artifacts.find(c => c.id === '2')?.state}</div>
-            <button onClick={() => workspace.commitCurrentWorkspace({ artifact_ids: ['2'] })}>Commit</button>
-          </div>
-        );
-      }
-
-      render(
-        <WorkspaceProvider>
-          <CommitConsumer />
-        </WorkspaceProvider>
-      );
-
-      await waitFor(() => {
-        expect(screen.getByTestId('artifact-2-state')).toHaveTextContent('draft');
-      });
-
-      // Scope fake timers to the debounce path only. RTL's waitFor relies on
-      // real timers for polling, so we switch back before asserting.
-      vi.useFakeTimers();
-      try {
-        await act(async () => {
-          fireEvent.click(screen.getByText('Commit'));
-
-          // Debounce is 300ms; flush it + any queued async work
-          vi.advanceTimersByTime(350);
-          await vi.runAllTimersAsync();
-        });
-      } finally {
-        vi.useRealTimers();
-        logSpy.mockRestore();
-      }
-
-      await waitFor(() => expect(commitWorkspace).toHaveBeenCalledWith('ws-1', { artifact_ids: ['2'] }));
-      await waitFor(() => expect(screen.getByTestId('artifact-2-state')).toHaveTextContent('committed'));
-    });
-  });
-
   describe('Artifact Selection', () => {
     it('selects all artifacts via selectAllArtifacts()', async () => {
       const user = userEvent.setup();
@@ -376,7 +300,7 @@ describe('WorkspaceProvider', () => {
 
   describe('Update Artifact', () => {
     it('updates artifact state optimistically', async () => {
-      updateWorkspaceArtifact.mockResolvedValueOnce({ ...mockArtifacts[0], state: 'draft' });
+      updateWorkspaceArtifact.mockResolvedValueOnce({ ...mockArtifacts[0], state: 'archived' });
       
       function UpdateConsumer() {
         const workspace = useWorkspace();
@@ -386,7 +310,7 @@ describe('WorkspaceProvider', () => {
             <div data-testid="artifact-1-state">
               {workspace.artifacts.find(c => c.id === '1')?.state}
             </div>
-            <button onClick={() => workspace.updateArtifact({ id: '1', state: 'draft' })}>
+            <button onClick={() => workspace.updateArtifact({ id: '1', state: 'archived' })}>
               Update Artifact
             </button>
           </div>
@@ -402,16 +326,16 @@ describe('WorkspaceProvider', () => {
       );
       
       await waitFor(() => {
-        expect(screen.getByTestId('artifact-1-state')).toHaveTextContent('committed');
+        expect(screen.getByTestId('artifact-1-state')).toHaveTextContent('live');
       });
       
       await user.click(screen.getByText('Update Artifact'));
       
       await waitFor(() => {
-        expect(screen.getByTestId('artifact-1-state')).toHaveTextContent('draft');
+        expect(screen.getByTestId('artifact-1-state')).toHaveTextContent('archived');
       });
       
-      expect(updateWorkspaceArtifact).toHaveBeenCalledWith('ws-1', '1', { state: 'draft' });
+      expect(updateWorkspaceArtifact).toHaveBeenCalledWith('ws-1', '1', { state: 'archived' });
     });
   });
 
@@ -454,44 +378,105 @@ describe('WorkspaceProvider', () => {
     });
   });
 
-  describe('Revert Artifact', () => {
-    it('reverts artifact to unmodified state', async () => {
-      revertWorkspaceArtifact.mockResolvedValueOnce({ ...mockArtifacts[1], state: 'committed' });
-      
-      function RevertConsumer() {
+  describe('Local-only patch', () => {
+    it('patchArtifactLocally updates local state and sends nothing to the server', async () => {
+      function LocalConsumer() {
         const workspace = useWorkspace();
-        
         return (
           <div>
-            <div data-testid="artifact-2-state">
-              {workspace.artifacts.find(c => c.id === '2')?.state}
-            </div>
-            <button onClick={() => workspace.revertArtifact('2')}>
-              Revert Artifact
+            <div data-testid="artifact-1-context">{workspace.artifacts.find(c => c.id === '1')?.context}</div>
+            <button onClick={() => workspace.patchArtifactLocally({ id: '1', context: '{"upload":{"status":"uploading","progress":0.5}}' })}>
+              Local Patch
             </button>
           </div>
         );
       }
-      
+
       const user = userEvent.setup();
-      
       render(
         <WorkspaceProvider>
-          <RevertConsumer />
+          <LocalConsumer />
         </WorkspaceProvider>
       );
-      
-      await waitFor(() => {
-        expect(screen.getByTestId('artifact-2-state')).toHaveTextContent('draft');
-      });
-      
-      await user.click(screen.getByText('Revert Artifact'));
-      
-      await waitFor(() => {
-        expect(screen.getByTestId('artifact-2-state')).toHaveTextContent('committed');
-      });
-      
-      expect(revertWorkspaceArtifact).toHaveBeenCalledWith('ws-1', '2');
+      await waitFor(() => expect(listWorkspaceArtifacts).toHaveBeenCalled());
+
+      await user.click(screen.getByText('Local Patch'));
+
+      await waitFor(() => expect(screen.getByTestId('artifact-1-context')).toHaveTextContent('"progress":0.5'));
+      expect(updateWorkspaceArtifact).not.toHaveBeenCalled();
+      expect(addArtifactToWorkspace).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Delete vs remove', () => {
+    function DeleteConsumer() {
+      const workspace = useWorkspace();
+      return (
+        <div>
+          <div data-testid="artifact-count">{workspace.artifacts.length}</div>
+          <button onClick={() => workspace.deleteArtifact('1')}>Destroy</button>
+        </div>
+      );
+    }
+
+    it('deleteArtifact destroys through DELETE /artifacts/{id}, not the unlink', async () => {
+      deleteWorkspaceArtifact.mockResolvedValueOnce(undefined);
+      const user = userEvent.setup();
+      render(
+        <WorkspaceProvider>
+          <DeleteConsumer />
+        </WorkspaceProvider>
+      );
+      await waitFor(() => expect(screen.getByTestId('artifact-count')).toHaveTextContent('3'));
+
+      await user.click(screen.getByText('Destroy'));
+
+      await waitFor(() => expect(screen.getByTestId('artifact-count')).toHaveTextContent('2'));
+      expect(deleteWorkspaceArtifact).toHaveBeenCalledWith('ws-1', '1');
+      expect(removeWorkspaceArtifact).not.toHaveBeenCalled();
+    });
+
+    it('deleteArtifact keeps the card and toasts the server detail on refusal', async () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      deleteWorkspaceArtifact.mockRejectedValueOnce({ response: { data: { detail: 'Forbidden' } } });
+      const user = userEvent.setup();
+      render(
+        <WorkspaceProvider>
+          <DeleteConsumer />
+        </WorkspaceProvider>
+      );
+      await waitFor(() => expect(screen.getByTestId('artifact-count')).toHaveTextContent('3'));
+
+      await user.click(screen.getByText('Destroy'));
+
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not delete', { description: 'Forbidden' }));
+      expect(screen.getByTestId('artifact-count')).toHaveTextContent('3');
+      errSpy.mockRestore();
+    });
+  });
+
+  describe('Create failure', () => {
+    it('toasts the server detail when createArtifact fails', async () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      addArtifactToWorkspace.mockRejectedValueOnce({ response: { data: { detail: 'Quota exceeded' } } });
+
+      function CreateConsumer() {
+        const workspace = useWorkspace();
+        return <button onClick={() => workspace.createArtifact({ content: 'x' })}>Create</button>;
+      }
+
+      const user = userEvent.setup();
+      render(
+        <WorkspaceProvider>
+          <CreateConsumer />
+        </WorkspaceProvider>
+      );
+      await waitFor(() => expect(listWorkspaceArtifacts).toHaveBeenCalled());
+
+      await user.click(screen.getByText('Create'));
+
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not create card', { description: 'Quota exceeded' }));
+      errSpy.mockRestore();
     });
   });
 

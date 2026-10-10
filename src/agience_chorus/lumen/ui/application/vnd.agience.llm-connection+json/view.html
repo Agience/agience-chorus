@@ -80,7 +80,7 @@ function ctx() {
   catch { return {}; }
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]); }
 
 const PROVIDER_LABELS = {
   openai: 'OpenAI', anthropic: 'Anthropic', azure: 'Azure OpenAI',
@@ -124,7 +124,7 @@ function render() {
     <div class="provider-hero">
       <div class="provider-name">${esc(PROVIDER_LABELS[provider] || provider)}</div>
       <div class="model-name">${esc(model)}</div>
-      <span class="tier-badge ${tierClass}">${esc(tier)}</span>
+      <span class="tier-badge ${esc(tierClass)}">${esc(tier)}</span>
     </div>
     ${c.description ? `<div style="font-size:12px;color:#6b7280;">${esc(c.description)}</div>` : ''}
     <div class="section-label">Credentials</div>
@@ -133,14 +133,14 @@ function render() {
     <table>
       <thead><tr><th>Limit</th><th class="right">Value</th></tr></thead>
       <tbody>
-        <tr><td>Requests / min</td><td class="right mono">${fmtNum(rl.requests_per_minute)}</td></tr>
-        <tr><td>Tokens / min</td><td class="right mono">${fmtNum(rl.tokens_per_minute)}</td></tr>
-        <tr><td>Tokens / day</td><td class="right mono">${fmtNum(rl.tokens_per_day)}</td></tr>
+        <tr><td>Requests / min</td><td class="right mono">${esc(fmtNum(rl.requests_per_minute))}</td></tr>
+        <tr><td>Tokens / min</td><td class="right mono">${esc(fmtNum(rl.tokens_per_minute))}</td></tr>
+        <tr><td>Tokens / day</td><td class="right mono">${esc(fmtNum(rl.tokens_per_day))}</td></tr>
       </tbody>
     </table>
     <div class="section-label">Capabilities</div>
     <div class="cap-row">${capList}</div>
-    ${caps.max_context_tokens ? `<div style="font-size:11px;color:#9ca3af;margin-top:2px;">Context window: ${fmtNum(caps.max_context_tokens)} tokens</div>` : ''}
+    ${caps.max_context_tokens ? `<div style="font-size:11px;color:#9ca3af;margin-top:2px;">Context window: ${esc(fmtNum(caps.max_context_tokens))} tokens</div>` : ''}
     ${c.endpoint ? `<div class="meta"><span>Endpoint: ${esc(c.endpoint)}</span></div>` : ''}
     ${c.is_platform_default ? '<div class="meta"><span>Platform default connection</span></div>' : ''}
   `;

@@ -2,7 +2,6 @@
 import { MouseEvent, DragEvent, useState, useRef, useEffect, useMemo } from 'react';
 import clsx from 'clsx';
 import {
-  FiTrash2 as Trash,            // Delete (draft, last collection)
   FiX as XIcon,                  // Remove from collection / panel
   FiFolder as FolderIcon,        // Collection assignment
 } from 'react-icons/fi';
@@ -19,7 +18,8 @@ import {
 import { Badge } from '../ui/badge';
 import { IconButton } from '../ui/icon-button';
 import { TYPE_COLORS } from '@/utils/type-colors';
-import { getArtifactType, getArtifactIcon, getArtifactColor, isArtifactActionBlocked, shouldShowStateBadge, getStateBadgeLabel } from '@/utils/artifact-visual-helpers';
+import { getArtifactType, getArtifactIcon, getArtifactColor, shouldShowStateBadge, getStateBadgeLabel } from '@/utils/artifact-visual-helpers';
+import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { useCollections } from '../../context/collections/CollectionsContext';
 import { getContentType } from '@/registry/content-types';
@@ -50,8 +50,9 @@ interface CardGridItemProps {
   onEdit?: (artifact: Artifact) => void;
   onOpen?: (artifact: Artifact) => void;
 
-  onRemove?: (artifact: Artifact) => void;
-  onRevert?: (artifact: Artifact) => void;
+  onRemove?: (artifact: Artifact, mode?: CardRemoveMode) => void;
+  /** The host destroys the artifact on the `delete` action; without it Delete is not offered. */
+  deleteEnabled?: boolean;
   onArchive?: (artifact: Artifact) => void;
   onRestore?: (artifact: Artifact) => void;
   onAddToWorkspace?: (artifact: Artifact) => void;
@@ -151,7 +152,7 @@ export const CardGridItem = ({
   onOpen,
   onEdit,
   onRemove,
-  onRevert,
+  deleteEnabled = false,
   onArchive,
   onRestore,
   onAddToWorkspace,
@@ -475,6 +476,8 @@ export const CardGridItem = ({
         onEdit?.(actionArtifact);
         break;
       case 'delete':
+        onRemove?.(actionArtifact, 'delete');
+        break;
       case 'remove':
         onRemove?.(actionArtifact);
         break;
@@ -483,9 +486,6 @@ export const CardGridItem = ({
         break;
       case 'restore':
         onRestore?.(actionArtifact);
-        break;
-      case 'revert':
-        onRevert?.(actionArtifact);
         break;
       case 'add-to-workspace':
         onAddToWorkspace?.(actionArtifact);
@@ -520,19 +520,10 @@ export const CardGridItem = ({
       );
     }
 
-    // Single hover button — always X (remove from collection).
-    // Exception: draft with no committed version and no other collections → Trash (delete).
-    // Archive, Revert, Restore live in the context menu only.
-    // Drafts are always removable (allows cancelling uploads).
+    // Single hover button: X removes the card from the container it is shown in. It stays
+    // available while the card is still processing, so an upload can be cancelled.
+    // Delete, Archive and Restore live in the context menu only.
     if (!onRemove) return null;
-    if (artifact.state !== 'draft' && isArtifactActionBlocked(artifact, 'remove')) return null;
-
-    const currentContainerId = activeSource?.id;
-    const otherCollections = (collectionIds || []).filter(id => id !== currentContainerId);
-    const isRealDelete =
-      artifact.state === 'draft' &&
-      !artifact.has_committed_version &&
-      otherCollections.length === 0;
 
     return (
       <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -542,9 +533,9 @@ export const CardGridItem = ({
           onMouseDown={(e) => e.stopPropagation()}
           onMouseUp={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); onRemove(artifact); }}
-          title={isRealDelete ? 'Delete' : removeLabel}
+          title={removeLabel}
         >
-          {isRealDelete ? <Trash /> : <XIcon />}
+          <XIcon />
         </IconButton>
       </div>
     );
@@ -700,7 +691,7 @@ export const CardGridItem = ({
               </PopoverContent>
             </Popover>
           )}
-          {/* Workspace state badge (only show new, modified, archived) */}
+          {/* Workspace state badge (archived only) */}
           {shouldShowStateBadge(artifact.state) && (
             <Badge className="bg-gradient-to-br from-purple-400/25 via-pink-400/25 to-blue-400/25 border border-purple-200/50 text-purple-700 text-[10px] px-1.5 py-0.5 font-medium">
               {getStateBadgeLabel(artifact.state)}
@@ -731,6 +722,7 @@ export const CardGridItem = ({
           onAction={handleAction}
           isSearchResult={isShowingSearchResults}
           removeLabel={removeLabel}
+          deleteEnabled={deleteEnabled}
         />
       </ContextMenuContent>
     </ContextMenu>

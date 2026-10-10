@@ -21,6 +21,8 @@ import AuthLayout from '../components/layout/AuthLayout'
 import CreateAccountForm from '../components/auth/CreateAccountForm'
 import { postLoginRedirectTarget } from '../auth/postLoginRedirect'
 import { getRuntimeConfig } from '../config/runtime'
+import { issueSpState } from '../auth/spState'
+import { isAllowedSpRedirect } from '../auth/spRedirect'
 
 type AuthProviderInfo = {
   name: string
@@ -39,12 +41,6 @@ type AuthPhase = 'email' | 'login' | 'register' | 'otp'
 // Recent SP->IdP redirect timestamps, used to break an auth bounce loop.
 const SP_ATTEMPTS_KEY = 'sp_login_attempts'
 
-// Which redirect targets an SP may hand us. A constant, and it belongs at module scope: declared
-// inside the component it was rebuilt on every render, which made `finishLogin` — the callback that
-// hands a token back to an SP — a new function on every render, and left it reported as a hook with
-// a missing dependency. No `g` flag, so `.test()` carries no lastIndex between calls.
-const SP_ALLOW = /^https:\/\/([a-z0-9-]+\.)*agience\.ai(\/|$)/i
-
 const Login: React.FC = () => {
   const { login, setAuthData, isAuthenticated } = useAuth()
   const navigate = useNavigate()
@@ -56,7 +52,8 @@ const Login: React.FC = () => {
 
   // SSO: an SP (e.g. lumen.agience.ai) redirected the user here to sign in via the
   // single Origin login screen. After any successful auth we return them to the SP
-  // with the token in the URL fragment. redirect_uri is allowlisted to *.agience.ai.
+  // with the token in the URL fragment. redirect_uri must be on an allowed SP origin
+  // (auth/spRedirect.ts), and only the IdP deployment hands tokens out — see `returnsTokenToSp`.
   const spRedirect = new URLSearchParams(location.search).get('redirect_uri') ?? undefined
   const spState = new URLSearchParams(location.search).get('state') ?? undefined
 
@@ -66,6 +63,9 @@ const Login: React.FC = () => {
   // Keeps the platform's login surface singular. Empty idpUri = we are that surface.
   const { idpUri: IDP_URI } = getRuntimeConfig()
   const isSp = Boolean(IDP_URI) && !IDP_URI.replace(/\/$/, '').startsWith(window.location.origin)
+  // The token goes back to a waiting SP only from the IdP deployment, and only to an allowed SP
+  // origin. An SP deployment never forwards its own token onward.
+  const returnsTokenToSp = !isSp && Boolean(spRedirect) && isAllowedSpRedirect(spRedirect ?? '')
   const [spBlocked, setSpBlocked] = useState(false)
   useEffect(() => {
     if (!isSp || isAuthenticated) return
@@ -88,8 +88,7 @@ const Login: React.FC = () => {
     }
     sessionStorage.setItem(SP_ATTEMPTS_KEY, JSON.stringify([...attempts, now]))
     const back = `${window.location.origin}/`
-    const state = Math.random().toString(36).slice(2)
-    sessionStorage.setItem('sp_state', state)
+    const state = issueSpState()
     window.location.replace(
       `${IDP_URI.replace(/\/$/, '')}/login?redirect_uri=${encodeURIComponent(back)}` +
         `&state=${encodeURIComponent(state)}`,
@@ -117,7 +116,7 @@ const Login: React.FC = () => {
   const [identifier, setIdentifier] = useState('')  // username or email
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
-  const [optionalEmail, setOptionalEmail] = useState('')
+  const [registerEmail, setRegisterEmail] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [hasPasskeys, setHasPasskeys] = useState(false)
@@ -167,7 +166,7 @@ const Login: React.FC = () => {
 
   // -- Finish: return the token to the SP (SSO) or set it locally (normal app login) --
   const finishLogin = useCallback((token: string) => {
-    if (spRedirect && SP_ALLOW.test(spRedirect)) {
+    if (returnsTokenToSp && spRedirect) {
       // Establish the Origin session too, not just the SP's. Without this, signing in
       // through one SP leaves origin.agience.ai with no session, so the next SP would
       // prompt for credentials again. Persisting here is what makes one Origin session
@@ -186,7 +185,7 @@ const Login: React.FC = () => {
       return
     }
     setAuthData(token)
-  }, [spRedirect, spState, setAuthData])
+  }, [returnsTokenToSp, spRedirect, spState, setAuthData])
 
   // Already signed in? An existing Origin session satisfies an SP's request with no
   // prompt — hand the token straight back (silent SSO). Only when there's no SP waiting
@@ -194,7 +193,7 @@ const Login: React.FC = () => {
   useEffect(() => {
     if (!isAuthenticated) return
     sessionStorage.removeItem(SP_ATTEMPTS_KEY) // a real session ends any bounce loop
-    if (spRedirect && SP_ALLOW.test(spRedirect)) {
+    if (returnsTokenToSp) {
       const existing = localStorage.getItem('access_token')
       if (existing) {
         console.log('[Login] existing Origin session — returning token to the SP')
@@ -203,9 +202,7 @@ const Login: React.FC = () => {
       }
     }
     navigate(postLoginRedirectTarget(), { replace: true })
-  // No disable needed: the dependency list is complete. It carried one until `SP_ALLOW` moved to
-  // module scope — a constant rebuilt on every render was the only thing missing from it.
-  }, [isAuthenticated, navigate, spRedirect, finishLogin])
+  }, [isAuthenticated, navigate, returnsTokenToSp, finishLogin])
 
   // -- Unified identifier submit (username or email) --
   const handleIdentifierContinue = useCallback(async () => {
@@ -238,14 +235,14 @@ const Login: React.FC = () => {
     setSubmitting(true)
     try {
       if (phase === 'register') {
-        // username = name field (what user chose); email is optional capture
+        // username = name field (what user chose); Origin requires the email
         const res = await post<{ access_token?: string; verification_required?: boolean }>(
           '/auth/password/register',
           {
             username: name,
             name,
             password,
-            email: optionalEmail,
+            email: registerEmail,
           }
         )
         if (res.verification_required) {
@@ -490,11 +487,11 @@ const Login: React.FC = () => {
   const renderRegisterPhase = () => (
     <CreateAccountForm
       identifier={identifier}
-      onChangeIdentifier={() => { setPhase('email'); setPassword(''); setName(''); setOptionalEmail(''); setError(null) }}
+      onChangeIdentifier={() => { setPhase('email'); setPassword(''); setName(''); setRegisterEmail(''); setError(null) }}
       name={name}
       onNameChange={setName}
-      email={optionalEmail}
-      onEmailChange={setOptionalEmail}
+      email={registerEmail}
+      onEmailChange={setRegisterEmail}
       password={password}
       onPasswordChange={setPassword}
       submitting={submitting}

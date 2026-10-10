@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agience-chorus"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agience Chorus — the tekton standard library: operators by domain, and the host that serves them."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -44,9 +44,9 @@ dependencies = [
     "cryptography>=42.0",
     "python-jose[cryptography]>=3.3",
     "pydantic>=2.0",        # explicit: fastapi pulls it, but chorus imports it directly
-    "agience-prism[wire,trust]>=0.1.2",
+    "agience-prism[wire,trust]>=0.1.4",  # 0.1.4: seraph's `ServerAuth.verify_user_jwt` accepts only access tokens
     "agience-crystal[ontology,service]>=0.1.0",
-    "agience-mantle",
+    "agience-mantle>=0.1.3",
 ]
 
 # ── per-tekton extras ────────────────────────────────────────────────────────────────────────────

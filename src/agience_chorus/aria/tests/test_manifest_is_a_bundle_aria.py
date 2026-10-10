@@ -247,7 +247,8 @@ def test_a_REGISTERED_bff_main_seam_is_what_the_bundled_bff_app_SERVES():
     If `_load_bff_module` ignored the seam, this returns aria's own app (or raises) and the identity
     check fails.
     """
-    import tempfile, textwrap
+    import tempfile
+    import textwrap
     tmp = tempfile.mkdtemp()
     Path(tmp, "hostbff.py").write_text(
         textwrap.dedent("""

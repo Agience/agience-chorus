@@ -38,7 +38,7 @@ The one quantity this module does not compute itself — entropy — arrives thr
 log₂ p` has no domain — the instrument and beacon cannot legitimately disagree about it, which is
 what keeps it off `Instrument`/`Read`/`Dynamics` — and `Conservation` is the contract whose
 membership rule is a dependency fact rather than a divergence one: `‖X‖²` is there because prism's
-base install cannot hold numpy, and this is there because prism may never import entroptics.
+base install cannot hold numpy, and this is there because prism may never import the instrument.
 `prism.instrument.Conservation.entropy_bits` carries the whole argument.
 
 Resolution order is `prism.instrument`'s and not a second mechanism: the `conservation=` keyword,
@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence
+from typing import Optional, Sequence
 
 
 def result_entropy(scores: Sequence[float], *, conservation=None) -> float:
@@ -85,7 +85,7 @@ def result_entropy(scores: Sequence[float], *, conservation=None) -> float:
         return 0.0
     # The point of measurement. Resolution order is `prism.instrument`'s: the `conservation=`
     # keyword, then the process default a host registered, then `InstrumentRequired`, naming the
-    # member and the operation. `entropy_bits` is entroptics' `shannon_bits` (bits, log base 2);
+    # member and the operation. `entropy_bits` is the instrument's `shannon_bits` (bits, log base 2);
     # dividing by log2(n) normalizes to [0,1] — 0 when one weight dominates, 1 for a perfectly flat
     # set — so it is comparable across result sets of different sizes.
     entropy_bits = _require(

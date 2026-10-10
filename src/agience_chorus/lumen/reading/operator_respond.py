@@ -21,7 +21,6 @@ What is chosen here is named: the delay depth and the one-hot encoding are set b
 horizon, the margin, the resolved modes, the contrast and the floor are the instrument's.
 """
 import argparse
-import math
 import os
 import sys
 
@@ -116,11 +115,8 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     # `src/lumen/reading` -> four hops up is the workspace root that holds every sibling checkout.
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(here))))
-    # entroptics is a MEMBER of this workspace since the three workspaces merged into
-    # `Repos/agience/` — it used to be `../entroptics/entroptics-viewer`.
-    # `ember/optics.py` refuses the older `<workspace>/agience-entroptics` copy by name, so a
-    # stale entry here does not silently bind the wrong tree; it fails at import.
-    for sub in ("entroptics/src", "agience-chorus/src", "agience-prism/py/src"):
+    # The instrument is the installed package; the siblings come from the workspace.
+    for sub in ("agience-chorus/src", "agience-prism/py/src"):
         sys.path.insert(0, os.path.abspath(os.path.join(root, sub)))
 
     responder = build(args.text, args.chars, args.depth, args.rows_per_feature,

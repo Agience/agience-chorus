@@ -5,8 +5,6 @@ runner and need a sha-verified operator payload present. The payloads are chorus
 built from chorus source; ember is the engine that runs them, so the test belongs
 beside the operators. Tests in that file needing no payload stayed in ember.
 """
-import os
-import pytest
 from ember import genesis as g
 from _fakes import _FakeArtifacts, _FakeGraph, _FakeStore  # noqa: F401
 def _count_content(store, cid):
@@ -27,11 +25,11 @@ def test_consolidate_nearvdup_archives_only_byte_identical():
     # d1/d2 are BYTE-IDENTICAL: same cas ref. d3 is different content.
     for i in (1, 2):
         s.artifacts.put_artifact({"id": f"d{i}", "content_type": "text/markdown",
-                                  "state": "committed", "content": base,
+                                  "state": "live", "content": base,
                                   "content_ref": "cas/" + "a" * 64,
                                   "lemmas": ["a"] if i == 1 else [], "provenance": "observed",
                                   "collection_id": "stage.1.grammar"})
-    s.artifacts.put_artifact({"id": "d3", "content_type": "text/markdown", "state": "committed",
+    s.artifacts.put_artifact({"id": "d3", "content_type": "text/markdown", "state": "live",
                               "content": "totally different unrelated prose about cats and hats",
                               "content_ref": "cas/" + "b" * 64,
                               "lemmas": ["x"], "collection_id": "stage.1.grammar"})
@@ -39,7 +37,7 @@ def test_consolidate_nearvdup_archives_only_byte_identical():
     assert dry["groups"] == 1 and dry["consolidated"] == 1 and dry["applied"] is False
     assert dry["merge_basis"] == "content_ref_exact"
     # nothing changed on a dry run
-    assert s.artifacts.get_artifact("d2")["state"] == "committed"
+    assert s.artifacts.get_artifact("d2")["state"] == "live"
     assert not s.graph.neighbors("d1", "consolidates", direction="out")
 
     applied = g.consolidate_nearvdup(s, collection_id="stage.1.grammar", apply=True)
@@ -63,17 +61,17 @@ def test_nearvdup_never_archives_on_similarity_only():
     base = " ".join(f"word{i}" for i in range(200))
     near = base + " word200 word201"               # >0.85 Jaccard, but NOT the same bytes
     assert minhash.estimated_jaccard(minhash.signature(base), minhash.signature(near)) >= 0.85
-    s.artifacts.put_artifact({"id": "n1", "content_type": "text/markdown", "state": "committed",
+    s.artifacts.put_artifact({"id": "n1", "content_type": "text/markdown", "state": "live",
                               "content": base, "content_ref": "cas/" + "1" * 64,
                               "minhash": list(minhash.signature(base)),
                               "lemmas": ["a"], "provenance": "observed"})
-    s.artifacts.put_artifact({"id": "n2", "content_type": "text/markdown", "state": "committed",
+    s.artifacts.put_artifact({"id": "n2", "content_type": "text/markdown", "state": "live",
                               "content": near, "content_ref": "cas/" + "2" * 64,
                               "minhash": list(minhash.signature(near)),
                               "lemmas": [], "provenance": "observed"})
     r = g.consolidate_nearvdup(s, content_type="text/markdown", apply=True)
     assert r["consolidated"] == 0                  # nothing archived on a similarity estimate
-    assert s.artifacts.get_artifact("n2")["state"] == "committed"
+    assert s.artifacts.get_artifact("n2")["state"] == "live"
     assert not s.graph.neighbors("n1", "consolidates", direction="out")
     # ...but the signal is NOT thrown away — it is retained as an advisory observation.
     assert r["near_dup_candidate_edges"] == 1 and r["similarity_is_advisory"] is True
@@ -90,7 +88,7 @@ def test_nearvdup_does_not_sign_from_the_content_preview():
     base = " ".join(f"word{i}" for i in range(200))
     for i, ref in ((1, "1"), (2, "2")):
         s.artifacts.put_artifact({"id": f"p{i}", "content_type": "text/markdown",
-                                  "state": "committed", "content": base,   # content but NO minhash
+                                  "state": "live", "content": base,   # content but NO minhash
                                   "content_ref": "cas/" + ref * 64,
                                   "lemmas": [], "provenance": "observed"})
     r = g.consolidate_nearvdup(s, content_type="text/markdown", apply=True)
@@ -105,7 +103,7 @@ def test_consolidate_colimit_draws_morphisms():
     g.bootstrap(s)
     for i in (1, 2, 3):
         s.artifacts.put_artifact({"id": f"m{i}", "content_type": "text/x-wordnet",
-                                  "state": "committed", "content": "dog sense", "lemmas": ["dog"]})
+                                  "state": "live", "content": "dog sense", "lemmas": ["dog"]})
     r = g.consolidate_colimit(s, ["m1", "m2", "m3"], concept_lemmas=["dog"], apply=True)
     assert r["members"] == 3 and r["consolidates_edges"] == 3
     canon = r["canonical"]
@@ -152,7 +150,7 @@ def test_consistency_flags_broken_provenance():
     g.bootstrap(s)
     # an artifact with no citation violates the §12 invariant -> hard anomaly
     s.artifacts.put_artifact({"id": "orphan", "content_type": "text/markdown",
-                              "state": "committed", "content": "x", "lemmas": ["x"]})
+                              "state": "live", "content": "x", "lemmas": ["x"]})
     c = g.consistency(s)
     assert c["all_pass"] is False
     assert any(a["check"] == "provenance_invariant" for a in c["anomalies"])
@@ -231,7 +229,7 @@ def test_nearvdup_never_consolidates_private():
     g.bootstrap(s)
     base = " ".join(f"tok{i}" for i in range(60))
     REF = "cas/" + "c" * 64
-    s.artifacts.put_artifact({"id": "pub", "content_type": "text/markdown", "state": "committed",
+    s.artifacts.put_artifact({"id": "pub", "content_type": "text/markdown", "state": "live",
                               "content": base, "content_ref": REF,
                               "lemmas": ["a"], "provenance": "observed"})
     # a private memory with BYTE-IDENTICAL content must NOT be pulled into consolidation
@@ -247,14 +245,14 @@ def test_nearvdup_never_consolidates_private():
         s.artifacts.put_artifact(a)
     r = g.consolidate_nearvdup(s, content_type="text/markdown", apply=True)
     assert r["consolidated"] == 0                    # private excluded from the scope
-    assert s.artifacts.get_artifact("pub")["state"] == "committed"
+    assert s.artifacts.get_artifact("pub")["state"] == "live"
 
     # CONTROL: identical setup minus the privacy marking DOES consolidate — so the assertion
     # above is load-bearing rather than incidental.
     s2 = _FakeStore()
     g.bootstrap(s2)
     for i in ("pub", "other"):
-        s2.artifacts.put_artifact({"id": i, "content_type": "text/markdown", "state": "committed",
+        s2.artifacts.put_artifact({"id": i, "content_type": "text/markdown", "state": "live",
                                    "content": base, "content_ref": REF,
                                    "lemmas": ["a"] if i == "pub" else [], "provenance": "observed"})
     assert g.consolidate_nearvdup(s2, content_type="text/markdown", apply=True)["consolidated"] == 1
@@ -276,7 +274,7 @@ def test_candidate_edges_are_budgeted_and_the_drop_is_REPORTED():
     for i in range(4):
         txt = base + (" extra%d" % i)
         s.artifacts.put_artifact({"id": f"c{i}", "content_type": "text/markdown",
-                                  "state": "committed", "content": txt,
+                                  "state": "live", "content": txt,
                                   "content_ref": "cas/" + str(i) * 64,
                                   "minhash": list(minhash.signature(txt)),
                                   "lemmas": ["a"] if i == 0 else [],
@@ -292,4 +290,4 @@ def test_candidate_edges_are_budgeted_and_the_drop_is_REPORTED():
     # and nothing was archived on similarity regardless of budget
     assert r["consolidated"] == 0
     for i in range(4):
-        assert s.artifacts.get_artifact(f"c{i}")["state"] == "committed"
+        assert s.artifacts.get_artifact(f"c{i}")["state"] == "live"

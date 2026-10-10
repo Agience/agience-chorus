@@ -26,8 +26,7 @@ sense" is associative, which the IS-A tree does not express; ConceptNet supplies
 """
 from __future__ import annotations
 
-import re
-from typing import Any, Dict, Iterable, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set
 
 # The ontology tokeniser has one home (`crystal.ontology.lookup`). `minimum=1` below keeps this
 # file's own policy: a surface form harvested from a gloss may be a single letter, where a query
@@ -80,7 +79,7 @@ def build(store, *, content_type: str = "text/x-wordnet",
     store.artifacts.put_artifact({
         "id": MESH_ID,
         "content_type": MESH_CONTENT_TYPE,
-        "state": "committed",
+        "state": "live",
         "title": "surface-form mesh",
         "gloss": "which surface forms each lemma's own senses were observed using",
         "content": "",

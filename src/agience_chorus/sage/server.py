@@ -13,7 +13,7 @@ Tools
 -----
   search                    - Hybrid search across workspaces and collections
   get_artifact                  - Fetch a card by ID
-  browse_collections        - List and explore committed collections
+  browse_collections        - List and explore live collections
   search_azure              - Tombstone: raises; Azure Search is a hosted, model-backed connector,
                               out of scope under the no-models rule
   index_to_azure            - Tombstone: raises; same no-models rule as search_azure
@@ -42,6 +42,7 @@ Transport
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -251,12 +252,13 @@ async def corpus_search(query: str, limit: int = 10) -> str:
     db = next(_deps.get_store_db())
     auth = _deps.AuthContext(principal_id=caller, principal_type="user", user_id=caller)
 
-    lines, shown, refused = [], 0, 0
+    # A candidate the caller may not read is skipped without a trace: no count, no total that
+    # includes it. Reporting either would tell the caller that private artifacts match the query.
+    lines, shown = [], 0
     for aid, _ct, score in ranked[:cut]:
         try:
             _deps.check_access(auth, aid, "read", db)
         except Exception:
-            refused += 1
             continue                                      # not the caller's to see
         art = store.artifacts.get_artifact(aid)
         title = (art or {}).get("title") or aid
@@ -266,10 +268,8 @@ async def corpus_search(query: str, limit: int = 10) -> str:
             break
 
     if not lines:
-        return ("No results you may read. %d candidate(s) matched and were refused."
-                % refused) if refused else "No results found."
-    footer = "\n\n%d shown of %d in the answer%s; ordering=%s" % (
-        shown, cut, (", %d refused" % refused) if refused else "", account.get("reach"))
+        return "No results found."
+    footer = "\n\n%d shown; ordering=%s" % (shown, account.get("reach"))
     return "\n".join(lines) + footer
 
 
@@ -337,7 +337,10 @@ async def search(
 # artifact so it enters the corpus (indexed, retrievable). The intake side of
 # the knowledge flywheel: external knowledge -> owned artifact -> grounding.
 # ---------------------------------------------------------------------------
+from agience_chorus import _egress
 from agience_chorus.sage.web_extract import html_to_text, looks_like_html
+
+_WEB_RETRIEVE_MAX_BYTES = 5_000_000
 
 
 @mcp.tool(description="Fetch a web page or paper by URL, extract its readable text (script, style, "
@@ -345,17 +348,20 @@ from agience_chorus.sage.web_extract import html_to_text, looks_like_html
                      "text/markdown artifact in the given workspace (stamped with operator "
                      "provenance and the source URL). Returns the new artifact id.")
 async def web_retrieve(url: str, workspace_id: str, title: Optional[str] = None) -> str:
-    if not url.startswith(("http://", "https://")):
-        return "Error: url must be http(s)."
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-        try:
-            resp = await client.get(url, headers={"User-Agent": "Agience/1.0 (Sage web_retrieve)"})
-        except Exception as e:
-            return f"Error fetching {url}: {type(e).__name__}"
-    if resp.status_code >= 400:
-        return json.dumps({"error": "fetch returned %s" % resp.status_code})
-    ctype = resp.headers.get("content-type", "").lower()
-    body = resp.text
+    # The fetch goes through the shared egress guard: public addresses only, every redirect hop
+    # re-checked, one deadline, reading stopped at the byte cap. It blocks, so it runs in a thread.
+    try:
+        resp = await asyncio.to_thread(
+            _egress.fetch, url, timeout=30, max_bytes=_WEB_RETRIEVE_MAX_BYTES,
+            headers={"User-Agent": "Agience/1.0 (Sage web_retrieve)"})
+    except _egress.EgressRefused as e:
+        return f"Error: refused to fetch {url}: {e}"
+    except _egress.EgressError as e:
+        return f"Error fetching {url}: {e}"
+    if resp.status >= 400:
+        return json.dumps({"error": "fetch returned %s" % resp.status})
+    ctype = resp.content_type.lower()
+    body = resp.text()
     text = html_to_text(body) if looks_like_html(ctype, body) else body
     text = text[:200000]
     if not text.strip():
@@ -401,7 +407,7 @@ async def get_artifact(artifact_id: str, workspace_id: Optional[str] = None) -> 
 # Tool: browse_collections
 # ---------------------------------------------------------------------------
 
-@mcp.tool(description="List committed collections accessible to the current user.")
+@mcp.tool(description="List live collections accessible to the current user.")
 async def browse_collections(limit: int = 20) -> str:
     """List the collections this caller can reach.
 
@@ -557,9 +563,9 @@ async def research(query: str, workspace_id: Optional[str] = None) -> str:
             },
         }, indent=2)
 
-    # Step 1 — search (op.retrieve: FTS, committed state, budgeted top-k).
+    # Step 1 — search (op.retrieve: FTS, live state, budgeted top-k).
     if workspace_id:
-        # Honest scope note: op.retrieve does not take a container scope — the
+        # Scope note: op.retrieve does not take a container scope — the
         # search runs over the caller's full light-cone, not just this workspace.
         steps.append(
             f"note: workspace scoping ({workspace_id}) is not plumbed through "
@@ -572,7 +578,7 @@ async def research(query: str, workspace_id: Optional[str] = None) -> str:
             "answer": None, "citations": [], "steps": steps,
             "refusal": {
                 "reason": "op.retrieve returned no evidence for this query (no "
-                          "committed artifact matched, or mantle search is "
+                          "live artifact matched, or mantle search is "
                           "unavailable — the organon is fail-soft and does not "
                           "distinguish the two)",
                 "query": query[:500],
@@ -708,7 +714,7 @@ async def ask(
         evidence.extend(h for h in hits if h.get("id") not in seen)
         if not hits:
             findings.append(
-                "op.retrieve returned no evidence (no committed artifact matched, "
+                "op.retrieve returned no evidence (no live artifact matched, "
                 "or mantle search is unavailable — the organon is fail-soft and "
                 "does not distinguish the two)"
             )

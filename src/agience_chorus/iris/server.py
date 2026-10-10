@@ -69,6 +69,8 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
+from agience_chorus import _egress
+
 log = logging.getLogger("agience-server-iris")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(), format="%(asctime)s %(levelname)s - %(name)s - %(message)s")
 
@@ -78,9 +80,17 @@ IRIS_CLIENT_ID: str = "agience-server-iris"
 IRIS_AUTHORIZER_ARTIFACT_ID: str = os.getenv("IRIS_AUTHORIZER_ARTIFACT_ID", "")
 IRIS_AUTHORIZER_WORKSPACE_ID: str = os.getenv("IRIS_AUTHORIZER_WORKSPACE_ID", "")
 
-# Gmail API endpoints (OAuth2 refresh-token exchange + send), used by send_email.
+# Gmail API endpoints (OAuth2 refresh-token exchange + send), used by send_email. An authorizer's
+# `token_endpoint` must be in `_egress.OAUTH_TOKEN_ENDPOINTS`; any other is refused.
 _GMAIL_TOKEN_URL: str = "https://oauth2.googleapis.com/token"
 _GMAIL_SEND_URL: str = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+
+#: Recipients one send_email call may address. A send is a notification or a transactional email to
+#: a person, never a list.
+_MAX_RECIPIENTS: int = 3
+
+#: fetch_url stops reading here, whatever `max_length` asks for.
+_FETCH_URL_MAX_BYTES: int = 2_000_000
 
 MCP_TRANSPORT: str = os.getenv("MCP_TRANSPORT", "streamable-http")
 MCP_HOST: str = os.getenv("MCP_HOST", "0.0.0.0")
@@ -181,11 +191,16 @@ async def _gmail_access_token(client: httpx.AsyncClient, config: dict) -> str:
     Reads client_id + token_endpoint + scopes from the authorizer config and
     resolves client_secret + refresh_token from their bound secret artifacts.
     No `provide_access_token` op; the exchange happens here, server-side.
+
+    The authorizer is an artifact its owner can edit, so its `token_endpoint` is checked against
+    the allowlist before any secret is read: the exchange POSTs the client secret and the refresh
+    token, and must only ever POST them to a known OAuth provider. Raises `EgressRefused`.
     """
+    token_endpoint = _egress.require_token_endpoint(config.get("token_endpoint") or _GMAIL_TOKEN_URL)
     client_secret = await _fetch_secret_material(client, config["client_secret_artifact_id"])
     refresh_token = await _fetch_secret_material(client, config["refresh_token_artifact_id"])
     resp = await client.post(
-        config.get("token_endpoint", _GMAIL_TOKEN_URL),
+        token_endpoint,
         data={
             "grant_type": "refresh_token",
             "client_id": config["client_id"],
@@ -200,6 +215,30 @@ async def _gmail_access_token(client: httpx.AsyncClient, config: dict) -> str:
     if not token:
         raise RuntimeError("Token endpoint returned no access_token")
     return token
+
+
+def _parse_recipients(to: str) -> tuple[list[str], str]:
+    """The addresses in a `To` value, and the reason it is refused ("" when it is not).
+
+    Refused: no address, more than `_MAX_RECIPIENTS`, a line break (a header injection), or an
+    entry that is not a bare `local@domain` address.
+    """
+    from email.utils import getaddresses
+
+    raw = to or ""
+    if "\r" in raw or "\n" in raw:
+        return [], "the recipient contains a line break"
+    addresses = [addr.strip() for _name, addr in getaddresses([raw]) if addr.strip()]
+    if not addresses:
+        return [], "no recipient address"
+    if len(addresses) > _MAX_RECIPIENTS:
+        return [], "%d recipients; one send may address at most %d" % (
+            len(addresses), _MAX_RECIPIENTS)
+    for addr in addresses:
+        local, _, domain = addr.rpartition("@")
+        if not local or "." not in domain or any(c.isspace() for c in addr):
+            return [], "not an email address: %r" % addr[:100]
+    return addresses, ""
 
 
 @mcp.tool(
@@ -231,6 +270,12 @@ async def send_email(
             authorizers; reserved).
     """
     del workspace_id  # reserved; authorizer is resolved by id, not workspace
+    recipients, refusal = _parse_recipients(to)
+    if refusal:
+        return json.dumps({"error": f"send_email refused: {refusal}"})
+    if "\r" in subject or "\n" in subject:
+        return json.dumps({"error": "send_email refused: the subject contains a line break"})
+    to = ", ".join(recipients)
     authorizer_id = (authorizer_artifact_id or IRIS_AUTHORIZER_ARTIFACT_ID).strip()
     if not authorizer_id:
         return json.dumps({
@@ -281,7 +326,7 @@ async def send_email(
     # MissingDelegationError is a PermissionError, so it is not caught by the tuple below — named
     # explicitly so the fail-closed refusal comes back in the same parseable shape as every other failure
     # here rather than as an unhandled exception.
-    except MissingDelegationError as exc:
+    except (MissingDelegationError, _egress.EgressRefused) as exc:
         return json.dumps({"error": f"send_email refused: {exc}"})
     except (KeyError, RuntimeError, json.JSONDecodeError) as exc:
         return json.dumps({"error": f"send_email failed: {exc}"})
@@ -457,12 +502,11 @@ def _as_dict(raw) -> dict:
 def _context_view(raw) -> dict:
     """An artifact's context as the caller wrote it, wherever the store put it.
 
-    Mantle nests the caller's context under `caller` on every create, so a read that asks for a
-    caller-supplied key at the top level answers nothing. `artifacts_router._mint_context` stamps
-    `{addressing, caller, minted, minted_by, provenance, …}` onto the write and, by its own
-    contract, keeps the caller's own "verbatim under `caller`". Nothing is lost — it sits one level
-    down. A `PATCH` does not mint, so a patched artifact keeps its keys flat, and both shapes are
-    live in the same corpus.
+    Mantle stores the caller's keys at the top level, beside the facets the store owns
+    (`addressing`, `minted`, `minted_by`, `provenance`, …; `mint_context.with_client_keys`). A
+    stored context can also hold them under `caller`, alone or beside some at the top level, and
+    there a read that asks for a caller-supplied key at the top level answers nothing. Both shapes
+    are live in the same corpus.
 
     Measured against production:
 
@@ -483,14 +527,17 @@ def _context_view(raw) -> dict:
     latent defect rather than a live one. The tool is reachable by any authenticated MCP caller,
     which is reason enough to read the context correctly.
 
-    Top level wins, so a deliberate PATCH still overrides what the mint recorded, and an artifact
-    that was never minted reads flat.
+    Top level wins, and `caller` supplies a key the top level does not hold — the same reading as
+    `mint_context.client_view` — so an artifact with no `caller` reads as stored. A key the store
+    owns is never lifted out of `caller`: `caller.provenance` is a claim, and lifting it where the
+    rung is absent would present the claim as the rung.
     """
     ctx = _as_dict(raw)
     caller = ctx.get("caller")
     if not isinstance(caller, dict) or not caller:
         return ctx
-    return {**caller, **ctx}
+    from mantle.services.mint_context import SERVER_OWNED_KEYS
+    return {**{k: v for k, v in caller.items() if k not in SERVER_OWNED_KEYS}, **ctx}
 
 
 def _resolve_field(spec: str, content: dict, context: dict):
@@ -665,14 +712,11 @@ async def get_messages(
     except MissingDelegationError as exc:
         return json.dumps({"error": str(exc)})
 
-    # A workspace is a container artifact, so "its artifacts" are its children. `workspace_id` is also
-    # passed as the query param on purpose: that is what makes draft children visible, and a draft is
-    # workspace-private, so omitting it silently hides uncommitted rows.
+    # A workspace is a container artifact, so "its artifacts" are its children.
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             artifact_url(MANTLE_URI, workspace_id, "children"),
             headers=headers,
-            params={"workspace_id": workspace_id},
             timeout=30,
         )
     if resp.status_code >= 400:
@@ -884,19 +928,23 @@ async def fetch_url(
     """
     import re
 
+    # The shared egress guard: public addresses only, every redirect hop re-checked, the timeout
+    # capped at `_egress.MAX_TIMEOUT` whatever the caller asks, and reading stopped at the byte cap.
+    # It blocks, so it runs in a thread.
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"User-Agent": "Agience/1.0 (Iris)"})
-    except httpx.TimeoutException:
-        return json.dumps({"error": f"Request timed out after {timeout}s", "url": url})
-    except httpx.RequestError as exc:
+        resp = await asyncio.to_thread(
+            _egress.fetch, url, timeout=timeout, max_bytes=_FETCH_URL_MAX_BYTES,
+            headers={"User-Agent": "Agience/1.0 (Iris)"})
+    except _egress.EgressRefused as exc:
+        return json.dumps({"error": f"Refused: {exc}", "url": url})
+    except _egress.EgressError as exc:
         return json.dumps({"error": f"Request failed: {exc}", "url": url})
 
-    if resp.status_code >= 400:
-        return json.dumps({"error": f"HTTP {resp.status_code}", "url": url, "body": resp.text[:500]})
+    if resp.status >= 400:
+        return json.dumps({"error": f"HTTP {resp.status}", "url": url, "body": resp.text()[:500]})
 
-    content_type = resp.headers.get("content-type", "")
-    raw_text = resp.text
+    content_type = resp.content_type
+    raw_text = resp.text()
 
     # Strip HTML tags for text/markdown output
     if format in ("text", "markdown") and "html" in content_type:
@@ -908,22 +956,24 @@ async def fetch_url(
     elif format == "html":
         pass  # Return raw HTML
 
-    # Truncate if needed
-    truncated = False
+    # Truncate if needed. A body that stopped at the byte cap is already truncated.
+    truncated = resp.truncated
     if len(raw_text) > max_length:
         raw_text = raw_text[:max_length]
         truncated = True
 
     result: dict = {
         "url": url,
-        "status": resp.status_code,
+        "status": resp.status,
         "content_type": content_type,
         "length": len(raw_text),
         "content": raw_text,
     }
     if truncated:
         result["truncated"] = True
-        result["notice"] = f"Content truncated to {max_length} characters."
+        result["notice"] = (f"Content truncated to {max_length} characters."
+                            if len(raw_text) >= max_length else
+                            f"Content truncated at the {_FETCH_URL_MAX_BYTES}-byte fetch cap.")
 
     # The "extract" agent has no server mapping, so query-driven extraction via
     # fetch_url is not implemented — a caller wanting model dispatch reaches a tekton that offers it

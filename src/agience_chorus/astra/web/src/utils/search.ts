@@ -76,13 +76,13 @@ export function getContentTypeCategory(contentType?: string): string {
  * Supports:
  * - Plain text: "api design"
  * - Tags: "#python #api"
- * - State filters: "is:new", "is:modified", "is:archived"
+ * - State filter: "is:archived"
  * - Type filters: "type:pdf", "type:image"
  */
 export interface SearchFilters {
   text: string;
   tags: string[];
-  states: Array<'draft' | 'committed' | 'archived'>;
+  states: Array<'archived'>;
   mimeCategories: string[];
 }
 
@@ -108,10 +108,10 @@ export function parseSearchQuery(query: string): SearchFilters {
       continue;
     }
     
-    // State filter: is:new
+    // State filter: is:archived
     if (word.startsWith('is:')) {
       const state = word.slice(3).toLowerCase();
-      if (state === 'draft' || state === 'committed' || state === 'archived') {
+      if (state === 'archived') {
         filters.states.push(state);
       }
       continue;
@@ -169,8 +169,7 @@ export function filterArtifacts(artifacts: Artifact[], query: string): Artifact[
     
     // State filter
     if (filters.states.length > 0) {
-      const artifactState = artifact.state as 'draft' | 'committed' | 'archived';
-      if (!filters.states.includes(artifactState)) {
+      if (artifact.state !== 'archived') {
         return false;
       }
     }

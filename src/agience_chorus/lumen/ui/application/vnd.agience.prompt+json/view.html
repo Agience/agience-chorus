@@ -51,9 +51,22 @@
       for (const arg of args) {
         const li = document.createElement('li');
         li.className = 'arg';
-        li.innerHTML = '<span class="arg-name">' + (arg.name || '') + '</span>'
-          + (arg.required ? '<span class="required">required</span>' : '')
-          + (arg.description ? '<div class="arg-desc">' + arg.description + '</div>' : '');
+        const name = document.createElement('span');
+        name.className = 'arg-name';
+        name.textContent = arg.name || '';
+        li.appendChild(name);
+        if (arg.required) {
+          const required = document.createElement('span');
+          required.className = 'required';
+          required.textContent = 'required';
+          li.appendChild(required);
+        }
+        if (arg.description) {
+          const desc = document.createElement('div');
+          desc.className = 'arg-desc';
+          desc.textContent = arg.description;
+          li.appendChild(desc);
+        }
         argsList.appendChild(li);
       }
     }

@@ -341,7 +341,7 @@ async def synthesize(
             added += 1
         if not hits:
             findings.append(
-                "op.retrieve returned no evidence for this query (no committed "
+                "op.retrieve returned no evidence for this query (no live "
                 "artifact matched, or mantle search is unavailable — the organon "
                 "is fail-soft and does not distinguish the two)"
             )
@@ -1190,22 +1190,18 @@ async def submit_feedback(
 # ---------------------------------------------------------------------------
 
 def _package_block(pkg_ctx: dict) -> dict:
-    """The `package` manifest out of an artifact's context, wherever the store put it.
+    """The `package` manifest out of an artifact's context, wherever the stored context holds it.
 
-    ⛔ IT SITS UNDER `caller` ON ANYTHING CREATED NORMALLY, and reading only the top level made
-    `install_package` unusable for every package a user could actually make.
+    Mantle stores a caller's keys at the top level, beside the facets the store owns, so
+    `POST /artifacts` carrying `{"package": {...}}` stores `package` there. A row that no write
+    through mantle's `mint_context` has touched can hold it under `caller` instead —
+    `{addressing, caller: {package: {...}}, minted, minted_by, provenance}` — and a top-level read
+    of that row finds no manifest. Measured against production, `install_package` read only the
+    top level and answered "Artifact is not a package (missing context.package)" for a row that
+    carried the block under `caller`.
 
-    Mantle mints a context onto EVERY create (`artifacts_router._mint_context`) and, by its own
-    stated contract, "the caller's context is preserved verbatim under `caller` and never merged
-    into the facets the store observed". So `POST /artifacts` carrying `{"package": {...}}` is
-    stored as `{addressing, caller: {package: {...}}, minted, minted_by, provenance}` — the block
-    is intact, one level down. `PATCH` does not mint, so a patched artifact keeps `package` flat.
-
-    ⚑ Measured 2026-09-11 against production: create -> `install_package` answered "Artifact is not
-    a package (missing context.package)" for an artifact whose context DID carry the block. Only
-    create-then-PATCH worked, which nothing documents and no caller would guess.
-
-    The flat form wins, so a deliberate PATCH still overrides what the mint recorded.
+    A non-empty top-level block wins; otherwise the block under `caller` is read. An empty `{}`
+    carries no id, version or contents, so it is not a package in either place.
     """
     if not isinstance(pkg_ctx, dict):
         return {}
@@ -1536,8 +1532,8 @@ async def export_package(
 ) -> str:
     """Populate package ``transform_id`` with contents from ``workspace_id``.
 
-    Only inspects draft + committed artifacts in the workspace; archived
-    artifacts are skipped. Server dependencies are inferred from each
+    Only inspects live artifacts in the workspace; archived artifacts are
+    skipped. Server dependencies are inferred from each
     transform artifact's ``server`` relationship edge.
     """
     ws = workspace_id

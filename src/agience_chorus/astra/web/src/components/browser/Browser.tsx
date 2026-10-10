@@ -19,7 +19,7 @@ import { ArtifactCreate, ArtifactUpdate } from "../../api/types";
 import { addArtifactToWorkspace, importCollectionArtifactToWorkspace, initiateUpload, updateUploadStatus, getWorkspaceArtifactsBatchGlobal } from "../../api/workspaces";
 import { addArtifactToCollection, getCollectionArtifactsBatchGlobal } from "../../api/collections";
 import { midKey } from "../../utils/fractional-index";
-import { uploadWithProgress } from "../../utils/upload";
+import { uploadWithProgress, withUploadProgress } from "../../utils/upload";
 import { mantleUrl } from "../../api/api";
 import type { ActiveSource } from "../../types/workspace";
 import { getCollectionArtifacts, subscribeCollectionEvents } from "../../api/collections";
@@ -27,6 +27,7 @@ import { getContentTypeCategory } from "../../utils/search";
 import type { SearchResponse, SearchHit } from "../../api/types/search";
 import { useConfirm } from "@/context/dialog/useConfirm";
 import { CARD_CONFIRM, BULK_CONFIRM, BUTTON_LABELS, SHORTCUTS } from "@/constants/strings";
+import { canDeleteArtifact, type CardRemoveMode } from "@/utils/artifact-permissions";
 import { useShortcuts } from "@/context/shortcuts/useShortcuts";
 import BrowserHeader from "./BrowserHeader";
 import { deriveArtifactCountArtifacts } from "./artifacts";
@@ -43,8 +44,8 @@ const INLINE_BYTES_MAX = 128 * 1024; // 128 KiB (~32K tokens, good chunk size fo
 const HIDDEN_CONTENT_TYPE_FILTERS_STORAGE_KEY = 'agience.browser.hiddenMimeCategories';
 const STACKED_ARTIFACT_FAMILIES_STORAGE_KEY = 'agience.browser.stackArtifacts';
 
-type ArtifactState = 'all' | 'draft' | 'committed' | 'archived';
-type SortOption = 'recent' | 'title' | 'created' | 'committed' | 'manual';
+type ArtifactState = 'all' | 'archived';
+type SortOption = 'recent' | 'title' | 'created' | 'modified' | 'manual';
 type ViewOption = 'grid' | 'list';
 
 
@@ -103,19 +104,18 @@ export default function Browser({
     displayedArtifacts = [],
     selectedArtifactIds,
     removeArtifact,
-    revertArtifact,
+    deleteArtifact,
     selectArtifact,
     selectAllArtifacts,
     unselectAllArtifacts,
     addArtifact,
     addExistingArtifact,
+    patchArtifactLocally,
     createArtifact,
     updateArtifact,
     registerNewArtifactHandler,
     orderArtifacts,
-    commitCurrentWorkspace,
     importArtifactsByRootIds,
-    isCommitting,
   } = useWorkspace();
   // setDisplayedArtifacts is exposed by WorkspaceProvider; some context implementations may not define it.
   const { setDisplayedArtifacts } = useWorkspace();
@@ -490,8 +490,6 @@ export default function Browser({
   // Calculate counts for filter bar (use resolvedDisplayArtifacts which includes search results)
   const counts = useMemo(() => ({
     total: resolvedDisplayArtifacts.length,
-    new: resolvedDisplayArtifacts.filter((c: Artifact) => c.state === 'draft').length,
-    modified: resolvedDisplayArtifacts.filter((c: Artifact) => c.state === 'committed').length,
     archived: resolvedDisplayArtifacts.filter((c: Artifact) => c.state === 'archived').length,
   }), [resolvedDisplayArtifacts]);
 
@@ -549,7 +547,7 @@ export default function Browser({
         }
         case 'created':
           return (new Date(b.created_time || 0).getTime()) - (new Date(a.created_time || 0).getTime());
-        case 'committed':
+        case 'modified':
           return (new Date(b.modified_time || b.created_time || 0).getTime()) -
                  (new Date(a.modified_time || a.created_time || 0).getTime());
         case 'manual':
@@ -592,25 +590,14 @@ export default function Browser({
     !isShowingSearchResults &&
     stackedArtifacts.sections.length > 0;
   const showFloatingToolbar = activeSource?.type === 'workspace' && bulkSelectedArtifacts.length > 0;
-  const bulkHasNew = useMemo(
-    () => bulkSelectedArtifacts.some(a => a.state === 'draft'),
+  const bulkCanDelete = useMemo(
+    () => bulkSelectedArtifacts.some(a => canDeleteArtifact(a, user?.id)),
+    [bulkSelectedArtifacts, user?.id]
+  );
+  const bulkHasLive = useMemo(
+    () => bulkSelectedArtifacts.some(a => a.state !== 'archived'),
     [bulkSelectedArtifacts]
   );
-  const bulkHasCommitted = useMemo(
-    () => bulkSelectedArtifacts.some(a => a.state === 'committed'),
-    [bulkSelectedArtifacts]
-  );
-
-  // Commit the selected draft(s) — one card or many. The backend skips any
-  // non-draft ids, but we pass only drafts so the toast/count is accurate.
-  const handleBulkCommit = useCallback(() => {
-    const draftIds = bulkSelectedArtifacts
-      .filter(a => a.state === 'draft')
-      .map(a => String(a.id));
-    if (draftIds.length === 0) return;
-    commitCurrentWorkspace({ artifact_ids: draftIds });
-    unselectAllArtifacts();
-  }, [bulkSelectedArtifacts, commitCurrentWorkspace, unselectAllArtifacts]);
 
   // Handlers for filter chips
   const handleStateFilterToggle = useCallback((state: string) => {
@@ -661,6 +648,27 @@ export default function Browser({
     setActiveContentTypeFilters(new Set());
     setHiddenContentTypeFilters(new Set());
   }, []);
+
+  // Any chip or drawer filter narrowing the view (search text is tracked separately).
+  const isAnyFilterActive =
+    activeFilter !== 'all' ||
+    activeStateFilters.size > 0 ||
+    activeContentTypeFilters.size > 0 ||
+    hiddenContentTypeFilters.size > 0;
+  // True when there are cards here and the filters hide all of them; an empty workspace
+  // keeps its own empty state even while a (possibly remembered) filter is set.
+  const filtersHideEverything = useMemo(() => {
+    if (!isAnyFilterActive) return false;
+    const base = isShowingSearchResults ? resolvedDisplayArtifacts : searchFilteredArtifacts;
+    return base.some((c: Artifact) => {
+      if (activeSource?.type !== 'workspace' || !workspaceId) return true;
+      return String(c.id ?? '') !== workspaceId && String(c.root_id ?? '') !== workspaceId;
+    });
+  }, [activeSource?.type, isAnyFilterActive, isShowingSearchResults, resolvedDisplayArtifacts, searchFilteredArtifacts, workspaceId]);
+  const handleClearEveryFilter = useCallback(() => {
+    handleClearAllFilters();
+    setActiveFilter('all');
+  }, [handleClearAllFilters]);
 
   const toggleArtifactSection = useCallback((sectionId: string) => {
     setCollapsedArtifactSections((prev) => ({
@@ -756,7 +764,7 @@ export default function Browser({
   }, [browserPrefs, dockedWorkspaceTabIdsPref, updatePreferences, workspaces]);
 
   const handleBulkArchive = useCallback(async () => {
-    const items = bulkSelectedArtifacts.filter(a => a.state === 'committed');
+    const items = bulkSelectedArtifacts.filter(a => a.state !== 'archived');
     const count = items.length;
     if (count === 0) return;
 
@@ -768,7 +776,7 @@ export default function Browser({
   }, [bulkSelectedArtifacts, unselectAllArtifacts, updateArtifact, undockWorkspaceIfNeeded]);
 
   const handleBulkDrop = useCallback(async () => {
-    const items = bulkSelectedArtifacts.filter(a => a.state === 'committed');
+    const items = bulkSelectedArtifacts.filter(a => a.state !== 'archived');
     const count = items.length;
     if (count === 0) return;
 
@@ -780,7 +788,7 @@ export default function Browser({
   }, [bulkSelectedArtifacts, removeArtifact, unselectAllArtifacts, undockWorkspaceIfNeeded]);
 
   const handleBulkDelete = useCallback(async () => {
-    const items = bulkSelectedArtifacts.filter(a => a.state === 'draft');
+    const items = bulkSelectedArtifacts.filter(a => canDeleteArtifact(a, user?.id));
     const count = items.length;
     if (count === 0) return;
     const confirmed = await dangerConfirm.confirm({
@@ -793,11 +801,10 @@ export default function Browser({
     if (!confirmed) return;
 
     for (const artifact of items) {
-      undockWorkspaceIfNeeded(artifact);
-      await removeArtifact(String(artifact.id));
+      if (await deleteArtifact(String(artifact.id))) undockWorkspaceIfNeeded(artifact);
     }
     unselectAllArtifacts();
-  }, [dangerConfirm, bulkSelectedArtifacts, removeArtifact, unselectAllArtifacts, undockWorkspaceIfNeeded]);
+  }, [dangerConfirm, bulkSelectedArtifacts, deleteArtifact, unselectAllArtifacts, undockWorkspaceIfNeeded, user?.id]);
 
   // Entire-workspace dropzone state
   const [, setDragDepth] = useState(0);
@@ -865,10 +872,26 @@ export default function Browser({
 
   // [+] creates a new workspace (the backend indexes its container artifact for search),
   // then switches to the new workspace. No card is dropped into the current workspace.
+  // A failed create is already toasted by WorkspacesProvider.createWorkspace.
   const handleCreateWorkspace = useCallback(async () => {
-    const ws = await createWorkspace('Untitled Workspace', '', { activate: false });
+    const ws = await createWorkspace('Untitled Workspace', '', { activate: false }).catch(() => null);
+    if (!ws) return;
     setActiveWorkspaceId(ws.id);
   }, [createWorkspace, setActiveWorkspaceId]);
+
+  // "New card" from the no-source empty state: dock the Inbox (its id is the user id),
+  // make it active, and open the type picker. The created card lands in the Inbox.
+  const canCreateCardInInbox = Boolean(inboxWorkspaceId && workspaces.some(w => w.id === inboxWorkspaceId));
+  const handleCreateCardInInbox = useCallback(() => {
+    if (!inboxWorkspaceId || !workspaces.some(w => w.id === inboxWorkspaceId)) return;
+    if (dockedWorkspaceTabIdsPref && !dockedWorkspaceTabIdsPref.includes(inboxWorkspaceId)) {
+      void updatePreferences({
+        browser: { ...browserPrefs, dockedWorkspaceCardIds: [...dockedWorkspaceTabIdsPref, inboxWorkspaceId] },
+      });
+    }
+    setActiveWorkspaceId(inboxWorkspaceId);
+    setIsArtifactTypePickerOpen(true);
+  }, [browserPrefs, dockedWorkspaceTabIdsPref, inboxWorkspaceId, setActiveWorkspaceId, updatePreferences, workspaces]);
 
   // Double-click tab to rename workspace. Also updates the workspace container
   // artifact so the new name is reflected in search results.
@@ -1029,7 +1052,9 @@ export default function Browser({
     const importIds = [...collectionImports, ...unresolved];
     if (importIds.length === 0 && workspaceCopies.length === 0) return false;
 
-    const ws = await createWorkspace('Untitled Workspace', '', { activate: false });
+    // A failed create is already toasted by WorkspacesProvider.createWorkspace.
+    const ws = await createWorkspace('Untitled Workspace', '', { activate: false }).catch(() => null);
+    if (!ws) return false;
 
     for (const rootId of importIds) {
       try {
@@ -1107,7 +1132,8 @@ export default function Browser({
       }
 
       const title = typeof ctx.title === 'string' ? ctx.title : 'Untitled Workspace';
-      const ws = await createWorkspace(title, '');
+      const ws = await createWorkspace(title, '').catch(() => null);
+      if (!ws) return;
       if (artifact.id) {
         void updateArtifact({
           id: String(artifact.id),
@@ -1233,26 +1259,18 @@ export default function Browser({
 
       try {
         if (task.mode === 'put' && task.url) {
-          // Single PUT for files <= 100MB
+          // Single PUT for files <= 100MB. `uploadWithProgress` reports progress to the server
+          // through PATCH /artifacts/{id}/upload-status; the bar here is updated in local state
+          // only, because `upload` is store-owned and a context PATCH carrying it is ignored.
           await uploadWithProgress(workspaceId, task.artifactId, task.url, task.file, (progress) => {
-            // Update local artifact state immediately for UI responsiveness
-            if (updateArtifact) {
-              const ctx = latestArtifactsRef.current.find(c => c.id === task.artifactId)?.context;
-              if (ctx) {
-                try {
-                  const parsed = JSON.parse(ctx);
-                  parsed.upload = { ...parsed.upload, status: "uploading", progress };
-                  updateArtifact({ id: task.artifactId, context: JSON.stringify(parsed) });
-                } catch { /* ignore JSON parse errors */ }
-              }
-            }
+            const ctx = latestArtifactsRef.current.find(c => c.id === task.artifactId)?.context;
+            const next = withUploadProgress(ctx, progress);
+            if (next) patchArtifactLocally({ id: task.artifactId, context: next });
           });
 
-          // Notify backend that upload is complete
+          // Notify backend that upload is complete; its answer is the finished artifact.
           const completedArtifact = await updateUploadStatus(workspaceId, task.artifactId, { status: "complete" });
-          if (updateArtifact) {
-            updateArtifact(completedArtifact);
-          }
+          patchArtifactLocally(completedArtifact);
         }
       } catch (err) {
         const filename = task.file.name;
@@ -1271,7 +1289,7 @@ export default function Browser({
     
     // Artifacts are created with correct order_key and inserted at correct position
     // No need to reorder after upload
-  }, [workspaceId, createArtifact, addArtifact, addExistingArtifact, updateArtifact, latestArtifactsRef]);
+  }, [workspaceId, createArtifact, addArtifact, addExistingArtifact, patchArtifactLocally, latestArtifactsRef]);
 
   // Drag-depth tracking for the workspace's own visual feedback (independent of CardGrid's).
   const onDragEnter = useCallback((e: React.DragEvent) => {
@@ -1387,7 +1405,9 @@ export default function Browser({
     ? 'bg-blue-50'
     : 'bg-white';
 
-  const handleBrowserRemove = useCallback(async (artifact: Artifact) => {
+  // `mode === 'delete'` destroys the artifact (DELETE /artifacts/{id}); otherwise it is unlinked
+  // from the collection or workspace it is shown in.
+  const handleBrowserRemove = useCallback(async (artifact: Artifact, mode?: CardRemoveMode) => {
     if (!artifact.id) return;
 
     const actx = safeParseArtifactContext(artifact.context);
@@ -1400,7 +1420,7 @@ export default function Browser({
         String(w.id) === String(artifact.collection_id ?? '')
       )?.id ?? null;
     const isInboxRef = actxContentType === WORKSPACE_CONTENT_TYPE && resolvedWsId === inboxWorkspaceId;
-    const isPermanent = !isInboxRef && (artifact.state === 'draft');
+    const isPermanent = !isInboxRef && mode === 'delete';
 
     if (isPermanent) {
       const confirmed = await dangerConfirm.confirm({
@@ -1412,8 +1432,10 @@ export default function Browser({
 
       if (!confirmed) return;
 
+      if (!(await deleteArtifact(String(artifact.id)))) return;
       undockWorkspaceIfNeeded(artifact);
-      await removeArtifact(String(artifact.id));
+      const deletedId = String(artifact.id);
+      setSourceArtifacts(prev => prev.filter(candidate => String(candidate.id) !== deletedId && String(candidate.root_id ?? '') !== deletedId));
       return;
     }
 
@@ -1435,7 +1457,7 @@ export default function Browser({
     }
 
     await removeArtifact(String(artifact.id));
-  }, [activeSource?.id, activeSource?.type, dangerConfirm, inboxWorkspaceId, removeArtifact, undockWorkspaceIfNeeded, workspaceId, workspaces]);
+  }, [activeSource?.id, activeSource?.type, dangerConfirm, deleteArtifact, inboxWorkspaceId, removeArtifact, undockWorkspaceIfNeeded, workspaceId, workspaces]);
 
   const renderArtifactSection = useCallback((sectionArtifacts: Artifact[], sectionKey: string) => {
     if (sectionArtifacts.length === 0) return null;
@@ -1463,12 +1485,9 @@ export default function Browser({
             }}
 
             onRemove={handleBrowserRemove}
+            deleteEnabled
             onAddToWorkspace={(artifact: Artifact) => {
               addExistingArtifact(artifact);
-            }}
-            onRevert={async (artifact: Artifact) => {
-              if (!artifact.id) return;
-              await revertArtifact(String(artifact.id));
             }}
             onOrder={sectionKey === 'primary' ? ((ids) => orderArtifacts(ids)) : undefined}
             onFileDrop={sectionKey === 'primary' && !!workspaceId ? ((index, files) => uploadFilesAt(files, index)) : undefined}
@@ -1500,10 +1519,7 @@ export default function Browser({
             if (artifact.id) onAssignCollections?.(String(artifact.id));
           }}
           onRemove={handleBrowserRemove}
-          onRevert={async (artifact: Artifact) => {
-            if (!artifact.id) return;
-            await revertArtifact(String(artifact.id));
-          }}
+          deleteEnabled
           onArchive={async (artifact: Artifact) => {
             if (!artifact.id || !updateArtifact) return;
             undockWorkspaceIfNeeded(artifact);
@@ -1511,7 +1527,7 @@ export default function Browser({
           }}
           onRestore={(artifact: Artifact) => {
             if (artifact.id && updateArtifact) {
-              updateArtifact({ id: String(artifact.id), state: 'committed' });
+              updateArtifact({ id: String(artifact.id), state: 'live' });
             }
           }}
           onReorder={sectionKey === 'primary' ? ((artifactId, targetIndex) => {
@@ -1527,7 +1543,7 @@ export default function Browser({
         />
       </div>
     );
-  }, [activeSource, addExistingArtifact, artifactCountsByOwnerId, handleBrowserRemove, handleResolvedDrop, isShowingSearchResults, onAssignCollections, onArtifactSelect, onOpenArtifact, orderArtifacts, revertArtifact, selectArtifact, selectedArtifactIds, undockWorkspaceIfNeeded, updateArtifact, uploadFilesAt, viewMode, workspaceId]);
+  }, [activeSource, addExistingArtifact, artifactCountsByOwnerId, handleBrowserRemove, handleResolvedDrop, isShowingSearchResults, onAssignCollections, onArtifactSelect, onOpenArtifact, orderArtifacts, selectArtifact, selectedArtifactIds, undockWorkspaceIfNeeded, updateArtifact, uploadFilesAt, viewMode, workspaceId]);
 
   return (
     <div className="h-full flex flex-col">
@@ -1620,15 +1636,25 @@ export default function Browser({
       >
         {/* Empty States */}
         {shouldShowNoSourceState ? (
-          <EmptyState type="no-source" />
-        ) : filteredArtifacts.length === 0 && isSearchActive ? (
-          <EmptyState 
-            type="no-search-results" 
-            searchQuery={searchQuery}
-            onClearSearch={clearSearch}
+          <EmptyState
+            type="no-source"
+            onCreateWorkspace={handleCreateWorkspace}
+            onCreateCard={canCreateCardInInbox ? handleCreateCardInInbox : undefined}
+          />
+        ) : filteredArtifacts.length === 0 && (isSearchActive || filtersHideEverything) ? (
+          <EmptyState
+            type="no-search-results"
+            searchQuery={isSearchActive ? searchQuery : undefined}
+            onClearSearch={isSearchActive ? clearSearch : undefined}
+            onClearFilters={isAnyFilterActive ? handleClearEveryFilter : undefined}
           />
         ) : filteredArtifacts.length === 0 ? (
-          <EmptyState type="no-artifacts" />
+          <EmptyState
+            type="no-artifacts"
+            isInbox={activeSource?.type === 'workspace' && Boolean(inboxWorkspaceId) && workspaceId === inboxWorkspaceId}
+            onCreateWorkspace={handleCreateWorkspace}
+            onCreateCard={activeSource?.type === 'workspace' ? handleOpenTypePicker : undefined}
+          />
         ) : (
           shouldUseArtifactStacks ? (
             <div className="pb-4">
@@ -1665,7 +1691,6 @@ export default function Browser({
       {showFloatingToolbar && (
         <MultiCardToolbar
           selectedCount={selectedArtifactIds.length}
-          onCommit={handleBulkCommit}
           onArchive={handleBulkArchive}
           onAddTags={handleBulkAddTags}
           onMove={handleBulkMove}
@@ -1673,9 +1698,8 @@ export default function Browser({
           onDrop={handleBulkDrop}
           onClear={unselectAllArtifacts}
           moveLabel="Assign to Collections"
-          hasNew={bulkHasNew}
-          hasCommitted={bulkHasCommitted}
-          isCommitting={isCommitting}
+          canDelete={bulkCanDelete}
+          hasLive={bulkHasLive}
         />
       )}
 

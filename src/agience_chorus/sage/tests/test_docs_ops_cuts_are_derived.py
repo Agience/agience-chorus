@@ -17,7 +17,6 @@ derivation that returns the same number regardless of its inputs is a constant w
 """
 from __future__ import annotations
 
-import importlib
 import sys
 from pathlib import Path
 
