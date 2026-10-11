@@ -132,6 +132,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setToken(null);
     setUser(null);
     setIsAuthenticated(false);
+    // As a service provider, signing out here alone is undone at once: the IdP still holds a session
+    // and hands a new token back on the next visit. End that session too; the IdP returns only to an
+    // address it lists, which this app's root is.
+    const { idpUri } = getRuntimeConfig();
+    const idp = (idpUri || '').replace(/\/$/, '');
+    if (idp && !idp.startsWith(window.location.origin)) {
+      window.location.assign(`${idp}/logout?return=${encodeURIComponent(`${window.location.origin}/`)}`);
+    }
   };
 
   // Force a fresh /userinfo fetch (e.g. after linking a provider)

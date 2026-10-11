@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-11
+
+### Changed
+- Signing out of the web app when it is a service provider (`idpUri` set) also ends the IdP's session, through the IdP's `/logout`, so the next visit asks to sign in instead of signing straight back in.
+
 ## [0.2.0] - 2026-10-09
 
 ### Breaking
