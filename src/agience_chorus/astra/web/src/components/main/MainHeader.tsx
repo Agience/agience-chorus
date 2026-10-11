@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { FiMoon, FiSun, FiUser, FiChevronDown, FiSettings } from 'react-icons/fi';
 import { HelpCircle, Link2, MessageCircle, Send, Share2 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
@@ -57,8 +56,7 @@ export default function HeaderBar({
   // Mount the 402 upgrade-prompt toast listener
   useUpgradePrompt();
   const userMenuRef = useRef<HTMLDivElement>(null);
-  const { user } = useAuth() ?? {};
-  const navigate = useNavigate();
+  const { user, logout: signOut } = useAuth() ?? {};
   const shortcutHint = formatShortcutCombo('mod+/').join(' + ');
   const { createArtifact } = useWorkspace();
   const { activeWorkspaceId } = useWorkspaces();
@@ -87,11 +85,13 @@ export default function HeaderBar({
     // Toggles local state only; no theme change is wired up to consume it.
   };
 
+  // Through the auth provider: as a service provider it also ends the IdP's session, without which
+  // the next visit is handed a new token and signs straight back in. No navigation here: one started
+  // now would race the provider's.
   const logout = useCallback(() => {
-    localStorage.removeItem('access_token');
-    navigate('/');
-    window.location.reload();
-  }, [navigate]);
+    setShowUserMenu(false);
+    signOut?.();
+  }, [signOut]);
 
   // Close user menu on outside click or Escape
   useEffect(() => {

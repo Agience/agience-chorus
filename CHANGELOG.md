@@ -5,6 +5,12 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-11
+
+### Changed
+- The header's Logout in the web app signs out through the auth provider, so as a service provider it also ends the IdP's session. It previously cleared only the app's own token and reloaded, and the IdP signed the person straight back in.
+- As a service provider, signing out leaves the app's signed-in state as it is while the page goes to the IdP's `/logout`. Clearing it first started the app's own sign-in redirect, which replaced the navigation to `/logout` and left the IdP's session in place.
+
 ## [0.2.1] - 2026-10-11
 
 ### Changed

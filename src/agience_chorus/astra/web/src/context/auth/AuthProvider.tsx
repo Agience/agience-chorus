@@ -129,17 +129,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = () => {
     localStorage.removeItem('access_token');
-    setToken(null);
-    setUser(null);
-    setIsAuthenticated(false);
     // As a service provider, signing out here alone is undone at once: the IdP still holds a session
     // and hands a new token back on the next visit. End that session too; the IdP returns only to an
-    // address it lists, which this app's root is.
+    // address it lists, which this app's root is. The signed-in state is left as it is while the
+    // page leaves: clearing it would render the sign-in redirect, whose navigation replaces this one.
     const { idpUri } = getRuntimeConfig();
     const idp = (idpUri || '').replace(/\/$/, '');
     if (idp && !idp.startsWith(window.location.origin)) {
       window.location.assign(`${idp}/logout?return=${encodeURIComponent(`${window.location.origin}/`)}`);
+      return;
     }
+    setToken(null);
+    setUser(null);
+    setIsAuthenticated(false);
   };
 
   // Force a fresh /userinfo fetch (e.g. after linking a provider)
