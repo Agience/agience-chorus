@@ -54,6 +54,14 @@ describe('AuthProvider — sign out', () => {
       'https://origin.agience.ai/logout?return=https%3A%2F%2Fmy.agience.ai%2F');
   });
 
+  it('as a service provider, replaces the app with a signing-out screen while it leaves', async () => {
+    // 2026-10-12, a tester: the home screen flashed before the login page.
+    runtime.idpUri = 'https://origin.agience.ai/';
+    await signOut();
+    expect(screen.getByRole('status')).toHaveTextContent('Signing out');
+    expect(screen.queryByTestId('authenticated')).toBeNull();
+  });
+
   it('as the IdP itself, signs out locally and goes nowhere', async () => {
     runtime.idpUri = '';
     await signOut();

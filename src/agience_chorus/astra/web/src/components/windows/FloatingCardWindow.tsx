@@ -36,8 +36,8 @@ type Rect = { x: number; y: number; w: number; h: number };
 function ContextPanel({ artifact }: { artifact: Artifact }) {
 	const { artifacts, updateArtifact } = useWorkspace();
 	const isReadOnly = useMemo(
-		() => !artifacts.find((c) => String(c.id) === String(artifact.id)),
-		[artifacts, artifact.id],
+		() => artifact.state === 'archived' || !artifacts.find((c) => String(c.id) === String(artifact.id)),
+		[artifacts, artifact.id, artifact.state],
 	);
 
 	const ctx = useMemo(() => safeParseArtifactContext(artifact.context), [artifact.context]);
@@ -276,8 +276,8 @@ function CollectionsPanel({ artifact }: { artifact: Artifact }) {
 	const [showPicker, setShowPicker] = useState(false);
 
 	const isReadOnly = useMemo(
-		() => !artifacts.find((c) => String(c.id) === String(artifact.id)),
-		[artifacts, artifact.id],
+		() => artifact.state === 'archived' || !artifacts.find((c) => String(c.id) === String(artifact.id)),
+		[artifacts, artifact.id, artifact.state],
 	);
 
 	const committedCollectionIds = useMemo(
@@ -470,10 +470,13 @@ export default function FloatingCardWindow(props: {
 		return getContentType(artifact);
 	}, [artifact]);
 
+	// An archived artifact is read-only until it is restored: the store refuses edits to it.
+	const isArchived = artifact?.state === 'archived';
+
 	// Does this content type support editing?
 	const supportsEdit = useMemo(() => {
-		return contentType?.states?.includes('edit') ?? false;
-	}, [contentType]);
+		return !isArchived && (contentType?.states?.includes('edit') ?? false);
+	}, [contentType, isArchived]);
 
 	// Active panel: content (viewer), context (metadata), collections
 	const [activePanel, setActivePanel] = useState<ActivePanel>('content');
@@ -581,8 +584,8 @@ export default function FloatingCardWindow(props: {
 
 	// Inline-editable title in the window header
 	const isArtifactWritable = useMemo(
-		() => Boolean(artifacts.find((a) => String(a.id) === String(artifactId))),
-		[artifacts, artifactId],
+		() => !isArchived && Boolean(artifacts.find((a) => String(a.id) === String(artifactId))),
+		[artifacts, artifactId, isArchived],
 	);
 	const [localTitle, setLocalTitle] = useState(title);
 
@@ -881,7 +884,7 @@ export default function FloatingCardWindow(props: {
 					<LazyViewer
 						artifact={artifact}
 						mode={contentType?.defaultMode || 'floating'}
-						state={viewState}
+						state={isArchived ? 'view' : viewState}
 						onOpenCollection={onOpenCollection}
 						onOpenArtifact={onOpenArtifact}
 					/>
@@ -1031,6 +1034,23 @@ export default function FloatingCardWindow(props: {
 					</IconButton>
 				</div>
 			</div>
+
+			{isArchived && artifact && (
+				<div
+					className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs border-b bg-rose-50 text-rose-700"
+					data-testid="archived-notice"
+				>
+					<span>Archived — read-only. Restore it to edit.</span>
+					<button
+						type="button"
+						className="px-2 py-0.5 rounded border border-rose-200 bg-white hover:bg-rose-100"
+						onPointerDown={(e) => e.stopPropagation()}
+						onClick={() => { void updateArtifact({ id: String(artifact.id), state: 'live' }); }}
+					>
+						Restore
+					</button>
+				</div>
+			)}
 
 			{/* Body */}
 			<div className="flex-1 overflow-hidden">

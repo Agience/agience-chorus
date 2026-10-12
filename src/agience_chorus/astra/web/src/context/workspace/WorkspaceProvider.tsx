@@ -16,7 +16,7 @@ import { WorkspaceContext } from './WorkspaceContext';
 import { Artifact } from './workspace.types';
 import { useWorkspaces } from '../workspaces/WorkspacesContext';
 import { toast } from 'sonner';
-import { stringifyArtifactContext } from '@/utils/artifactContext';
+import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
 import { midKey, afterKey } from '../../utils/fractional-index';
 import { extractInformation } from '../../api/agent';
 import { errorDetail } from '../../utils/errorDetail';
@@ -71,6 +71,13 @@ function expandToFullWorkspaceOrder(allArtifacts: Artifact[], orderedIdsIn: stri
   return next;
 }
 
+
+/** A card's name for a message: its title, else its filename, else "Untitled". */
+function artifactTitle(a: Artifact | undefined): string {
+  if (!a) return 'Untitled';
+  const ctx = safeParseArtifactContext(a.context);
+  return String(ctx.title || ctx.filename || a.name || 'Untitled');
+}
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { activeWorkspace } = useWorkspaces();
@@ -240,6 +247,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     async (patchIn: Partial<Artifact>): Promise<void> => {
       if (!activeWorkspace?.id) return;
 
+      // An archived artifact is read-only: the store answers an edit to it with 404, and the
+      // refresh after the failure drops it from view with the edit lost. Only restoring it is sent.
+      const current = [...artifacts, ...displayedArtifacts].find(c => String(c.id) === String(patchIn.id));
+      const restoring = patchIn.state === 'live';
+      if (current?.state === 'archived' && !restoring
+          && (typeof patchIn.context !== 'undefined' || typeof patchIn.content !== 'undefined')) {
+        toast.error('This card is archived', { description: 'Restore it to edit it.' });
+        return;
+      }
+      const archiving = patchIn.state === 'archived' && current?.state !== 'archived';
+
       // Optimistic update
       setArtifacts(prev =>
         prev.map(c =>
@@ -266,14 +284,29 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             ? { ...c, ...updated } as Artifact
             : c))
         );
+        if (archiving) {
+          // Archived artifacts leave the workspace's listing, so say where it went and offer the
+          // way back while there is still something on screen to undo.
+          const id = String(patchIn.id);
+          toast(`Archived "${artifactTitle(current)}"`, {
+            description: 'It no longer appears in this workspace.',
+            action: { label: 'Undo', onClick: () => { void updateWorkspaceArtifact(activeWorkspace.id, id, { state: 'live' })
+              .then(() => refreshArtifacts(activeWorkspace.id)).catch(() => {
+                toast.error('Could not restore the card');
+              }); } },
+          });
+        }
       } catch (err) {
         console.error('Failed to update artifact', err);
+        toast.error(archiving ? 'Could not archive the card' : 'Could not save the card', {
+          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+        });
         try {
           await refreshArtifacts(activeWorkspace.id);
         } catch { /* ignore */ }
       }
     },
-    [activeWorkspace?.id, refreshArtifacts]
+    [activeWorkspace?.id, artifacts, displayedArtifacts, refreshArtifacts]
   );
 
   const removeArtifact = useCallback(

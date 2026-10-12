@@ -231,14 +231,16 @@ export default function BrowserHeader({
         </div>
 
         <div className="flex items-center gap-2 ml-4">
-          {/* New Artifact */}
+          {/* New card in the open workspace. Labelled: as a bare "+" it sat beside the tab bar's
+              dashed "+", which creates a workspace, and a tester took it for that. */}
           {!isShowingSearchResults && hasActiveWorkspace && (
             <button
               onClick={onNewArtifact}
-              className="h-10 w-10 inline-flex items-center justify-center rounded bg-purple-600 text-white hover:bg-purple-700"
-              title="New Artifact"
+              className="h-10 px-3 inline-flex items-center gap-1.5 rounded bg-purple-600 text-white text-sm font-medium hover:bg-purple-700"
+              title="New card in this workspace"
             >
               <FiPlus size={16} />
+              New card
             </button>
           )}
 

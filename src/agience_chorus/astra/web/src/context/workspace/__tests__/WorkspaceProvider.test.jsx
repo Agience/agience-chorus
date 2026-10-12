@@ -38,11 +38,11 @@ vi.mock('../../workspaces/WorkspacesContext', () => ({
 }));
 
 vi.mock('sonner', () => ({
-  toast: {
+  toast: Object.assign(vi.fn(), {
     success: vi.fn(),
     error: vi.fn(),
     warning: vi.fn(),
-  }
+  }),
 }));
 
 import {
@@ -336,6 +336,54 @@ describe('WorkspaceProvider', () => {
       });
       
       expect(updateWorkspaceArtifact).toHaveBeenCalledWith('ws-1', '1', { state: 'archived' });
+      // Archived artifacts leave the listing, so archiving says so and offers Undo.
+      expect(toast).toHaveBeenCalledWith(expect.stringContaining('Archived'),
+        expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }));
+    });
+
+    // 2026-10-12, a tester: an archived card opened and edited, then vanished on save with the
+    // PATCH answered 404. An archived artifact is read-only until restored.
+    function ArchivedConsumer() {
+      const workspace = useWorkspace();
+      return (
+        <div>
+          <div data-testid="state">{workspace.artifacts.find(c => c.id === '1')?.state}</div>
+          <button onClick={() => workspace.updateArtifact({ id: '1', content: 'edited' })}>Edit</button>
+          <button onClick={() => workspace.updateArtifact({ id: '1', state: 'live' })}>Restore</button>
+        </div>
+      );
+    }
+
+    async function withArchived() {
+      listWorkspaceArtifacts.mockResolvedValue({ items: [{ ...mockArtifacts[0], state: 'archived' }] });
+      render(<WorkspaceProvider><ArchivedConsumer /></WorkspaceProvider>);
+      await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('archived'));
+    }
+
+    it('refuses an edit to an archived artifact and sends nothing', async () => {
+      await withArchived();
+      await userEvent.setup().click(screen.getByText('Edit'));
+      expect(updateWorkspaceArtifact).not.toHaveBeenCalled();
+      expect(toast.error).toHaveBeenCalledWith('This card is archived', expect.anything());
+    });
+
+    it('still restores an archived artifact', async () => {
+      updateWorkspaceArtifact.mockResolvedValueOnce({ ...mockArtifacts[0], state: 'live' });
+      await withArchived();
+      await userEvent.setup().click(screen.getByText('Restore'));
+      expect(updateWorkspaceArtifact).toHaveBeenCalledWith('ws-1', '1', { state: 'live' });
+    });
+
+    it('says when a save fails instead of failing silently', async () => {
+      updateWorkspaceArtifact.mockRejectedValueOnce(new Error('Not found'));
+      function SaveConsumer() {
+        const workspace = useWorkspace();
+        return <button onClick={() => workspace.updateArtifact({ id: '1', content: 'x' })}>Save</button>;
+      }
+      render(<WorkspaceProvider><SaveConsumer /></WorkspaceProvider>);
+      await waitFor(() => expect(listWorkspaceArtifacts).toHaveBeenCalled());
+      await userEvent.setup().click(screen.getByText('Save'));
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not save the card', expect.anything()));
     });
   });
 

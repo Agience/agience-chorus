@@ -360,7 +360,7 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
                   Cancel
                 </button>
               </>
-            ) : !isCollectionArtifact ? (
+            ) : !isCollectionArtifact && artifact.state !== 'archived' ? (
               <button
                 onClick={() => setIsEditing(true)}
                 className="px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors"

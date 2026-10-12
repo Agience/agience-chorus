@@ -5,6 +5,15 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-12
+
+### Changed
+- An archived artifact opens read-only in the web app: its window offers no edit mode and no title or context editing, says it is archived, and has a Restore button; the side preview offers no Edit. The workspace store refuses any edit to an archived artifact other than restoring it, with a notice. Mantle answers such an edit with 404, and the card used to vanish with the edit lost.
+- Archiving a card says so, with an Undo that restores it: an archived card leaves the workspace's listing.
+- A failed save shows an error instead of silently reloading the workspace.
+- Signing out as a service provider replaces the app with a "Signing out…" screen while the page goes to the IdP, so the workspace no longer shows in between.
+- The open workspace's create button is labelled "New card", where it was an unlabelled "+" beside the tab bar's "+" for a new workspace.
+
 ## [0.2.2] - 2026-10-11
 
 ### Changed

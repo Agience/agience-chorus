@@ -12,6 +12,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Set while the page leaves for the IdP's `/logout`: the workspace is replaced at once, so it is
+  // not left on screen (and usable) while that navigation completes.
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     // SP return path: Origin (the IdP) sends us back with the token in the URL
@@ -136,6 +139,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const { idpUri } = getRuntimeConfig();
     const idp = (idpUri || '').replace(/\/$/, '');
     if (idp && !idp.startsWith(window.location.origin)) {
+      setSigningOut(true);
       window.location.assign(`${idp}/logout?return=${encodeURIComponent(`${window.location.origin}/`)}`);
       return;
     }
@@ -194,7 +198,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     <AuthContext.Provider
       value={{ isAuthenticated, user, login, startLinkProvider, unlinkProvider, logout, loading, setAuthData, refreshUser }}
     >
-      {children}
+      {signingOut ? (
+        <div className="flex h-screen items-center justify-center text-sm text-gray-500" role="status">
+          Signing out…
+        </div>
+      ) : children}
     </AuthContext.Provider>
   );
 };
