@@ -572,6 +572,27 @@ describe('WorkspaceProvider', () => {
     });
   });
 
+  describe('A new card that is edited', () => {
+    it('is no longer a new card, so closing its window cannot discard it', async () => {
+      const { markNewCard, takeNewCard } = await import('../../../utils/untitled');
+      updateWorkspaceArtifact.mockResolvedValueOnce({ id: '1', content: 'x' });
+      function EditConsumer() {
+        const workspace = useWorkspace();
+        return <button onClick={() => workspace.updateArtifact({ id: '1', content: 'x' })}>Edit</button>;
+      }
+      const user = userEvent.setup();
+      render(
+        <WorkspaceProvider>
+          <EditConsumer />
+        </WorkspaceProvider>
+      );
+      await waitFor(() => expect(listWorkspaceArtifacts).toHaveBeenCalled());
+      markNewCard('1', 'Untitled Text');
+      await user.click(screen.getByText('Edit'));
+      expect(takeNewCard('1')).toBeUndefined();
+    });
+  });
+
   describe('Create failure', () => {
     it('toasts the server detail when createArtifact fails', async () => {
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});

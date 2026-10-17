@@ -15,6 +15,7 @@ import FloatingCardWindow from "../windows/FloatingCardWindow";
 import { getContentType } from "@/registry/content-types";
 import { resolveSearchHitsToArtifacts } from "../../utils/resolveSearchHits";
 import { isUntouchedNewCard, takeNewCard } from "@/utils/untitled";
+import { getArtifact } from "@/api/artifacts";
 
 /** How long after a new card's window closes it is judged: its editors save on close, and the
  * saves are applied to the store at once, so this only has to outlast a render. */
@@ -118,8 +119,15 @@ function MainLayout() {
     if (defaultTitle === undefined) return;
     window.setTimeout(() => {
       const card = latestArtifactsRef.current.find((a) => String(a.id) === artifactId);
-      // Deleted for good, not moved to Trash: there is nothing in it to restore.
-      if (card && isUntouchedNewCard(card, defaultTitle)) void discardArtifact(artifactId);
+      if (!card || !isUntouchedNewCard(card, defaultTitle)) return;
+      // Deleted for good, not moved to Trash, so the store's own copy decides: a card is discarded
+      // only if the server still holds it empty under its default title. 2026-10-17, on staging:
+      // a card edited just before its window closed was deleted from a stale local copy.
+      void getArtifact(artifactId)
+        .then((stored) => {
+          if (stored && isUntouchedNewCard(stored, defaultTitle)) void discardArtifact(artifactId);
+        })
+        .catch(() => { /* unread is not untouched: keep it */ });
     }, DISCARD_UNTOUCHED_AFTER_MS);
   }, [discardArtifact]);
 

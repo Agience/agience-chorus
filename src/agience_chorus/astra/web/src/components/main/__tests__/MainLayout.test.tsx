@@ -10,6 +10,7 @@ const unselectAllArtifactsMock = vi.fn();
 const addExistingArtifactMock = vi.fn();
 const createArtifactMock = vi.fn();
 const discardArtifactMock = vi.fn();
+const getArtifactMock = vi.fn();
 // The store's cards: one stable array the tests fill, for the reason given below.
 const STORE_ARTIFACTS: Artifact[] = [];
 
@@ -29,6 +30,10 @@ vi.mock('../../../hooks/useWorkspace', () => ({
     createArtifact: createArtifactMock,
     discardArtifact: discardArtifactMock,
   }),
+}));
+
+vi.mock('@/api/artifacts', () => ({
+  getArtifact: (...args: unknown[]) => getArtifactMock(...args),
 }));
 
 vi.mock('../../../hooks/useWorkspaces', () => ({
@@ -223,7 +228,9 @@ describe('MainLayout', () => {
     ['keeps a new card that was renamed', '', 'Plan', false],
   ])('%s', async (_name, content, title, discarded) => {
     markNewCard('new-artifact-1', 'Untitled Text');
-    STORE_ARTIFACTS.push({ id: 'new-artifact-1', content, context: JSON.stringify({ title }), state: 'live' } as Artifact);
+    const card = { id: 'new-artifact-1', content, context: JSON.stringify({ title }), state: 'live' } as Artifact;
+    STORE_ARTIFACTS.push(card);
+    getArtifactMock.mockResolvedValue(card);
     render(<MainLayout />);
     await screen.findByTestId('header');
     fireEvent.click(screen.getByTestId('create-artifact'));
@@ -234,6 +241,27 @@ describe('MainLayout', () => {
       await new Promise((r) => setTimeout(r, 1300));
       expect(discardArtifactMock).not.toHaveBeenCalled();
     }
+  });
+
+  // 2026-10-17, on staging: a card edited just before its window closed was deleted from a stale
+  // local copy. The server's copy decides.
+  it.each([
+    ['keeps a card the server holds with content', { content: 'typed just before closing' }],
+    ['keeps a card the server holds renamed', { context: JSON.stringify({ title: 'Plan' }) }],
+    ['keeps a card the server cannot be asked about', null],
+  ])('%s', async (_name, server) => {
+    markNewCard('new-artifact-1', 'Untitled Text');
+    const local = { id: 'new-artifact-1', content: '', context: JSON.stringify({ title: 'Untitled Text' }), state: 'live' } as Artifact;
+    STORE_ARTIFACTS.push(local);
+    if (server) getArtifactMock.mockResolvedValue({ ...local, ...server });
+    else getArtifactMock.mockRejectedValue(new Error('offline'));
+    render(<MainLayout />);
+    await screen.findByTestId('header');
+    fireEvent.click(screen.getByTestId('create-artifact'));
+    fireEvent.click(await screen.findByText('close new-artifact-1'));
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(getArtifactMock).toHaveBeenCalledWith('new-artifact-1');
+    expect(discardArtifactMock).not.toHaveBeenCalled();
   });
 
   it('renders the two-panel layout with search and workspace panels', async () => {

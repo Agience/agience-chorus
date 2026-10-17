@@ -105,7 +105,7 @@ export const EMPTY_STATE = {
   CREATE_WORKSPACE: 'Create a workspace',
   NEW_CARD: 'New card',
   NO_SOURCE_TITLE: 'No workspace docked',
-  NO_SOURCE_BODY: 'Add a card to your Inbox or create a workspace. You can also drop search results here, or search for "Inbox" to dock it.',
+  NO_SOURCE_BODY: 'Create a workspace or find one and dock it in the header above.',
   NO_ARTIFACTS_TITLE: 'Nothing here yet',
   NO_ARTIFACTS_INBOX_BODY: 'This is your Inbox. Create a card right here, drop a file, or double-click an empty space.',
   NO_ARTIFACTS_BODY: 'Create a card, drop a file, or double-click an empty space.',

@@ -30,6 +30,7 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 - Delete moves a card to Trash instead of deleting it: the confirmation says so, and a toast offers Undo and View Trash. A bulk delete announces once.
 - Trash, from the trash button in the header: what you deleted in the last 30 days, when each goes for good, with Restore and Delete permanently. The Help glossary describes it.
 - A new card closed untouched is still deleted for good, not moved to Trash.
+- A new card is discarded on close only when the server still holds it empty under its default title, and an edited card is never a new card again. A card edited just before its window closed was deleted from a stale local copy.
 
 ### Added
 - Sage declares the `text/x-wordnet` type once: its describer (`offer_template`, `field_source`) and its `offer`, which names a synset's lemmas as its names so Mantle indexes them.
