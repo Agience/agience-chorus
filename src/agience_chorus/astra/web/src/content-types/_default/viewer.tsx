@@ -74,7 +74,9 @@ export default function DefaultViewer({
 
   const displayContent = artifact.content ?? '';
 
-  const description = typeof parsedContext.description === 'string' ? parsedContext.description : undefined;
+  // A container keeps its name and description on the artifact itself, not in its context.
+  const description = typeof parsedContext.description === 'string' ? parsedContext.description
+    : (artifact.description || undefined);
   const summary = typeof parsedContext.summary === 'string' ? parsedContext.summary : undefined;
   const tags = Array.isArray(parsedContext.tags) ? parsedContext.tags.filter((t): t is string => typeof t === 'string') : [];
 
@@ -110,7 +112,7 @@ export default function DefaultViewer({
         </div>
         <div className="min-w-0">
           <h1 className="text-lg font-semibold text-gray-900 leading-tight">
-            {parsedContext.title || parsedContext.name || 'Untitled'}
+            {parsedContext.title || parsedContext.name || artifact.name || 'Untitled'}
           </h1>
           <span className="text-xs text-gray-400">{contentType.label}</span>
         </div>

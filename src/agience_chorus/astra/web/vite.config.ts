@@ -54,7 +54,7 @@ function discoverContentTypeRoots() {
   // build quietly used a committed snapshot instead: 57 files against crystal's 59, two
   // `behaviors.json` already diverged, and no gate anywhere compared them.
   const root = firstExisting([
-    resolve(__dirname, '../../../../../agience-crystal/src/types'),
+    resolve(__dirname, '../../../../../agience-crystal/src/crystal/types'),
   ])
   return root ? [root] : []
 }

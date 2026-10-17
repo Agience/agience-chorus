@@ -61,7 +61,7 @@ function compiledInContentTypes(): Set<string> {
   // The same five-up path `discoverContentTypeRoots` uses. A wrong level there silently fell back
   // to a stale committed snapshot; here it would silently empty this set and make every published
   // type look runtime-only — the failure direction that manufactures a passing test.
-  const root = resolve(HERE, '../../../../../../agience-crystal/src/types');
+  const root = resolve(HERE, '../../../../../../agience-crystal/src/crystal/types');
   if (!existsSync(root)) {
     throw new Error(`build-time type root not found at ${root} — this test cannot tell compiled-in types from hydrated ones`);
   }

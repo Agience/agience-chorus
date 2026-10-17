@@ -27,6 +27,10 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 - The multi-select toolbar's Drop reads "Remove from <workspace or collection>", and removes through the workspace, so a bulk removal stays removed.
 - A card with a blank title shows the first line of its content.
 - A card's Type in the Info panel is read-only.
+- Every type inherits from Artifact (`*/*`): an artifact whose type nothing declares shows as an Artifact, never as a File, and an Agience or `+json` data type never falls to File. File is the catch-all for file formats only.
+- A card's Collections panel lists every container it is in, workspaces included, and names a container it has not loaded by reading it.
+- A container opened as a card shows its own name and description.
+- The web app's build reads the builtin types from `agience-crystal/src/crystal/types`.
 - Delete moves a card to Trash instead of deleting it: the confirmation says so, and a toast offers Undo and View Trash. A bulk delete announces once.
 - Trash, from the trash button in the header: what you deleted in the last 30 days, when each goes for good, with Restore and Delete permanently. The Help glossary describes it.
 - A new card closed untouched is still deleted for good, not moved to Trash.

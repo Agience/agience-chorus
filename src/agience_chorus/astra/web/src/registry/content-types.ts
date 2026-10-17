@@ -250,7 +250,7 @@ const FALLBACK_TYPE: ContentTypeDefinition = hydrateDefinition(CONTENT_TYPE_FALL
 
 /** Derive a stable id from a MIME — must match the build plugin's contentTypeToId. */
 function deriveTypeId(mime: string): string {
-  if (mime === '*/*') return 'file';
+  if (mime === '*/*') return 'artifact';
   if (mime.endsWith('/*')) return mime.slice(0, -2);
   const m = mime.match(/^application\/vnd\.agience\.([\w-]+?)(?:\+\w+)?$/);
   if (m) return m[1];
@@ -328,18 +328,30 @@ export function setRuntimeContentTypes(
 // MIME resolution
 // ──────────────────────────────────────────────────────────────────────────────
 
+/** A structured data type rather than a file format: an Agience type, or any `+json`. */
+function isDataType(mime: string): boolean {
+  return mime.startsWith('application/vnd.agience.') || mime.endsWith('+json');
+}
+
+// The root type, `*/*` (Artifact): what every type inherits from, and what an unknown type is.
+function rootType(): ContentTypeDefinition {
+  return CONTENT_TYPES.find((t) => t.content_type === '*/*') ?? FALLBACK_TYPE;
+}
+
 /**
  * Resolve the best ContentTypeDefinition for a given MIME string.
  *
  * Priority:
  *   1. Exact match (e.g. "text/markdown")
- *   2. Category wildcard (e.g. "text/*" for any "text/...")
- *   3. Application wildcard ("application/*") as catch-all binary file
- *   4. Global fallback
+ *   2. Category wildcard (e.g. "text/*" for any "text/..."); `application/*` (File) only for a
+ *      file format, never for an Agience or `+json` data type
+ *   3. The root type, `*` + `/*` (Artifact)
+ *
+ * File is not a default: an artifact whose type nothing declares is an artifact.
  */
 function findForContentType(contentType: string): ContentTypeDefinition {
   const normalized = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
-  if (!normalized) return FALLBACK_TYPE;
+  if (!normalized) return rootType();
 
   // 1. Exact match
   const exact = CONTENT_TYPES.find((t) => t.content_type === normalized);
@@ -347,16 +359,13 @@ function findForContentType(contentType: string): ContentTypeDefinition {
 
   // 2. Category wildcard
   const category = normalized.split('/')[0];
-  const wildcard = CONTENT_TYPES.find((t) => t.content_type === `${category}/*`);
-  if (wildcard) return wildcard;
-
-  // 3. application/* as last-resort for non-matched binary formats
-  if (category !== 'application') {
-    const appFallback = CONTENT_TYPES.find((t) => t.content_type === 'application/*');
-    if (appFallback) return appFallback;
+  if (!(category === 'application' && isDataType(normalized))) {
+    const wildcard = CONTENT_TYPES.find((t) => t.content_type === `${category}/*`);
+    if (wildcard) return wildcard;
   }
 
-  return FALLBACK_TYPE;
+  // 3. The root
+  return rootType();
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -366,7 +375,7 @@ function findForContentType(contentType: string): ContentTypeDefinition {
 /** Returns the ContentTypeDefinition for a given artifact using canonical top-level content_type. */
 export function getContentType(artifact: Artifact): ContentTypeDefinition {
   if (artifact.content_type) return findForContentType(artifact.content_type);
-  return FALLBACK_TYPE;
+  return rootType();
 }
 
 /** Returns the ContentTypeDefinition whose id or MIME matches the given value. */

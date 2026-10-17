@@ -21,7 +21,7 @@ import { CollectionPicker } from '@/components/modals/CollectionPicker';
 import { BindingPicker } from '@/components/modals/BindingPicker';
 import { useDebouncedSave } from '@/hooks/useDebouncedSave';
 import { addArtifactToCollection, removeArtifactFromCollection } from '@/api/collections';
-import { getChildren } from '@/api/artifacts';
+import { getArtifact, getChildren } from '@/api/artifacts';
 import { readUiResource } from '@/api/mcp';
 import { toast } from 'sonner';
 import { COLLECTION_CONTENT_TYPE, WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
@@ -280,13 +280,45 @@ function CollectionsPanel({ artifact }: { artifact: Artifact }) {
 		[artifact.committed_collection_ids],
 	);
 
-	const memberships = useMemo(() => {
-		const collectionLabelMap = buildCollectionLabelMap([...artifacts, ...displayedArtifacts], collections);
+	// Every container it is in, workspaces included: a workspace is a collection is an artifact.
+	const containerIds = useMemo(
+		() => (Array.isArray(artifact.container_ids) ? artifact.container_ids : committedCollectionIds),
+		[artifact.container_ids, committedCollectionIds],
+	);
+	const { workspaces = [] } = useWorkspaces();
+	const [fetchedNames, setFetchedNames] = useState<Record<string, string>>({});
 
-		return committedCollectionIds.map((id) => {
-			return { id, name: resolveCollectionLabel(id, collectionLabelMap), status: 'member' as const };
-		});
-	}, [committedCollectionIds, collections, artifacts, displayedArtifacts]);
+	const labelMap = useMemo(() => {
+		const map = buildCollectionLabelMap([...artifacts, ...displayedArtifacts], collections);
+		for (const w of workspaces) if (w.id && w.name && !map.has(String(w.id))) map.set(String(w.id), w.name);
+		for (const [id, name] of Object.entries(fetchedNames)) if (!map.has(id)) map.set(id, name);
+		return map;
+	}, [artifacts, displayedArtifacts, collections, workspaces, fetchedNames]);
+
+	// A container this view has not loaded is named by reading it.
+	useEffect(() => {
+		const unknown = containerIds.filter((id) => !labelMap.has(String(id)) && !(String(id) in fetchedNames));
+		if (!unknown.length) return;
+		let cancelled = false;
+		void Promise.all(unknown.map((id) => getArtifact(String(id))
+			.then((a) => [String(id), a?.name || safeParseArtifactContext(a?.context).title || ''] as const)
+			.catch(() => [String(id), ''] as const)))
+			.then((pairs) => {
+				if (cancelled) return;
+				setFetchedNames((prev) => {
+					const next = { ...prev };
+					for (const [id, name] of pairs) next[id] = String(name || '');
+					return next;
+				});
+			});
+		return () => { cancelled = true; };
+	}, [containerIds, labelMap, fetchedNames]);
+
+	const memberships = useMemo(() => containerIds.map((id) => ({
+		id,
+		name: labelMap.get(String(id)) || resolveCollectionLabel(id, labelMap),
+		status: 'member' as const,
+	})), [containerIds, labelMap]);
 
 	const handleSelectCollections = async (collectionIds: string[]) => {
 		const currentIds = new Set(committedCollectionIds);

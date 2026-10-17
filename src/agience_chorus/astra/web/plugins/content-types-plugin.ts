@@ -237,9 +237,8 @@ function scanTypesRoot(
       const uiJson = typeJson?.ui;
 
       // Derive content type from type.json.content_type or from the folder path
-      const folderContentType = sub === '_wildcard'
-        ? `${top}/*`
-        : `${top}/${sub}`;
+      // `_wildcard` is `*` at either level: `_wildcard/_wildcard` is the root `*/*`.
+      const folderContentType = `${top === '_wildcard' ? '*' : top}/${sub === '_wildcard' ? '*' : sub}`;
       const contentType = (typeJson?.content_type ?? folderContentType).trim();
 
       // Strip the embedded "ui" key so it doesn't pollute the top-level spread
@@ -317,7 +316,7 @@ function resolveOne(
 
 /** Derive a stable slug from a MIME string. */
 function contentTypeToId(mime: string): string {
-  if (mime === '*/*') return 'file';
+  if (mime === '*/*') return 'artifact';
   if (mime.endsWith('/*')) return mime.slice(0, -2);
   const vendorMatch = mime.match(/^\/application\/vnd\.agience\.([\w-]+?)(?:\+\w+)?$/) ||
     mime.match(/^application\/vnd\.agience\.([\w-]+?)(?:\+\w+)?$/);
@@ -325,15 +324,17 @@ function contentTypeToId(mime: string): string {
   return mime.replace('/', '-').replace(/[^a-z0-9-]/gi, '-').toLowerCase();
 }
 
+// The root type, `*/*`: an artifact. Crystal's `types/_wildcard/_wildcard` declares it and every other
+// type inherits from it; this copy stands in only until the platform's catalogue is loaded.
 const FALLBACK: ResolvedContentType = {
-  id: 'file',
+  id: 'artifact',
   content_type: '*/*',
   is_wildcard: true,
   wildcard_prefix: null,
   extensions: [],
-  description: 'Unknown file type',
-  label: 'File',
-  icon: 'file',
+  description: 'An artifact: content plus its context',
+  label: 'Artifact',
+  icon: 'package',
   color: '#9ca3af',
   badge_class: '',
   tile_class: '',

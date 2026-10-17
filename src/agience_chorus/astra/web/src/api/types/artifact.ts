@@ -43,6 +43,9 @@ export interface ArtifactResponse {
    * it lists memberships and has nothing to do with artifact state.)
    */
   committed_collection_ids?: string[];
+  /** Every container holding this artifact, workspaces included: a workspace is a collection is an
+   * artifact. `committed_collection_ids` leaves workspaces out, for the sharing checks. */
+  container_ids?: string[];
   /** True when at least one child artifact exists (via parent_id edge). */
   has_children?: boolean;
   /** Number of child artifacts, if available. */

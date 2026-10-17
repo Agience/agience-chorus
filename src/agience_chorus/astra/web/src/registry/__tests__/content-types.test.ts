@@ -172,14 +172,14 @@ vi.mock('virtual:content-types', () => ({
     },
   ],
   CONTENT_TYPE_FALLBACK: {
-    id: 'file',
-    mime: '*/*',
+    id: 'artifact',
+    content_type: '*/*',
     is_wildcard: true,
     wildcard_prefix: null,
     extensions: [],
-    description: 'Unknown file type',
-    label: 'File',
-    icon: 'file',
+    description: 'An artifact: content plus its context',
+    label: 'Artifact',
+    icon: 'package',
     color: '#9ca3af',
     badge_class: '',
     tile_class: '',
@@ -197,7 +197,7 @@ vi.mock('virtual:content-types', () => ({
   },
 }));
 
-import { getContentType } from '../content-types';
+import { getContentType, setRuntimeContentTypes } from '../content-types';
 import { resolveViewer } from '../viewer-map';
 import type { Artifact } from '@/context/workspace/workspace.types';
 
@@ -240,7 +240,45 @@ describe('content type registry', () => {
     expect(imageType.viewer).toBe(resolveViewer('image'));
   });
 
-  it('falls back when artifact.content_type is missing', () => {
-    expect(getContentType(makeArtifact(undefined, '{not-json')).id).toBe('file');
+  it('an artifact with no content type is an Artifact', () => {
+    expect(getContentType(makeArtifact(undefined, '{not-json')).id).toBe('artifact');
+  });
+});
+
+describe('everything inherits from Artifact (*/*)', () => {
+  // The platform's catalogue as Crystal serves it: the root, File, and the containers.
+  const entry = (content_type: string, label: string, extra: Record<string, unknown> = {}) => ({
+    content_type, definition: { content_type, ui: { label, ...extra } },
+  });
+
+  function loadCatalogue() {
+    setRuntimeContentTypes([
+      entry('*/*', 'Artifact'),
+      entry('application/*', 'File'),
+      entry('application/vnd.agience.collection+json', 'Collection', { is_container: true }),
+      entry('application/vnd.agience.workspace+json', 'Workspace', { is_container: true }),
+      entry('text/*', 'Text'),
+    ]);
+  }
+
+  it('a workspace and a collection resolve to their own types', () => {
+    loadCatalogue();
+    expect(getContentType(makeArtifact('application/vnd.agience.workspace+json')).label).toBe('Workspace');
+    expect(getContentType(makeArtifact('application/vnd.agience.collection+json')).label).toBe('Collection');
+  });
+
+  // 2026-10-17, staging: a website lead (`application/vnd.agience.lead+json`, a type no persona
+  // declares) showed as a File.
+  it('an Agience or +json type nothing declares is an Artifact, never a File', () => {
+    loadCatalogue();
+    expect(getContentType(makeArtifact('application/vnd.agience.lead+json')).label).toBe('Artifact');
+    expect(getContentType(makeArtifact('application/ld+json')).label).toBe('Artifact');
+  });
+
+  it('a file format nothing declares is a File, and an unknown category is an Artifact', () => {
+    loadCatalogue();
+    expect(getContentType(makeArtifact('application/zip')).label).toBe('File');
+    expect(getContentType(makeArtifact('text/x-anything')).label).toBe('Text');
+    expect(getContentType(makeArtifact('model/gltf+binary')).label).toBe('Artifact');
   });
 });
