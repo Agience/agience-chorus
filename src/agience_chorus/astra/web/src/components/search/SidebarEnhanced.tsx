@@ -72,8 +72,6 @@ interface SidebarEnhancedProps {
   onSearchClear?: () => void;
   searchSortMode?: 'relevance' | 'recency';
   onSearchSortChange?: (mode: 'relevance' | 'recency') => void;
-  searchPrecision?: number;
-  onSearchPrecisionChange?: (value: number) => void;
   clearSearchTrigger?: number;
   searchResults?: SearchResponse | null;
 }
@@ -105,8 +103,6 @@ export default function SidebarEnhanced({
   onSearchClear,
   searchSortMode,
   onSearchSortChange,
-  searchPrecision,
-  onSearchPrecisionChange,
   clearSearchTrigger,
   searchResults,
 }: SidebarEnhancedProps) {
@@ -143,7 +139,6 @@ export default function SidebarEnhanced({
 
   // Part of the sidebar search prop contract but not read by this component.
   void onSearchSortChange;
-  void onSearchPrecisionChange;
   
   // Convert MCP tools to Artifact format for drawer display
   const toolsToArtifacts = useCallback((serverId: string): Artifact[] => {
@@ -848,8 +843,6 @@ export default function SidebarEnhanced({
             onResults={onSearchResults}
             onClear={onSearchClear}
             sortMode={searchSortMode}
-            precision={searchPrecision}
-            onPrecisionChange={onSearchPrecisionChange}
             clearTrigger={clearSearchTrigger}
           />
         </div>

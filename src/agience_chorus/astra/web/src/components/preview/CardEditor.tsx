@@ -257,9 +257,9 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
   const handleDelete = async () => {
     if (canDelete) {
       const confirmed = await dangerConfirm.confirm({
-        title: CARD_CONFIRM.DELETE_PERMANENT_TITLE,
-        description: CARD_CONFIRM.DELETE_PERMANENT_DESCRIPTION,
-        confirmLabel: CARD_CONFIRM.DELETE_PERMANENT_CONFIRM,
+        title: CARD_CONFIRM.DELETE_TITLE,
+        description: CARD_CONFIRM.DELETE_DESCRIPTION,
+        confirmLabel: CARD_CONFIRM.DELETE_CONFIRM,
         cancelLabel: BUTTON_LABELS.CANCEL
       });
       if (!confirmed) return;

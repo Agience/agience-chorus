@@ -7,6 +7,7 @@ import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useCollections } from '@/hooks/useCollections';
 import type { Artifact } from '@/context/workspace/workspace.types';
 import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
+import { titleOrFallback } from '@/utils/untitled';
 import type { ArtifactContext } from '@/utils/artifactContext';
 import { getContentType } from '@/registry/content-types';
 import type { ContentTypeDefinition } from '@/registry/content-types';
@@ -63,7 +64,7 @@ function ContextPanel({ artifact }: { artifact: Artifact }) {
 		onSave: async () => {
 			const updatedContext: ArtifactContext = {
 				...ctx,
-				title: editTitle,
+				title: titleOrFallback(editTitle, artifact.content, ctx.title || ctx.filename || ''),
 				description: editDescription,
 				content_type: editContentType || undefined,
 				tags: editTags,
@@ -245,17 +246,9 @@ function ContextPanel({ artifact }: { artifact: Artifact }) {
 				)}
 				<div className="flex items-center gap-2 text-xs text-gray-500">
 					<span className="font-medium">Type:</span>
-					{isReadOnly ? (
-						<span>{editContentType || 'Not set'}</span>
-					) : (
-						<input
-							type="text"
-							value={editContentType}
-							onChange={(e) => setEditContentType(e.target.value)}
-							className="flex-1 px-1.5 py-0.5 text-xs border border-gray-300 rounded focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-							placeholder="e.g. text/markdown"
-						/>
-					)}
+					{/* Shown, not edited: a type is what the artifact is, and a free-text MIME field
+					    accepted anything. */}
+					<span>{editContentType || 'Not set'}</span>
 				</div>
 				{ctx.size && (
 					<div className="flex items-center gap-2 text-xs text-gray-500">
@@ -601,15 +594,16 @@ export default function FloatingCardWindow(props: {
 		onSave: async () => {
 			if (!artifact) return;
 			const ctx = safeParseArtifactContext(artifact.context);
+			const savedTitle = titleOrFallback(localTitle, artifact.content, ctx.title || ctx.filename || '');
 			await updateArtifact({
 				id: String(artifact.id),
-				context: stringifyArtifactContext({ ...ctx, title: localTitle }),
+				context: stringifyArtifactContext({ ...ctx, title: savedTitle }),
 			});
 			const linkedWorkspaceId =
 				(ctx.workspace_id as string | undefined) ||
 				(ctx.workspaceId as string | undefined);
 			if (linkedWorkspaceId) {
-				await updateWorkspace({ id: linkedWorkspaceId, name: localTitle });
+				await updateWorkspace({ id: linkedWorkspaceId, name: savedTitle });
 			}
 		},
 	});

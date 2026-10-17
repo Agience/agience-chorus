@@ -38,9 +38,19 @@ export function updateArtifact(
   return patch(`/artifacts/${artifactId}`, updates);
 }
 
-/** Delete an artifact. */
+/** Delete an artifact for good. Delete as a person means it is {@link trashArtifact}. */
 export function deleteArtifact(artifactId: string): Promise<void> {
   return del(`/artifacts/${artifactId}`);
+}
+
+/** Move an artifact to the caller's Trash: archived, and deleted for good after 30 days. */
+export function trashArtifact(artifactId: string): Promise<ArtifactResponse> {
+  return post(`/artifacts/${artifactId}/trash`);
+}
+
+/** The caller's Trash, most recently trashed first; each item carries `purge_after`. */
+export function listTrash(): Promise<ArtifactResponse[]> {
+  return getList(`/artifacts/trash`);
 }
 
 /** Fetch child artifacts of a parent artifact. */

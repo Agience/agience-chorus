@@ -7,7 +7,9 @@ import { CollectionPicker } from '../modals/CollectionPicker';
 import { BulkTagDialog, type BulkTagApplyRequest } from '../modals/BulkTagDialog';
 import { addArtifactToCollection } from '../../api/collections';
 import { useConfirm } from '../../context/dialog/useConfirm';
-import { BULK_CONFIRM, BUTTON_LABELS } from '@/constants/strings';
+import { BULK_CONFIRM, BUTTON_LABELS, TRASH_RETENTION_DAYS } from '@/constants/strings';
+import { noun } from '@/product/copy';
+import { toast } from 'sonner';
 import { canDeleteArtifact } from '@/utils/artifact-permissions';
 import { useCurrentUserId } from '@/hooks/useCurrentUserId';
 import { getContentType } from '@/registry/content-types';
@@ -197,20 +199,24 @@ function MultiSelectSummary({ count, onClose }: { count: number; onClose?: () =>
     const confirmed = await dangerConfirm.confirm({
       title: BULK_CONFIRM.DELETE_TITLE(count),
       description: BULK_CONFIRM.DELETE_DESCRIPTION(count),
-      confirmLabel: BUTTON_LABELS.DELETE,
+      confirmLabel: BULK_CONFIRM.DELETE_CONFIRM,
       cancelLabel: BUTTON_LABELS.CANCEL
     });
     
     if (confirmed) {
-      // Destroy what the user may delete; unlink the rest from the workspace.
+      // Move to Trash what the user may delete; unlink the rest from the workspace.
+      let trashed = 0;
       for (const artifactId of selectedArtifactIds) {
         const artifact = artifacts.find(c => String(c.id) === artifactId);
         if (artifact && canDeleteArtifact(artifact, currentUserId)) {
-          await deleteArtifact(artifactId);
+          if (await deleteArtifact(artifactId, { announce: false })) trashed += 1;
         } else {
           await removeArtifact(artifactId);
         }
       }
+      if (trashed) toast(`Moved ${trashed} ${noun(trashed).toLowerCase()} to Trash`, {
+        description: `Restore ${trashed === 1 ? 'it' : 'them'} from Trash within ${TRASH_RETENTION_DAYS} days.`,
+      });
       unselectAllArtifacts();
       onClose?.();
     }

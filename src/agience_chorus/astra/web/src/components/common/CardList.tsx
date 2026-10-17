@@ -34,6 +34,8 @@ interface CardListProps {
   /** Source context for drag operations */
   sourceWorkspaceId?: string;
   sourceCollectionId?: string;
+  /** What to call the container in labels; defaults to "collection" or "workspace". */
+  containerNoun?: string;
   /** Callback for artifact clicks (e.g., single-select or multi-select with Shift/Cmd) */
   onArtifactMouseDown?: (id: string, e: React.MouseEvent | React.DragEvent) => void;
   /** Returns whether an artifact is currently selected */
@@ -89,6 +91,7 @@ export default function CardList({
   artifactCountsById = {},
   sourceWorkspaceId,
   sourceCollectionId,
+  containerNoun,
   onArtifactMouseDown,
   isSelected,
   onReorder,
@@ -279,7 +282,7 @@ export default function CardList({
         ids,
       };
 
-      const removeLabel = sourceCollectionId ? 'Remove from collection' : 'Remove from workspace';
+      const removeLabel = `Remove from ${containerNoun ?? (sourceCollectionId ? 'collection' : 'workspace')}`;
 
       elements.push(
         <div
@@ -328,6 +331,7 @@ export default function CardList({
     return elements;
   }, [
     artifacts,
+    containerNoun,
     sourceWorkspaceId,
     sourceCollectionId,
     selectable,

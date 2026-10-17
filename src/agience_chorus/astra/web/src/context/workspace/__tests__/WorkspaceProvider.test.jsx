@@ -17,6 +17,10 @@ vi.mock('../../../api/workspaces', () => ({
   subscribeWorkspaceEvents: vi.fn(() => () => {}),
 }));
 
+vi.mock('../../../api/artifacts', () => ({
+  trashArtifact: vi.fn(),
+}));
+
 vi.mock('../../../hooks/useAuth', () => ({
   useAuth: () => ({
     user: { id: 'user-1', email: 'test@example.com' }
@@ -51,8 +55,10 @@ import {
   updateWorkspaceArtifact,
   removeWorkspaceArtifact,
   deleteWorkspaceArtifact,
+  subscribeWorkspaceEvents,
 } from '../../../api/workspaces';
 import { toast } from 'sonner';
+import { trashArtifact } from '../../../api/artifacts';
 
 import { extractInformation } from '../../../api/agent';
 
@@ -298,6 +304,32 @@ describe('WorkspaceProvider', () => {
     });
   });
 
+  // 2026-10-13, a tester: a new card sometimes showed twice until refresh. The server's "created"
+  // event can arrive before the create request answers; both added the card.
+  it('adds a created card once when its event arrives before the create response', async () => {
+    let handlers;
+    subscribeWorkspaceEvents.mockImplementation((_id, h) => { handlers = h; return () => {}; });
+    const created = mockArtifact({ id: '9', title: 'Raced', state: 'live' });
+    addArtifactToWorkspace.mockImplementationOnce(async () => {
+      handlers.onArtifactCreated(created);
+      return created;
+    });
+    function CreateConsumer() {
+      const workspace = useWorkspace();
+      return (
+        <div>
+          <div data-testid="count-9">{workspace.artifacts.filter(c => c.id === '9').length}</div>
+          <button onClick={() => workspace.createArtifact({ content: 'x' })}>Create</button>
+        </div>
+      );
+    }
+    render(<WorkspaceProvider><CreateConsumer /></WorkspaceProvider>);
+    await waitFor(() => expect(handlers).toBeDefined());
+    await userEvent.setup().click(screen.getByText('Create'));
+    await waitFor(() => expect(addArtifactToWorkspace).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('count-9')).toHaveTextContent('1'));
+  });
+
   describe('Update Artifact', () => {
     it('updates artifact state optimistically', async () => {
       updateWorkspaceArtifact.mockResolvedValueOnce({ ...mockArtifacts[0], state: 'archived' });
@@ -462,13 +494,14 @@ describe('WorkspaceProvider', () => {
       return (
         <div>
           <div data-testid="artifact-count">{workspace.artifacts.length}</div>
-          <button onClick={() => workspace.deleteArtifact('1')}>Destroy</button>
+          <button onClick={() => workspace.deleteArtifact('1')}>Delete</button>
+          <button onClick={() => workspace.deleteArtifact('1', { announce: false })}>Delete quietly</button>
+          <button onClick={() => workspace.discardArtifact('1')}>Discard</button>
         </div>
       );
     }
 
-    it('deleteArtifact destroys through DELETE /artifacts/{id}, not the unlink', async () => {
-      deleteWorkspaceArtifact.mockResolvedValueOnce(undefined);
+    async function renderLoaded() {
       const user = userEvent.setup();
       render(
         <WorkspaceProvider>
@@ -476,30 +509,66 @@ describe('WorkspaceProvider', () => {
         </WorkspaceProvider>
       );
       await waitFor(() => expect(screen.getByTestId('artifact-count')).toHaveTextContent('3'));
+      return user;
+    }
 
-      await user.click(screen.getByText('Destroy'));
+    it('deleteArtifact moves the card to Trash, not through DELETE and not the unlink', async () => {
+      trashArtifact.mockResolvedValueOnce({ id: '1', state: 'archived' });
+      const user = await renderLoaded();
+
+      await user.click(screen.getByText('Delete'));
 
       await waitFor(() => expect(screen.getByTestId('artifact-count')).toHaveTextContent('2'));
-      expect(deleteWorkspaceArtifact).toHaveBeenCalledWith('ws-1', '1');
+      expect(trashArtifact).toHaveBeenCalledWith('1');
+      expect(deleteWorkspaceArtifact).not.toHaveBeenCalled();
       expect(removeWorkspaceArtifact).not.toHaveBeenCalled();
+    });
+
+    it('says where it went and offers Undo, which restores it', async () => {
+      trashArtifact.mockResolvedValueOnce({ id: '1', state: 'archived' });
+      updateWorkspaceArtifact.mockResolvedValueOnce({ id: '1', state: 'live' });
+      const user = await renderLoaded();
+
+      await user.click(screen.getByText('Delete'));
+      await waitFor(() => expect(toast).toHaveBeenCalled());
+      const [message, options] = toast.mock.calls.at(-1);
+      expect(message).toMatch(/to Trash$/);
+      expect(options.description).toMatch(/30 days/);
+      expect(options.cancel.label).toBe('View Trash');
+
+      options.action.onClick();
+      await waitFor(() => expect(updateWorkspaceArtifact).toHaveBeenCalledWith('ws-1', '1', { state: 'live' }));
+    });
+
+    it('announce: false moves it to Trash without a toast', async () => {
+      trashArtifact.mockResolvedValueOnce({ id: '1', state: 'archived' });
+      const user = await renderLoaded();
+      await user.click(screen.getByText('Delete quietly'));
+      await waitFor(() => expect(screen.getByTestId('artifact-count')).toHaveTextContent('2'));
+      expect(toast).not.toHaveBeenCalled();
     });
 
     it('deleteArtifact keeps the card and toasts the server detail on refusal', async () => {
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      deleteWorkspaceArtifact.mockRejectedValueOnce({ response: { data: { detail: 'Forbidden' } } });
-      const user = userEvent.setup();
-      render(
-        <WorkspaceProvider>
-          <DeleteConsumer />
-        </WorkspaceProvider>
-      );
-      await waitFor(() => expect(screen.getByTestId('artifact-count')).toHaveTextContent('3'));
+      trashArtifact.mockRejectedValueOnce({ response: { data: { detail: 'Forbidden' } } });
+      const user = await renderLoaded();
 
-      await user.click(screen.getByText('Destroy'));
+      await user.click(screen.getByText('Delete'));
 
-      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not delete', { description: 'Forbidden' }));
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not move it to Trash', { description: 'Forbidden' }));
       expect(screen.getByTestId('artifact-count')).toHaveTextContent('3');
       errSpy.mockRestore();
+    });
+
+    it('discardArtifact deletes for good through DELETE /artifacts/{id}', async () => {
+      deleteWorkspaceArtifact.mockResolvedValueOnce(undefined);
+      const user = await renderLoaded();
+
+      await user.click(screen.getByText('Discard'));
+
+      await waitFor(() => expect(screen.getByTestId('artifact-count')).toHaveTextContent('2'));
+      expect(deleteWorkspaceArtifact).toHaveBeenCalledWith('ws-1', '1');
+      expect(trashArtifact).not.toHaveBeenCalled();
     });
   });
 

@@ -16,7 +16,7 @@ import type {
   TagSuggestion,
   TitleSuggestion,
 } from '../../api/types/search';
-import PrecisionControl from '../search/PrecisionControl';
+import { composeRecallQuery, TYPE_GROUPS } from '@/utils/recallQuery';
 import { useShortcuts } from '@/context/shortcuts/useShortcuts';
 
 interface AdvancedSearchProps {
@@ -32,10 +32,6 @@ interface AdvancedSearchProps {
   onClear?: () => void;
   /** Enable/disable autocomplete suggestions */
   enableSuggestions?: boolean;
-  /** Controlled precision value (from header quick controls) */
-  precision?: number;
-  /** Callback when precision changes */
-  onPrecisionChange?: (value: number) => void;
   /** Controlled sort mode (from header quick controls) */
   sortMode?: 'relevance' | 'recency';
   /** Trigger to clear the search input (increment to clear) */
@@ -53,8 +49,6 @@ export default function AdvancedSearch({
   onResults,
   onClear,
   enableSuggestions = true,
-  precision: controlledPrecision,
-  onPrecisionChange,
   sortMode: controlledSortMode,
   clearTrigger,
   compact = false,
@@ -66,32 +60,21 @@ export default function AdvancedSearch({
   const [suggestions, setSuggestions] = useState<SuggestionsResponse>({});
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [customFilters, setCustomFilters] = useState<Array<{field:string,op:string,value:string}>>([]);
-  const [addingCustom, setAddingCustom] = useState(false);
-  const [newCustomField, setNewCustomField] = useState('');
-  const [newCustomValue, setNewCustomValue] = useState('');
+  // The panel's choices; `composeRecallQuery` writes them into the recall query.
+  const [tagFilter, setTagFilter] = useState('');
+  const [tagExact, setTagExact] = useState(false);
+  const [typeGroup, setTypeGroup] = useState('');
+  const [exactWords, setExactWords] = useState(false);
+  const [searchArchived, setSearchArchived] = useState(false);
+  const [notice, setNotice] = useState('');
+  // What was sent and what the server applied, shown under the box when the panel shaped the query.
+  const [sentQuery, setSentQuery] = useState('');
+  const [appliedFilters, setAppliedFilters] = useState<string[]>([]);
+  // Clear filters re-runs the search once the cleared choices are in state.
+  const [clearPending, setClearPending] = useState(false);
   const { registerShortcut } = useShortcuts();
   
-  // Use controlled values if provided, otherwise use defaults
-  // Precision: 0.0 = show all results, 1.0 = only perfect matches
-  const precision = controlledPrecision ?? 0.5;
-
   const sortMode = controlledSortMode ?? 'relevance';
-
-  const handlePrecisionChange = (value: number) => {
-    if (onPrecisionChange) {
-      onPrecisionChange(value);
-    }
-    // otherwise ignore - no internal UI to change precision here
-  };
-
-  const addCustomFilter = () => {
-    if (!newCustomField.trim()) return;
-    setCustomFilters((s) => [...s, { field: newCustomField.trim(), op: 'is', value: newCustomValue }]);
-    setNewCustomField('');
-    setNewCustomValue('');
-    setAddingCustom(false);
-  };
   
   const inputRef = useRef<HTMLInputElement>(null);
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -102,7 +85,13 @@ export default function AdvancedSearch({
   const executeSearch = useCallback(async (
     searchQuery: string
   ) => {
-    if (!searchQuery.trim()) {
+    const composed = composeRecallQuery({
+      text: searchQuery, exact: exactWords, tag: tagFilter, tagExact, typeGroup,
+    });
+    setNotice('error' in composed ? composed.error : '');
+    setSentQuery('error' in composed ? '' : composed.query);
+    setAppliedFilters([]);
+    if ('error' in composed) {
       setResults(null);
       if (onResults) onResults({ hits: [], total: 0, query_text: '', from: 0, size: 20 });
       if (onClear) onClear();
@@ -118,25 +107,19 @@ export default function AdvancedSearch({
     setIsSearching(true);
     
     try {
-      // ⚠ NO `precision` HERE, AND THE SLIDER BELOW IS THEREFORE INERT [2026-08-27].
-      // `ArtifactRecallRequest` declares no such field, and mantle's own router says of the three
-      // it stopped reading — `precision`, `use_hybrid`, `content_types` — that "none is read on any
-      // path" (`artifacts_router.py:423`). It was being sent and silently discarded, so the
-      // control has never moved a result; the re-search it still triggers returns the same rows.
-      // The control is left rendered rather than deleted because removing product UI is not this
-      // pass's call — but it is a knob attached to nothing, and it should be wired to something
-      // real or taken out.
       const request: SearchRequest = {
-        query_text: searchQuery,
+        query_text: composed.query,
         from_: 0,
         size: 100, // Load more results for Browser display
         sort: sortMode,
+        state: searchArchived ? 'archived' : 'live',
       };
       
       if (scope === 'global') {
         // Global search: searches all accessible artifacts
         const response = await searchGlobal(request);
         setResults(response);
+        setAppliedFilters(response.applied_filters ?? []);
         if (onResults) onResults(response);
       } else {
         // Scoped search
@@ -147,6 +130,7 @@ export default function AdvancedSearch({
           : await searchCollection(request);
         
         setResults(response);
+        setAppliedFilters(response.applied_filters ?? []);
         if (onResults) onResults(response);
       }
     } catch (error) {
@@ -158,11 +142,7 @@ export default function AdvancedSearch({
     } finally {
       setIsSearching(false);
     }
-  // No `precision`: this callback does not read it, on purpose — see the banner above, where
-  // the request deliberately omits a field mantle stopped reading. Listing it here changed
-  // nothing but the callback's identity. The re-search that a precision change SHOULD cause
-  // still happens, from the effect further down that lists it in its own deps.
-  }, [scope, scopeId, sortMode, onResults, onClear]);
+  }, [scope, scopeId, sortMode, onResults, onClear, exactWords, tagFilter, tagExact, typeGroup, searchArchived]);
   
   // Fetch suggestions
   const fetchSuggestions = useCallback(async (suggestQuery: string) => {
@@ -288,14 +268,20 @@ export default function AdvancedSearch({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [query, handleClear]);
   
-  // Re-search when sort or precision changes
+  useEffect(() => {
+    if (!clearPending) return;
+    setClearPending(false);
+    if (query.trim()) executeSearch(query);
+  }, [clearPending, query, executeSearch]);
+
+  // Re-search when the sort or the source scope changes
   useEffect(() => {
     if (query.trim()) {
       executeSearch(query);
     }
-    // Only re-run when sortMode or precision change (not query or executeSearch to avoid loops)
+    // Only re-run when they change (not query or executeSearch, to avoid loops)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortMode, precision, globalSourceScope]);
+  }, [sortMode, globalSourceScope]);
   
   const hasSuggestions = (suggestions.tags?.length ?? 0) > 0 || (suggestions.titles?.length ?? 0) > 0;
   
@@ -355,6 +341,20 @@ export default function AdvancedSearch({
           </div>
         </div>
         
+        {notice && (
+          <div role="status" className="mt-1 px-1 text-xs text-amber-700">{notice}</div>
+        )}
+        {/* When the panel shaped the query: what was sent, and what the server applied. */}
+        {sentQuery && sentQuery !== query.trim() && (
+          <div className="mt-1 px-1 text-xs text-gray-500 flex flex-wrap items-center gap-1" data-testid="sent-query">
+            <span>Searching</span>
+            <code className="rounded bg-gray-100 px-1 text-gray-700">{sentQuery}</code>
+            {appliedFilters.map((f) => (
+              <span key={f} className="rounded-full bg-purple-50 px-2 py-0.5 text-purple-700">{f}</span>
+            ))}
+          </div>
+        )}
+
         {/* Advanced Search Panel - Drops down from search bar */}
         {showAdvanced && (
           <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 p-5">
@@ -368,9 +368,17 @@ export default function AdvancedSearch({
                     <input
                       type="text"
                       placeholder="Enter tag..."
+                      aria-label="Has tag"
+                      value={tagFilter}
+                      onChange={(e) => setTagFilter(e.target.value)}
                       className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
-                    <select className="w-28 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500">
+                    <select
+                      aria-label="Tag match"
+                      value={tagExact ? 'exact' : 'is'}
+                      onChange={(e) => setTagExact(e.target.value === 'exact')}
+                      className="w-28 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    >
                       <option value="is">is like</option>
                       <option value="exact">exact</option>
                     </select>
@@ -380,71 +388,50 @@ export default function AdvancedSearch({
                 {/* MIME Type Filter */}
                 <div>
                   <label className="text-xs font-medium text-gray-700 mb-2 block">Type</label>
-                  <select className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500">
+                  <select
+                    aria-label="Type"
+                    value={typeGroup}
+                    onChange={(e) => setTypeGroup(e.target.value)}
+                    className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
                     <option value="">All types</option>
-                    <option value="text">Text</option>
-                    <option value="image">Image</option>
-                    <option value="video">Video</option>
-                    <option value="audio">Audio</option>
-                    <option value="pdf">PDF</option>
-                    <option value="office">Office</option>
+                    {Object.entries(TYPE_GROUPS).map(([key, g]) => (
+                      <option key={key} value={key}>{g.label}</option>
+                    ))}
                   </select>
                 </div>
 
-                {/* Custom / Metadata Filters */}
+                {/* Live or archived: archived artifacts are in their own index segment. */}
                 <div>
-                  <label className="text-xs font-medium text-gray-700 mb-2 block">Custom filters</label>
-                  {customFilters.length === 0 ? (
-                    <div className="text-xs text-gray-500 mb-2">Add filters for metadata (e.g., color: red) after you've found results.</div>
-                  ) : (
-                    <ul className="space-y-1 mb-2">
-                      {customFilters.map((f, idx) => (
-                        <li key={idx} className="text-sm text-gray-700">{f.field} {f.op} {f.value}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {addingCustom ? (
-                    <div className="flex gap-2">
-                      <input value={newCustomField} onChange={(e) => setNewCustomField(e.target.value)} placeholder="field" className="px-2 py-1 border rounded w-28" />
-                      <select value={'is'} className="px-2 py-1 border rounded">
-                        <option value="is">is</option>
-                        <option value="like">is like</option>
-                      </select>
-                      <input value={newCustomValue} onChange={(e) => setNewCustomValue(e.target.value)} placeholder="value" className="px-2 py-1 border rounded flex-1" />
-                      <button onClick={addCustomFilter} className="px-2 bg-purple-600 text-white rounded">Add</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setAddingCustom(true)} className="text-xs text-purple-600">+ Add metadata filter</button>
-                  )}
+                  <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={searchArchived}
+                      onChange={(e) => setSearchArchived(e.target.checked)}
+                      className="text-purple-600"
+                    />
+                    Search archived artifacts instead
+                  </label>
                 </div>
+
               </div>
               
               {/* Right Column */}
               <div className="space-y-4">
-                {/* Result breadth (precision) */}
-                <div>
-                  <label className="text-xs font-medium text-gray-700 mb-1 block">How broad should results be?</label>
-                  <p className="text-xs text-gray-500 mb-2">Precise finds only very close matches. Wide includes related ideas.</p>
-                  <PrecisionControl 
-                    value={precision}
-                    onChange={handlePrecisionChange}
-                    show={true}
-                  />
-                </div>
 
                 {/* Match style (user-friendly) */}
                 <div>
                   <label className="text-xs font-medium text-gray-700 mb-2 block">How should we match results?</label>
                   <div className="space-y-2">
                     <label className="flex items-start gap-2 cursor-pointer">
-                      <input type="radio" name="searchType" value="smart" defaultChecked className="text-purple-600 mt-1" />
+                      <input type="radio" name="searchType" value="smart" checked={!exactWords} onChange={() => setExactWords(false)} className="text-purple-600 mt-1" />
                       <div>
                         <div className="text-sm">Full text (recommended)</div>
                         <div className="text-xs text-gray-500">Matches the words you typed, ranked by relevance.</div>
                       </div>
                     </label>
                     <label className="flex items-start gap-2 cursor-pointer">
-                      <input type="radio" name="searchType" value="exact" className="text-purple-600 mt-1" />
+                      <input type="radio" name="searchType" value="exact" checked={exactWords} onChange={() => setExactWords(true)} className="text-purple-600 mt-1" />
                       <div>
                         <div className="text-sm">Exact words</div>
                         <div className="text-xs text-gray-500">Only shows results that contain the exact words you typed.</div>
@@ -459,8 +446,9 @@ export default function AdvancedSearch({
             <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
               <button
                 onClick={() => {
-                  setShowAdvanced(false);
-                  // Reset filters
+                  setTagFilter(''); setTagExact(false); setTypeGroup('');
+                  setExactWords(false); setSearchArchived(false); setNotice('');
+                  setClearPending(true);
                 }}
                 className="text-sm text-gray-600 hover:text-gray-700"
               >

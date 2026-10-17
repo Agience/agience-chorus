@@ -240,8 +240,13 @@ def search(store, query: str, *, k: int = 8, id_prefix: str | None = None
 
 
 def _type_def(store, ct: str):
-    """The content-type definition artifact (`type.<ct>`) — carries the offer_template the describer
-    renders with. Cached per store; None if absent (then the caller renders a plain fallback)."""
+    """The type's describer: its `type.json` declaration when that carries an `offer_template`,
+    else a legacy `type.<ct>` store row (see `offer.declared_types`). Cached per store; None if
+    neither exists (then the caller renders a plain fallback)."""
+    from agience_chorus.sage import offer as _offer
+    declared = _offer.declared_describer(ct)
+    if declared is not None:
+        return declared
     cache = getattr(store, "_ctdef_cache", None)
     if cache is None:
         cache = {}

@@ -17,6 +17,9 @@ interface FilterChipsProps {
   onContentTypeToggle: (contentType: string) => void;
   onHiddenContentTypeToggle: (contentType: string) => void;
   onClearAll: () => void;
+  /** The container's archived members as the server counts them; overrides the count of
+   * `artifacts`, which holds only what is loaded (archived members are not). */
+  archivedCount?: number;
 }
 
 function getArtifactContentTypeCategory(artifact: Artifact): string {
@@ -40,6 +43,7 @@ export default function FilterChips({
   onContentTypeToggle,
   onHiddenContentTypeToggle,
   onClearAll,
+  archivedCount,
 }: FilterChipsProps) {
   // Calculate counts for each state
   const stateCounts = useMemo(() => {
@@ -113,7 +117,7 @@ export default function FilterChips({
   };
   
   const states = [
-    { key: 'archived', label: 'Archived', count: stateCounts.archived },
+    { key: 'archived', label: 'Archived', count: archivedCount ?? stateCounts.archived },
   ];
   
   // Sort content types by count (descending)

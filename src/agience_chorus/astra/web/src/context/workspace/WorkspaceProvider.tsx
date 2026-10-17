@@ -20,6 +20,10 @@ import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/arti
 import { midKey, afterKey } from '../../utils/fractional-index';
 import { extractInformation } from '../../api/agent';
 import { errorDetail } from '../../utils/errorDetail';
+import { announceRemoval } from '../../utils/removal';
+import { addArtifactToCollection } from '../../api/collections';
+import { trashArtifact } from '../../api/artifacts';
+import { OPEN_TRASH_EVENT, TRASH_RETENTION_DAYS } from '../../constants/strings';
 
 type UpdateArtifactPayload = {
   state?: Artifact['state'];
@@ -79,6 +83,17 @@ function artifactTitle(a: Artifact | undefined): string {
   return String(ctx.title || ctx.filename || a.name || 'Untitled');
 }
 
+/** `list` with `artifact` added, unless an artifact with its id is already there. The server's
+ * "created" event can arrive before the create request answers, so the same card reaches the store
+ * twice; every path that adds a card goes through here. At `index` when given, else at the end. */
+function withArtifact(list: Artifact[], artifact: Artifact, index?: number): Artifact[] {
+  if (list.some(c => String(c.id) === String(artifact.id))) return list;
+  if (typeof index !== 'number') return [...list, artifact];
+  const next = [...list];
+  next.splice(index, 0, artifact);
+  return next;
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { activeWorkspace } = useWorkspaces();
 
@@ -127,11 +142,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
     const unsubscribe = subscribeWorkspaceEvents(workspaceId, {
       onArtifactCreated: (artifact) => {
-        setArtifacts(prev => {
-          // Guard against duplicates from optimistic local creates
-          if (prev.some(c => String(c.id) === String(artifact.id))) return prev;
-          return [...prev, artifact as Artifact];
-        });
+        setArtifacts(prev => withArtifact(prev, artifact as Artifact));
       },
       onArtifactUpdated: (artifact) => {
         setArtifacts(prev =>
@@ -164,7 +175,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       };
       try {
         const created = await addArtifactToWorkspace(activeWorkspace.id, payload);
-        setArtifacts(prev => [...prev, created as Artifact]);
+        setArtifacts(prev => withArtifact(prev, created as Artifact));
       } catch (err) {
         console.error('Failed to create artifact', err);
       }
@@ -174,7 +185,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   // Add a pre-created artifact to local state (e.g., from upload initiation)
   const addExistingArtifact = useCallback((artifact: Artifact) => {
-    setArtifacts(prev => [...prev, artifact]);
+    setArtifacts(prev => withArtifact(prev, artifact));
   }, []);
 
   // Merge fields into an artifact in local state only; nothing is sent to the server. For values
@@ -221,15 +232,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       try {
         const created = await addArtifactToWorkspace(activeWorkspace.id, payload) as Artifact;
 
-        // Optimistic insert at correct position
-        setArtifacts(prev => {
-          if (typeof insertIndex === 'number') {
-            const next = [...prev];
-            next.splice(insertIndex, 0, created);
-            return next;
-          }
-          return [...prev, created];
-        });
+        // At its position, unless its "created" event already put it in the store.
+        setArtifacts(prev => withArtifact(prev, created, insertIndex));
 
         return created;
       } catch (err) {
@@ -284,6 +288,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             ? { ...c, ...updated } as Artifact
             : c))
         );
+        if (restoring && !current) {
+          // Restored from the archived listing: the live list never held it, so read it again.
+          await refreshArtifacts(activeWorkspace.id);
+        }
         if (archiving) {
           // Archived artifacts leave the workspace's listing, so say where it went and offer the
           // way back while there is still something on screen to undo.
@@ -313,19 +321,65 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       if (!activeWorkspace?.id) return;
       try {
-        await removeWorkspaceArtifact(activeWorkspace.id, String(id));
+        const workspaceId = activeWorkspace.id;
+        announceRemoval(await removeWorkspaceArtifact(workspaceId, String(id)), {
+          from: activeWorkspace.name || 'this workspace',
+          relink: () => addArtifactToCollection(workspaceId, String(id)),
+          after: () => { void refreshArtifacts(workspaceId); },
+        });
         setArtifacts(prev => prev.filter(c => String(c.id) !== String(id) && String(c.root_id) !== String(id)));
         setSelectedArtifactIds(prev => prev.filter(cid => cid !== String(id)));
       } catch (err) {
         console.error('Failed to remove artifact', err);
+        toast.error('Could not remove the card', {
+          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+        });
       }
     },
-    [activeWorkspace?.id]
+    [activeWorkspace?.id, activeWorkspace?.name, refreshArtifacts]
   );
 
-  // Destroy the artifact itself (`DELETE /artifacts/{id}`), as opposed to `removeArtifact`,
-  // which unlinks it from the active workspace. Resolves false when the server refuses.
+  const dropLocally = useCallback((id: string) => {
+    setArtifacts(prev => prev.filter(c => String(c.id) !== String(id) && String(c.root_id) !== String(id)));
+    setSelectedArtifactIds(prev => prev.filter(cid => cid !== String(id)));
+  }, []);
+
+  // Delete as a person means it: move the artifact to Trash (`POST /artifacts/{id}/trash`), where
+  // it can be restored for 30 days, as opposed to `removeArtifact`, which unlinks it from the
+  // active workspace. Resolves false when the server refuses.
   const deleteArtifact = useCallback(
+    async (id: string, options?: { announce?: boolean }): Promise<boolean> => {
+      const current = [...artifacts, ...displayedArtifacts].find(c => String(c.id) === String(id));
+      try {
+        await trashArtifact(String(id));
+      } catch (err) {
+        console.error('Failed to move artifact to Trash', err);
+        toast.error('Could not move it to Trash', {
+          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+        });
+        return false;
+      }
+      dropLocally(id);
+      if (options?.announce !== false) {
+        const workspaceId = activeWorkspace?.id;
+        toast(`Moved "${artifactTitle(current)}" to Trash`, {
+          description: `Restore it from Trash within ${TRASH_RETENTION_DAYS} days.`,
+          action: { label: 'Undo', onClick: () => {
+            void updateWorkspaceArtifact(workspaceId ?? '', String(id), { state: 'live' })
+              .then(() => (workspaceId ? refreshArtifacts(workspaceId) : undefined))
+              .catch(() => { toast.error('Could not restore the card'); });
+          } },
+          cancel: { label: 'View Trash', onClick: () => { window.dispatchEvent(new Event(OPEN_TRASH_EVENT)); } },
+        });
+      }
+      return true;
+    },
+    [activeWorkspace?.id, artifacts, displayedArtifacts, dropLocally, refreshArtifacts]
+  );
+
+  // Delete for good (`DELETE /artifacts/{id}`): emptying Trash, and discarding a new card that was
+  // closed untouched, which never held anything to restore. Resolves false when the server refuses.
+  const discardArtifact = useCallback(
     async (id: string): Promise<boolean> => {
       try {
         await deleteWorkspaceArtifact(activeWorkspace?.id ?? '', String(id));
@@ -336,11 +390,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         });
         return false;
       }
-      setArtifacts(prev => prev.filter(c => String(c.id) !== String(id) && String(c.root_id) !== String(id)));
-      setSelectedArtifactIds(prev => prev.filter(cid => cid !== String(id)));
+      dropLocally(id);
       return true;
     },
-    [activeWorkspace?.id]
+    [activeWorkspace?.id, dropLocally]
   );
 
 
@@ -607,6 +660,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       updateArtifact,
       removeArtifact,
       deleteArtifact,
+      discardArtifact,
       orderArtifacts,
       importArtifactsByRootIds,
       refreshArtifacts,
@@ -629,6 +683,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       updateArtifact,
       removeArtifact,
       deleteArtifact,
+      discardArtifact,
       orderArtifacts,
       importArtifactsByRootIds,
       refreshArtifacts,

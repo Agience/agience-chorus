@@ -10,6 +10,8 @@ export interface SearchRequest {
   use_bm25?: boolean;
   sort?: 'relevance' | 'recency';
   highlight?: boolean;
+  /** The index segment: `live` (default) or `archived`. */
+  state?: 'live' | 'archived';
   // No `aperture`, and no `use_vector`/`use_bm25` equivalent on the wire: `ArtifactRecallRequest`
   // declares none of them, and mantle's own router says of the three it used to accept —
   // `aperture`, `use_hybrid`, `content_types` — that "none is read on any path"
@@ -55,6 +57,8 @@ export interface SearchResponse {
    * node is entitled not to say.
    */
   ordering?: string;
+  /** The filters Mantle applied, as it describes them (e.g. `tags:alpha-test`). */
+  applied_filters?: string[];
   from: number;
   size: number;
 }

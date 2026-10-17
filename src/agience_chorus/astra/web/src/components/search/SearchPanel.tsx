@@ -42,8 +42,6 @@ export interface SearchPanelProps {
   /** Sort/precision controls (forwarded from MainLayout). */
   sortMode?: 'relevance' | 'recency';
   onSortChange?: (mode: 'relevance' | 'recency') => void;
-  precision?: number;
-  onPrecisionChange?: (value: number) => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -59,8 +57,6 @@ export function SearchPanel({
   onCollectionSelect,
   sortMode,
   // onSortChange is part of the props contract but not read by this component.
-  precision,
-  onPrecisionChange,
 }: SearchPanelProps) {
   void onCollectionSelect;
 
@@ -171,8 +167,6 @@ export function SearchPanel({
           onClear={onClear}
           clearTrigger={clearTrigger}
           sortMode={sortMode}
-          onPrecisionChange={onPrecisionChange}
-          precision={precision}
           compact
           enableSuggestions
         />

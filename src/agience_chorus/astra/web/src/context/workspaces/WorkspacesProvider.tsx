@@ -80,9 +80,17 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
     const targetWsId = urlWorkspaceId || urlArtifactId;
     if (targetWsId) {
       const found = workspaces.find((w) => w.id === targetWsId);
+      deepLinkApplied.current = true;
       if (found) {
         setActiveWorkspaceId(found.id);
-        deepLinkApplied.current = true;
+      } else {
+        // A link to a workspace this account cannot reach. Saying so, rather than opening the
+        // Inbox as if the link had worked; whether it exists is not revealed either way.
+        // 2026-10-13, a tester opened a shared link before being invited and saw their own Inbox.
+        toast.error("You can't open this workspace", {
+          description: "It hasn't been shared with you, or it no longer exists. Ask its owner for an invitation.",
+          duration: 10000,
+        });
       }
     }
   }, [workspaces, urlArtifactId, urlWorkspaceId]);

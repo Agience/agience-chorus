@@ -38,6 +38,14 @@ describe('api/search (POST /artifacts/recall)', () => {
     vi.clearAllMocks();
   });
 
+  it('asks for the archived segment only when the archived scope is chosen', async () => {
+    api.post.mockResolvedValue({ data: mkRecall() });
+    await searchGlobal({ query_text: 'nebula', state: 'archived' });
+    expect(api.post.mock.calls[0][1].state).toBe('archived');
+    await searchGlobal({ query_text: 'nebula' });
+    expect('state' in api.post.mock.calls[1][1]).toBe(false);
+  });
+
   it('searchGlobal posts to /artifacts/recall and maps the response', async () => {
     api.post.mockResolvedValueOnce({ data: mkRecall() });
     const res = await searchGlobal({ query_text: 'foo' });

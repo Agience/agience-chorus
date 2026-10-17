@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { LayoutGrid, List } from 'lucide-react';
+import { LayoutGrid, List, Plus } from 'lucide-react';
+import { toast } from 'sonner';
 
 import CardGrid from '@/components/common/CardGrid';
 import CardList from '@/components/common/CardList';
@@ -11,6 +12,14 @@ import { getStableArtifactId } from '@/utils/artifact-identifiers';
 import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import { useConfirm } from '@/context/dialog/useConfirm';
 import { BUTTON_LABELS, CARD_CONFIRM } from '@/constants/strings';
+import { addArtifactToWorkspace } from '@/api/workspaces';
+import CardTypePickerDialog from '@/components/browser/CardTypePickerDialog';
+import { getContentTypeById } from '@/registry/content-types';
+import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
+import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
+import { errorDetail } from '@/utils/errorDetail';
+import { artifactTitle, markNewCard, nextUntitledTitle } from '@/utils/untitled';
+import { announceRemoval } from '@/utils/removal';
 
 type CollectionViewMode = 'grid' | 'list';
 
@@ -66,12 +75,20 @@ export default function CollectionArtifactViewer({
   mode?: string;
   onOpenArtifact?: (artifact: Artifact) => void;
 }) {
-  const { artifacts: workspaceArtifacts, deleteArtifact } = useWorkspace();
+  const { artifacts: workspaceArtifacts, deleteArtifact, patchArtifactLocally } = useWorkspace();
   const dangerConfirm = useConfirm();
 
   // A collection artifact is the collection. Its id is the container_id
   // for the list API. No prefix decoding or context lookups needed.
   const collectionId = useMemo(() => artifact.id ?? '', [artifact.id]);
+  // A workspace opened in a card window is listed here like a collection; its labels say workspace.
+  const isWorkspace = useMemo(() => {
+    const declared = (artifact as { content_type?: string }).content_type
+      ?? safeParseArtifactContext(artifact.context).content_type;
+    return declared === WORKSPACE_CONTENT_TYPE;
+  }, [artifact]);
+  const noun = isWorkspace ? 'workspace' : 'collection';
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const [memberItems, setMemberItems] = useState<Artifact[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -142,6 +159,9 @@ export default function CollectionArtifactViewer({
     if (!collectionId) return [] as Artifact[];
 
     return workspaceArtifacts.filter((candidate) => {
+      // An archived card stays in the workspace store until its next refresh; it is not a member
+      // anyone lists, so it is not shown here either.
+      if (candidate.state === 'archived') return false;
       const memberIds = Array.isArray(candidate.committed_collection_ids)
         ? candidate.committed_collection_ids.map(String)
         : [];
@@ -175,18 +195,62 @@ export default function CollectionArtifactViewer({
 
     if (mode === 'delete') {
       const confirmed = await dangerConfirm.confirm({
-        title: CARD_CONFIRM.DELETE_PERMANENT_TITLE,
-        description: CARD_CONFIRM.DELETE_PERMANENT_DESCRIPTION,
-        confirmLabel: CARD_CONFIRM.DELETE_PERMANENT_CONFIRM,
+        title: CARD_CONFIRM.DELETE_TITLE,
+        description: CARD_CONFIRM.DELETE_DESCRIPTION,
+        confirmLabel: CARD_CONFIRM.DELETE_CONFIRM,
         cancelLabel: BUTTON_LABELS.CANCEL,
       });
       if (!confirmed) return;
       if (!(await deleteArtifact(String(item.id ?? rootId)))) return;
     } else {
-      await removeArtifactFromCollection(collectionId, rootId);
+      try {
+        announceRemoval(await removeArtifactFromCollection(collectionId, rootId), {
+          from: `this ${noun}`,
+          relink: () => addArtifactToCollection(collectionId, rootId),
+          after: () => { void reloadArtifacts(); },
+        });
+      } catch (err) {
+        toast.error(`Could not remove the card from this ${noun}`, {
+          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+        });
+        return;
+      }
+      // The workspace store's copy still lists this container among its memberships, and this view
+      // adds every store card that does; drop the membership there too, or the card comes back.
+      // 2026-10-13, a tester: Remove answered 200 `removed: true` and the card stayed.
+      for (const card of workspaceArtifacts) {
+        if (String(card.root_id ?? card.id ?? '') !== rootId || !Array.isArray(card.committed_collection_ids)) continue;
+        patchArtifactLocally({
+          id: card.id,
+          committed_collection_ids: card.committed_collection_ids.filter((c) => String(c) !== collectionId),
+        });
+      }
     }
     setMemberItems((prev) => prev.filter((candidate) => String(candidate.root_id ?? candidate.id ?? '') !== rootId));
-  }, [collectionId, dangerConfirm, deleteArtifact]);
+  }, [collectionId, dangerConfirm, deleteArtifact, noun, patchArtifactLocally, reloadArtifacts, workspaceArtifacts]);
+
+  // Create a card in this container: the picker the browser's "New card" uses, with the new
+  // artifact homed here rather than in the active workspace.
+  const handleCreate = useCallback(async (contentType: string) => {
+    setPickerOpen(false);
+    if (!collectionId) return;
+    const type = getContentTypeById(contentType);
+    const title = nextUntitledTitle(`Untitled ${type?.label || 'Artifact'}`, items.map(artifactTitle));
+    try {
+      const created = await addArtifactToWorkspace(collectionId, {
+        content: '',
+        content_type: contentType,
+        context: stringifyArtifactContext({ title }),
+      }) as Artifact;
+      if (created.id) markNewCard(String(created.id), title);
+      await reloadArtifacts();
+      onOpenArtifact?.(created);
+    } catch (err) {
+      toast.error('Could not create card', {
+        description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+      });
+    }
+  }, [collectionId, items, onOpenArtifact, reloadArtifacts]);
 
   const applyDroppedArtifacts = useCallback(async (
     ids: string[],
@@ -260,8 +324,19 @@ export default function CollectionArtifactViewer({
       onDrop={handleDrop}
     >
       <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-2">
-        <div className="text-xs text-gray-500">
-          {isLoading ? 'Loading artifacts...' : `${items.length} artifact${items.length === 1 ? '' : 's'}`}
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-gray-500">
+            {isLoading ? 'Loading artifacts...' : `${items.length} artifact${items.length === 1 ? '' : 's'}`}
+          </div>
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="inline-flex h-7 items-center gap-1 rounded bg-purple-600 px-2 text-xs font-medium text-white hover:bg-purple-700"
+            title={`New card in this ${noun}`}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New card
+          </button>
         </div>
         <div className="inline-flex items-center rounded-md border border-gray-300 bg-white p-0.5 shadow-sm">
           <button
@@ -291,7 +366,7 @@ export default function CollectionArtifactViewer({
               selectable
               draggable
               fillHeight
-              activeSource={collectionId ? { type: 'collection', id: collectionId } : null}
+              activeSource={collectionId ? { type: 'collection', id: collectionId, noun } : null}
               onOpenArtifact={onOpenArtifact}
               onRemove={handleRemove}
               deleteEnabled
@@ -310,6 +385,7 @@ export default function CollectionArtifactViewer({
             selectable
             draggable
             sourceCollectionId={collectionId || undefined}
+            containerNoun={noun}
             onOpenArtifact={onOpenArtifact}
             onRemove={handleRemove}
             deleteEnabled
@@ -323,6 +399,8 @@ export default function CollectionArtifactViewer({
           />
         )}
       </div>
+
+      <CardTypePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onSelect={handleCreate} />
     </div>
   );
 }

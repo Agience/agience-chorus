@@ -1,6 +1,7 @@
 // api/collections.ts
 
 import { get, getList, post, postList, patch, del } from './api';
+import type { RemoveResult } from '../utils/removal';
 import { COLLECTION_CONTENT_TYPE } from '@/utils/content-type';
 import { subscribeEvents, type BusEvent } from './events';
 import {
@@ -107,6 +108,12 @@ export function listCollectionArtifacts(collectionId: string): Promise<ArtifactR
 
 export const getCollectionArtifacts = listCollectionArtifacts;
 
+/** A container's archived members, homed there or linked in. Default listings read past them;
+ * this is how they are found and restored. Works for workspaces and collections alike. */
+export function listArchivedChildren(containerId: string): Promise<ArtifactResponse[]> {
+  return getList<ArtifactResponse>(`/artifacts/${encodeURIComponent(containerId)}/children?state=archived`);
+}
+
 export function getCollectionArtifact(_collectionId: string, rootId: string, _grantKey?: string): Promise<ArtifactResponse> {
   return get(`/artifacts/${rootId}`);
 }
@@ -123,7 +130,7 @@ export function addArtifactToCollection(_collectionId: string, versionId: string
   return post(`/artifacts`, { container_id: _collectionId, source_artifact_id: versionId });
 }
 
-export function removeArtifactFromCollection(collectionId: string, rootId: string): Promise<void> {
+export function removeArtifactFromCollection(collectionId: string, rootId: string): Promise<RemoveResult> {
   // ⛑ `DELETE /artifacts/{container_id}/children/{artifact_id}` since 2026-08-26 (audit
   // M2 + M4). It was `POST /artifacts/{artifact_id}/remove` with the container in the BODY --
   // the inverse of every other two-id operation, and the reason the verb could not simply
@@ -140,7 +147,9 @@ export async function getCollectionArtifactsBatchGlobal(
   // ⛑ `postList`, not a raw `post` reading `res.artifacts`. That key was retired when
   // `/artifacts/batch` moved to the one page shape, so the read returned `undefined` and
   // `?? []` turned it into an empty list — this search found nothing and said nothing.
-  return postList<ArtifactResponse>('/artifacts/batch', { artifact_ids: rootIds });
+  // `include_archived`: these are ids a search returned, and a search of the archived segment
+  // returns archived ones; without it the batch skipped them and the search showed nothing.
+  return postList<ArtifactResponse>('/artifacts/batch', { artifact_ids: rootIds, include_archived: true });
 }
 
 // === Real-time collection events (WebSocket) ===

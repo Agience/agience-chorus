@@ -182,7 +182,8 @@ describe('api/collections', () => {
     // this search silently find nothing. `postList` owns the unwrapping.
     postList.mockResolvedValueOnce([{ id: 'v3', root_id: 'r3', content: 'C' }]);
     const res = await getCollectionArtifactsBatchGlobal(['r3']);
-    expect(postList).toHaveBeenCalledWith('/artifacts/batch', { artifact_ids: ['r3'] });
+    // `include_archived`: a search of the archived segment returns archived ids.
+    expect(postList).toHaveBeenCalledWith('/artifacts/batch', { artifact_ids: ['r3'], include_archived: true });
     expect(res[0].root_id).toBe('r3');
   });
 

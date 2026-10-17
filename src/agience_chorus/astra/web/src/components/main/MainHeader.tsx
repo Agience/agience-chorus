@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { FiMoon, FiSun, FiUser, FiChevronDown, FiSettings } from 'react-icons/fi';
-import { HelpCircle, Link2, MessageCircle, Send, Share2 } from 'lucide-react';
+import { HelpCircle, Link2, MessageCircle, Send, Share2, Trash2 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
@@ -10,6 +10,8 @@ import { IconButton } from '@/components/ui/icon-button';
 import SettingsModal from '../modals/SettingsModal';
 import { formatShortcutCombo } from '@/context/shortcuts/shortcut-utils';
 import HelpDialog from '../modals/HelpDialog';
+import TrashDialog from '../modals/TrashDialog';
+import { OPEN_TRASH_EVENT } from '@/constants/strings';
 import { ShareDialog } from '../common/ShareDialog';
 import { CHAT_CONTENT_TYPE } from '@/utils/content-type';
 import { useUpgradePrompt } from '@/hooks/useUpgradePrompt';
@@ -48,6 +50,7 @@ export default function HeaderBar({
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
   const [showShare, setShowShare] = useState(false);
 
   // Internal section override — used when agience:open-settings event fires
@@ -78,6 +81,13 @@ export default function HeaderBar({
     };
     window.addEventListener('agience:open-settings', handler);
     return () => window.removeEventListener('agience:open-settings', handler);
+  }, []);
+
+  // Listen for agience:open-trash events (e.g. from the "Moved to Trash" toast)
+  useEffect(() => {
+    const open = () => setShowTrash(true);
+    window.addEventListener(OPEN_TRASH_EVENT, open);
+    return () => window.removeEventListener(OPEN_TRASH_EVENT, open);
   }, []);
 
   const toggleDarkMode = () => {
@@ -232,6 +242,17 @@ export default function HeaderBar({
           </IconButton>
         )}
 
+        {/* Trash */}
+        <IconButton
+          size="lg"
+          variant="ghost"
+          onClick={() => setShowTrash(true)}
+          title="Trash"
+          aria-label="Open Trash"
+        >
+          <Trash2 />
+        </IconButton>
+
         {/* Help */}
         <IconButton
           size="lg"
@@ -308,6 +329,8 @@ export default function HeaderBar({
         scopedToCollectionId={settingsScopedCollectionId}
         onArtifactCreated={onArtifactCreated}
       />
+
+      <TrashDialog isOpen={showTrash} onClose={() => setShowTrash(false)} />
 
       <HelpDialog
         isOpen={showHelp}

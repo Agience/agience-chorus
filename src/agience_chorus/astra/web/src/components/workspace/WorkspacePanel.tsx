@@ -19,7 +19,6 @@ export interface WorkspacePanelProps {
   searchResultArtifacts?: Artifact[];
   onArtifactSelect?: (artifactId: string | null) => void;
   onOpenArtifact?: (artifact: Artifact, options?: { startInEditMode?: boolean }) => void;
-  onAssignCollections?: (artifactId: string) => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -30,7 +29,6 @@ export function WorkspacePanel({
   searchResultArtifacts,
   onArtifactSelect,
   onOpenArtifact,
-  onAssignCollections,
 }: WorkspacePanelProps) {
   return (
     <div className="flex flex-col h-full">
@@ -40,7 +38,6 @@ export function WorkspacePanel({
         searchResultArtifacts={searchResultArtifacts}
         onArtifactSelect={onArtifactSelect}
         onOpenArtifact={onOpenArtifact}
-        onAssignCollections={onAssignCollections}
       />
     </div>
   );

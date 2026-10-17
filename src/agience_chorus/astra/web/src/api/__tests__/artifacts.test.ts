@@ -10,12 +10,14 @@ vi.mock('../api', () => ({
   del: vi.fn(),
 }));
 
-import { get, post, patch, del } from '../api';
+import { get, getList, post, patch, del } from '../api';
 import {
   createArtifact,
   getArtifact,
   updateArtifact,
   deleteArtifact,
+  trashArtifact,
+  listTrash,
   addItemToContainer,
   invokeArtifact,
   searchArtifacts,
@@ -31,6 +33,7 @@ const mockGet = get as ReturnType<typeof vi.fn>;
 const mockPost = post as ReturnType<typeof vi.fn>;
 const mockPatch = patch as ReturnType<typeof vi.fn>;
 const mockDel = del as ReturnType<typeof vi.fn>;
+const mockGetList = getList as ReturnType<typeof vi.fn>;
 
 describe('api/artifacts', () => {
   beforeEach(() => {
@@ -99,6 +102,21 @@ describe('api/artifacts', () => {
       await deleteArtifact('art-1');
 
       expect(mockDel).toHaveBeenCalledWith('/artifacts/art-1');
+    });
+  });
+
+  describe('Trash', () => {
+    it('trashArtifact POSTs /artifacts/{id}/trash', async () => {
+      mockPost.mockResolvedValueOnce({ id: 'art-1', state: 'archived' });
+      await trashArtifact('art-1');
+      expect(mockPost).toHaveBeenCalledWith('/artifacts/art-1/trash');
+    });
+
+    it('listTrash reads /artifacts/trash as a list', async () => {
+      mockGetList.mockResolvedValueOnce([{ id: 'art-1', purge_after: '2026-11-13T00:00:00Z' }]);
+      const items = await listTrash();
+      expect(mockGetList).toHaveBeenCalledWith('/artifacts/trash');
+      expect(items[0].purge_after).toBe('2026-11-13T00:00:00Z');
     });
   });
 

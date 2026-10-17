@@ -1,0 +1,41 @@
+{
+  "content_type": "text/x-wordnet",
+  "version": 1,
+  "inherits": [
+    "text/plain"
+  ],
+  "description": "A WordNet synset: ONE sense of one or more words, with its definition. Its lemmas are the words that mean it, so they are its names.",
+  "offer_template": "{title}: {gloss}",
+  "field_source": {
+    "title": "title",
+    "gloss": "gloss"
+  },
+  "offer": {
+    "title": [
+      "title",
+      "context.title",
+      "name",
+      "lemmas.0"
+    ],
+    "tags": [
+      "lemmas"
+    ]
+  },
+  "ui": {
+    "version": 1,
+    "label": "Synset",
+    "icon": "book-open",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "preview",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": false,
+    "viewer": "text-plain"
+  }
+}

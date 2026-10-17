@@ -5,10 +5,19 @@
 
 import { PRODUCT_NOUN, noun } from '@/product/copy';
 
+/** Days an artifact stays in Trash before it is deleted for good (Mantle's `trash.RETENTION_DAYS`). */
+export const TRASH_RETENTION_DAYS = 30;
+
+/** The window event that opens Trash from anywhere in the app. */
+export const OPEN_TRASH_EVENT = 'agience:open-trash';
+
 // Artifact deletion/removal confirmations
 export const CARD_CONFIRM = {
+  DELETE_TITLE: `Move this ${PRODUCT_NOUN.singular.toLowerCase()} to Trash?`,
+  DELETE_DESCRIPTION: `You can restore it from Trash for ${TRASH_RETENTION_DAYS} days. After that it is deleted for good.`,
+  DELETE_CONFIRM: 'Move to Trash',
   DELETE_PERMANENT_TITLE: `Delete ${PRODUCT_NOUN.singular.toLowerCase()} permanently?`,
-  DELETE_PERMANENT_DESCRIPTION: `Deleting this ${PRODUCT_NOUN.singular.toLowerCase()} permanently removes it and all its content.`,
+  DELETE_PERMANENT_DESCRIPTION: `Deleting this ${PRODUCT_NOUN.singular.toLowerCase()} permanently removes it and all its content. This cannot be undone.`,
   DELETE_PERMANENT_CONFIRM: 'Delete permanently',
   ARCHIVE_TITLE: `Archive this ${PRODUCT_NOUN.singular.toLowerCase()}?`,
   ARCHIVE_DESCRIPTION: `This will hide the ${PRODUCT_NOUN.singular.toLowerCase()} from active views until restored.`,
@@ -17,8 +26,9 @@ export const CARD_CONFIRM = {
 
 // Bulk operations confirmations
 export const BULK_CONFIRM = {
-  DELETE_TITLE: (count: number) => `Delete ${count} ${noun(count).toLowerCase()}?`,
-  DELETE_DESCRIPTION: (count: number) => `${count === 1 ? `This ${PRODUCT_NOUN.singular.toLowerCase()}` : `These ${PRODUCT_NOUN.plural.toLowerCase()}`} will be permanently deleted.`,
+  DELETE_TITLE: (count: number) => `Move ${count} ${noun(count).toLowerCase()} to Trash?`,
+  DELETE_DESCRIPTION: (count: number) => `You can restore ${count === 1 ? 'it' : 'them'} from Trash for ${TRASH_RETENTION_DAYS} days. After that ${count === 1 ? 'it is' : 'they are'} deleted for good.`,
+  DELETE_CONFIRM: 'Move to Trash',
   ARCHIVE_TITLE: (count: number) => `Archive ${count} ${noun(count).toLowerCase()}?`,
   ARCHIVE_DESCRIPTION: (count: number) => `${count === 1 ? `This ${PRODUCT_NOUN.singular.toLowerCase()}` : `These ${PRODUCT_NOUN.plural.toLowerCase()}`} ${count === 1 ? 'will' : 'will'} be moved to archived state and can be restored later.`,
 } as const;

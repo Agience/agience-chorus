@@ -576,7 +576,7 @@ def test_the_pwn_spine_writes_the_SAME_row_shape_as_oewn(monkeypatch):
     assert doc["title"] == "dog" and doc["lemmas"] == ["dog", "domestic dog"]
 
 
-def test_the_pwn_spine_records_sense_order_and_bootstraps_its_type(monkeypatch):
+def test_the_pwn_spine_records_sense_order_and_is_described_by_its_declared_type(monkeypatch):
     from ember import genesis as _g
     _install_fake_nltk(monkeypatch)
     s = _store()
@@ -584,9 +584,14 @@ def test_the_pwn_spine_records_sense_order_and_bootstraps_its_type(monkeypatch):
     # "dog" is sense 0 of dog.n.01 and sense 1 of frank.n.02 — the rank is per word.
     assert s.artifacts.get_artifact("wn-dog.n.01")["sense_ranks"]["dog"] == 0
     assert s.artifacts.get_artifact("wn-frank.n.02")["sense_ranks"]["dog"] == 1
-    # and the describer lands with the rows, so a fresh store renders them
-    td = s.artifacts.get_artifact("type.text/x-wordnet")
+    # The describer is declared once, in Sage's type.json; ingest mints no type artifact, and a
+    # fresh store renders the rows from the declaration.
+    from agience_chorus.sage import offer
+    assert s.artifacts.get_artifact("type.text/x-wordnet") is None
+    td = offer.declared_describer("text/x-wordnet")
     assert td is not None and td["offer_template"] == "{title}: {gloss}"
+    row = s.artifacts.get_artifact("wn-dog.n.01")
+    assert offer.offer(td, row).startswith(row["title"] + ": ")
 
 
 def test_case_survives_ingest_because_it_is_the_proper_noun_marker(monkeypatch):

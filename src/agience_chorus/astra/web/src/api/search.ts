@@ -35,6 +35,7 @@ type RecallRequest = {
   size?: number;
   sort?: 'relevance' | 'recency';
   highlight?: boolean;
+  state?: 'live' | 'archived';
 };
 
 type RecallHit = {
@@ -53,6 +54,7 @@ type RecallResponse = {
   parsed_query?: string;
   corrections?: string[];
   ordering?: string;
+  applied_filters?: string[];
   from_: number;
   size: number;
 };
@@ -71,6 +73,7 @@ async function recall(request: SearchRequest, scope?: string[]): Promise<SearchR
     size: request.size ?? 20,
     sort: request.sort ?? 'relevance',
     highlight: request.highlight ?? true,
+    ...(request.state === 'archived' ? { state: 'archived' as const } : {}),
   };
   const resp = await api.post<RecallResponse>('/artifacts/recall', body);
   return mapRecallResponse(resp.data);
@@ -126,6 +129,7 @@ function mapRecallResponse(data: RecallResponse): SearchResponse {
     parsed_query: data?.parsed_query,
     corrections: data?.corrections ?? [],
     ordering: data?.ordering,
+    applied_filters: data?.applied_filters ?? [],
     from: data?.from_ ?? 0,
     size: data?.size ?? 20,
   };

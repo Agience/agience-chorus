@@ -23,8 +23,6 @@ type BrowserHeaderProps = {
   isShowingSearchResults?: boolean;
   sortMode?: 'relevance' | 'recency';
   onSortChange?: (mode: 'relevance' | 'recency') => void;
-  precision?: number;
-  onPrecisionChange?: (value: number) => void;
   onNewArtifact?: () => void;
   onCreateWorkspace?: () => void;
   onDropWorkspace?: (draggedIds: string[]) => void;

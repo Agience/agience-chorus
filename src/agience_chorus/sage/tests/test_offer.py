@@ -175,3 +175,40 @@ def test_refusal_reports_the_resolved_type_not_the_format():
     out, err = O.offer_or_none(MARKDOWN, {"id": "x", "content_type": "text/markdown",
                                           "data_type": "changelog"})
     assert out is None and err.content_type == "changelog"
+
+
+# ── a type's describer is declared in its type.json ──────────────────────────────────────────
+
+def test_the_synset_type_declares_its_describer_and_its_index_offer_together():
+    td = O.declared_describer("text/x-wordnet")
+    assert td["offer_template"] == "{title}: {gloss}"
+    assert td["field_source"] == {"title": "title", "gloss": "gloss"}
+    assert td["offer"]["tags"] == ["lemmas"], "the index offer sits in the same declaration"
+    assert O.offer(td, {"id": "wn-dog", "title": "dog", "gloss": "a canine"}) == "dog: a canine"
+
+
+def test_a_type_json_with_no_template_declares_no_describer(tmp_path):
+    folder = tmp_path / "persona" / "ui" / "text" / "x-plain-thing"
+    folder.mkdir(parents=True)
+    (folder / "type.json").write_text('{"content_type": "text/x-plain-thing"}', encoding="utf-8")
+    assert "text/x-plain-thing" in O.declared_types(str(tmp_path))
+    assert O.declared_describer("text/x-plain-thing", str(tmp_path)) is None
+
+
+class _Store:
+    def __init__(self, rows):
+        self.artifacts = self
+        self._rows = rows
+
+    def get_artifact(self, aid):
+        return self._rows.get(aid)
+
+
+def test_the_declaration_outranks_a_store_row_and_a_store_row_serves_an_undeclared_type():
+    from agience_chorus.sage import content_search
+    stale = {"id": "type.text/x-wordnet", "offer_template": "the word {lemma}: {gloss}"}
+    legacy = {"id": "type.text/x-legacy", "offer_template": "{title}"}
+    store = _Store({stale["id"]: stale, legacy["id"]: legacy})
+    assert content_search._type_def(store, "text/x-wordnet")["offer_template"] == "{title}: {gloss}"
+    assert content_search._type_def(store, "text/x-legacy") is legacy
+    assert content_search._type_def(store, "text/x-nothing") is None

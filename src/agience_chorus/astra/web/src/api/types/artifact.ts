@@ -47,6 +47,11 @@ export interface ArtifactResponse {
   has_children?: boolean;
   /** Number of child artifacts, if available. */
   child_count?: number;
+  /** Set while the artifact is in Trash: who moved it there, and when. */
+  trashed_by?: string;
+  trashed_time?: string;
+  /** In a Trash listing: when the artifact is deleted for good. */
+  purge_after?: string;
 }
 
 export type Artifact = ArtifactResponse;

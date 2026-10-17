@@ -9,6 +9,9 @@ let mockActiveWorkspaceId = 'ws-1';
 const unselectAllArtifactsMock = vi.fn();
 const addExistingArtifactMock = vi.fn();
 const createArtifactMock = vi.fn();
+const discardArtifactMock = vi.fn();
+// The store's cards: one stable array the tests fill, for the reason given below.
+const STORE_ARTIFACTS: Artifact[] = [];
 
 // Stable references prevent infinite re-render loops: MainLayout has a
 // useEffect that depends on `artifacts`. If the mock returns a new []
@@ -18,12 +21,13 @@ const EMPTY_IDS: never[] = [];
 
 vi.mock('../../../hooks/useWorkspace', () => ({
   useWorkspace: () => ({
-    artifacts: EMPTY_ARTIFACTS,
+    artifacts: STORE_ARTIFACTS,
     displayedArtifacts: EMPTY_ARTIFACTS,
     selectedArtifactIds: EMPTY_IDS,
     unselectAllArtifacts: unselectAllArtifactsMock,
     addExistingArtifact: addExistingArtifactMock,
     createArtifact: createArtifactMock,
+    discardArtifact: discardArtifactMock,
   }),
 }));
 
@@ -189,9 +193,10 @@ vi.mock('../MainHeader', () => ({
 }));
 
 vi.mock('../../windows/FloatingCardWindow', () => ({
-  default: ({ artifactId, initialViewState }: { artifactId: string; initialViewState?: string }) => (
+  default: ({ artifactId, initialViewState, onClose }: { artifactId: string; initialViewState?: string; onClose?: () => void }) => (
     <div data-testid={`floating-window-${artifactId}`} data-view-state={initialViewState ?? 'view'}>
       floating-window-{artifactId}
+      <button onClick={onClose}>close {artifactId}</button>
     </div>
   ),
 }));
@@ -201,14 +206,36 @@ vi.mock('../MainFooter', () => ({
 }));
 
 import MainLayout from '../MainLayout';
+import { markNewCard } from '@/utils/untitled';
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  STORE_ARTIFACTS.length = 0;
   mockActiveWorkspaceId = 'ws-1';
 });
 
 describe('MainLayout', () => {
+  // 2026-10-13, a tester: new cards opened and closed without a change stayed behind.
+  it.each([
+    ['discards a new card closed untouched', '', 'Untitled Text', true],
+    ['keeps a new card that was given content', 'notes', 'Untitled Text', false],
+    ['keeps a new card that was renamed', '', 'Plan', false],
+  ])('%s', async (_name, content, title, discarded) => {
+    markNewCard('new-artifact-1', 'Untitled Text');
+    STORE_ARTIFACTS.push({ id: 'new-artifact-1', content, context: JSON.stringify({ title }), state: 'live' } as Artifact);
+    render(<MainLayout />);
+    await screen.findByTestId('header');
+    fireEvent.click(screen.getByTestId('create-artifact'));
+    fireEvent.click(await screen.findByText('close new-artifact-1'));
+    if (discarded) {
+      await waitFor(() => expect(discardArtifactMock).toHaveBeenCalledWith('new-artifact-1'), { timeout: 2000 });
+    } else {
+      await new Promise((r) => setTimeout(r, 1300));
+      expect(discardArtifactMock).not.toHaveBeenCalled();
+    }
+  });
+
   it('renders the two-panel layout with search and workspace panels', async () => {
     render(<MainLayout />);
     expect(await screen.findByTestId('search-panel')).toBeInTheDocument();

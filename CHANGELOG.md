@@ -5,6 +5,39 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-17
+
+### Changed
+- A new card is added to the workspace once: its "created" event can arrive before the create request answers, and both added it.
+- The Archived filter in a workspace or collection loads its archived artifacts from the server, counts them, and shows them read-only with Restore and Delete. Restore returns the card to the live list.
+- Search's Advanced panel is applied: the tag, the type (now including Markdown and Plain text), Exact words, and a new option to search archived artifacts instead are written into the recall request. A filter with no search text says that filters narrow a search. Search results keep recall's order instead of the view's sort.
+- Right-click "Assign to collections…" opens the same picker as the toolbar, and a card's collection indicator updates as soon as it is assigned.
+- Removing a card from a workspace or collection keeps it removed: the card no longer came back from the workspace's own list, or, in a container's card window, from the cards that still listed it. Failed removals say so.
+- A workspace opened as a card window says workspace in its labels and has a New card button that creates the card there.
+- A collection's card window no longer shows archived cards the workspace still holds.
+- A link to a workspace this account cannot open says so instead of opening the Inbox.
+- The Help glossary describes artifacts, workspaces, collections, versions and archiving as they work now.
+- A removal that archived the card (it was in no other workspace or collection) says so, and points to the Archived filter.
+- New cards take numbered default titles ("Untitled Search 2") when the plain one is taken.
+- A new card closed with no content and its default title is discarded.
+- An edit still waiting on its autosave when a card window closes is saved rather than lost.
+- The search panel shows the query it sent, with each applied filter as a chip, and Clear filters runs the search again.
+- Double-clicking an archived card opens it read-only with Restore.
+- Removing a card offers Undo.
+- The multi-select toolbar's Drop reads "Remove from <workspace or collection>", and removes through the workspace, so a bulk removal stays removed.
+- A card with a blank title shows the first line of its content.
+- A card's Type in the Info panel is read-only.
+- Delete moves a card to Trash instead of deleting it: the confirmation says so, and a toast offers Undo and View Trash. A bulk delete announces once.
+- Trash, from the trash button in the header: what you deleted in the last 30 days, when each goes for good, with Restore and Delete permanently. The Help glossary describes it.
+- A new card closed untouched is still deleted for good, not moved to Trash.
+
+### Added
+- Sage declares the `text/x-wordnet` type once: its describer (`offer_template`, `field_source`) and its `offer`, which names a synset's lemmas as its names so Mantle indexes them.
+- `sage.offer.declared_types()` and `declared_describer(ct)` read the types the personas declare in `<persona>/ui/<top>/<sub>/type.json`. Retrieval renders a hit with its type's declared describer, and reads a `type.<ct>` store row only for a type no type.json declares.
+
+### Removed
+- The search panel's precision slider, which recall never read, and its Custom filters block, which promised filtering recall does not do.
+
 ## [0.2.3] - 2026-10-12
 
 ### Changed

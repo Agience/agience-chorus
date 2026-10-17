@@ -1,5 +1,6 @@
 // api/workspaces.ts
 
+import type { RemoveResult } from '../utils/removal';
 import { get, getList, post, postList, patch, del } from './api';
 import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 import { subscribeEvents, type BusEvent } from './events';
@@ -84,7 +85,7 @@ export function deleteWorkspaceArtifact(
 export function removeWorkspaceArtifact(
   workspaceId: string,
   artifactId: string,
-): Promise<void> {
+): Promise<RemoveResult> {
   // ⛑ `DELETE /artifacts/{container_id}/children/{artifact_id}` since 2026-08-26 (audit
   // M2 + M4). It was `POST /artifacts/{artifact_id}/remove` with the container in the BODY --
   // the inverse of every other two-id operation, and the reason the verb could not simply
@@ -101,7 +102,9 @@ export async function getWorkspaceArtifactsBatchGlobal(
   // ⛑ `postList`, not a raw `post` reading `res.artifacts`. That key was retired when
   // `/artifacts/batch` moved to the one page shape, so the read returned `undefined` and
   // `?? []` turned it into an empty list — this search found nothing and said nothing.
-  return postList<ArtifactResponse>('/artifacts/batch', { artifact_ids: artifactIds });
+  // `include_archived`: these are ids a search returned, and a search of the archived segment
+  // returns archived ones.
+  return postList<ArtifactResponse>('/artifacts/batch', { artifact_ids: artifactIds, include_archived: true });
 }
 
 // move artifact between workspaces

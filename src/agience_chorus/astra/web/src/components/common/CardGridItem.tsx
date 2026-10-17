@@ -65,7 +65,9 @@ interface CardGridItemProps {
   editable?: boolean;
   inPanel?: boolean;
   forceHover?: boolean;
-  activeSource?: { type?: string; id?: string };
+  /** `noun` names the container in labels when its type alone would not (a workspace opened in a
+   * card window is listed as a collection). */
+  activeSource?: { type?: string; id?: string; noun?: string };
   isShowingSearchResults?: boolean;
 }
 
@@ -180,7 +182,7 @@ export const CardGridItem = ({
   const meta = useMemo(() => readMeta(artifact.context), [artifact.context]);
 
   const contentType = useMemo(() => getContentType(artifact), [artifact]);
-  const removeLabel = activeSource?.type === 'collection' ? 'Remove from collection' : 'Remove from workspace';
+  const removeLabel = `Remove from ${activeSource?.noun ?? (activeSource?.type === 'collection' ? 'collection' : 'workspace')}`;
 
   // Drop zone — any artifact can opt in via context.drop.enabled
   const dropConfig = useMemo(() => {
@@ -552,7 +554,12 @@ export const CardGridItem = ({
           onMouseDown={handleMouseDown}
           onMouseUp={handleMouseUp}
           onDoubleClick={(e) => {
-            if (editable === false || artifact.state === 'archived') return;
+            // An archived card opens too: its window is read-only, with Restore. It is never edited.
+            if (artifact.state === 'archived') {
+              if (onOpen) { e.stopPropagation(); onOpen(artifact); }
+              return;
+            }
+            if (editable === false) return;
             e.stopPropagation();
             if (onOpen) {
               onOpen(artifact);

@@ -33,6 +33,11 @@ export function useDebouncedSave(
   // the caller passes an inline function.
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
+  // The latest value and switch, for the save on unmount below.
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
 
   const resetTracking = useCallback((syncedValue: string) => {
     lastValueRef.current = syncedValue;
@@ -115,6 +120,20 @@ export function useDebouncedSave(
       }
     };
   }, [value, delay, enabled]);
+
+  // An edit still waiting on the debounce when the editor goes away is saved, not dropped.
+  // 2026-10-14: closing a card window within the delay of a title or context edit lost the edit,
+  // because the cleanup above cancelled the timer and nothing saved it.
+  useEffect(() => () => {
+    if (!enabledRef.current || valueRef.current === lastValueRef.current) return;
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    const pending = valueRef.current;
+    lastValueRef.current = pending;
+    void onSaveRef.current(pending).catch((error) => {
+      console.error('Save on close failed:', error);
+      toast.error('Failed to save changes. Please try again.');
+    });
+  }, []);
 
   return { isSaving, lastSaved, forceSave, resetTracking };
 }

@@ -51,7 +51,7 @@ interface CardGridProps {
   inPanel?: boolean;
   fillHeight?: boolean; // whether the grid fills available height
   isSelected?: (id: string) => boolean;
-  activeSource?: { type: string; id: string } | null;
+  activeSource?: { type: string; id: string; noun?: string } | null;
   isShowingSearchResults?: boolean;
   onArtifactMouseDown?: (id: string, e: React.MouseEvent) => void;
   onOpenArtifact?: (artifact: Artifact) => void;

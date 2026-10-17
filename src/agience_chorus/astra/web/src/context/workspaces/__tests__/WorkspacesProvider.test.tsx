@@ -89,3 +89,43 @@ describe('WorkspacesProvider failures', () => {
     ));
   });
 });
+
+describe('WorkspacesProvider deep links', () => {
+  beforeEach(() => {
+    listWorkspacesMock.mockReset();
+    toastErrorMock.mockReset();
+  });
+
+  function ActiveId() {
+    const { activeWorkspaceId } = useWorkspaces();
+    return <div data-testid="active">{activeWorkspaceId ?? ''}</div>;
+  }
+
+  function renderAt(url: string) {
+    return render(
+      <MemoryRouter initialEntries={[url]}>
+        <WorkspacesProvider>
+          <ActiveId />
+        </WorkspacesProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  // 2026-10-13, a tester opened a shared workspace link before being invited and saw their own
+  // Inbox with no word that the link had not worked.
+  it('says so when the link names a workspace this account cannot reach', async () => {
+    listWorkspacesMock.mockResolvedValueOnce([{ id: 'inbox-1', name: 'Inbox' }]);
+    renderAt('/?workspace=shared-ws');
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith(
+      "You can't open this workspace", expect.objectContaining({ description: expect.stringContaining('invitation') }),
+    ));
+    expect(screen.getByTestId('active')).toHaveTextContent('inbox-1');
+  });
+
+  it('opens the linked workspace when this account holds it', async () => {
+    listWorkspacesMock.mockResolvedValueOnce([{ id: 'inbox-1', name: 'Inbox' }, { id: 'shared-ws', name: 'S' }]);
+    renderAt('/?workspace=shared-ws');
+    await waitFor(() => expect(screen.getByTestId('active')).toHaveTextContent('shared-ws'));
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+});

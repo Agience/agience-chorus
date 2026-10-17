@@ -4,11 +4,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import CollectionArtifactViewer from '../CollectionArtifactViewer';
 import type { Artifact } from '@/context/workspace/workspace.types';
 
-const { listMock, removeFromCollectionMock, deleteArtifactMock, confirmMock } = vi.hoisted(() => ({
+const { listMock, removeFromCollectionMock, deleteArtifactMock, confirmMock, patchMock, store } = vi.hoisted(() => ({
   listMock: vi.fn(),
   removeFromCollectionMock: vi.fn(),
   deleteArtifactMock: vi.fn(),
   confirmMock: vi.fn(),
+  patchMock: vi.fn(),
+  store: { artifacts: [] as unknown[] },
 }));
 
 vi.mock('@/api/collections', () => ({
@@ -19,22 +21,26 @@ vi.mock('@/api/collections', () => ({
 }));
 
 vi.mock('@/hooks/useWorkspace', () => ({
-  useWorkspace: () => ({ artifacts: [], deleteArtifact: deleteArtifactMock }),
+  useWorkspace: () => ({ artifacts: store.artifacts, deleteArtifact: deleteArtifactMock, patchArtifactLocally: patchMock }),
 }));
 
 vi.mock('@/context/dialog/useConfirm', () => ({
   useConfirm: () => ({ confirm: confirmMock }),
 }));
 
+vi.mock('@/api/workspaces', () => ({ addArtifactToWorkspace: vi.fn() }));
+vi.mock('@/components/browser/CardTypePickerDialog', () => ({ default: () => null }));
+
 // The grid is replaced by two buttons that call the host's remove handler the way the real
 // card does: plain for Remove, with 'delete' for the Delete menu item.
 vi.mock('@/components/common/CardGrid', () => ({
-  default: ({ artifacts, onRemove, deleteEnabled }: {
+  default: ({ artifacts, onRemove, deleteEnabled, activeSource }: {
     artifacts: Artifact[];
     onRemove?: (a: Artifact, mode?: 'delete') => void;
     deleteEnabled?: boolean;
+    activeSource?: { noun?: string };
   }) => (
-    <div data-delete-enabled={String(Boolean(deleteEnabled))} data-testid="grid">
+    <div data-delete-enabled={String(Boolean(deleteEnabled))} data-noun={activeSource?.noun} data-testid="grid">
       {artifacts.map((a) => (
         <div key={String(a.id)}>
           <span>{String(a.id)}</span>
@@ -57,6 +63,33 @@ describe('CollectionArtifactViewer remove and delete', () => {
     removeFromCollectionMock.mockReset().mockResolvedValue(undefined);
     deleteArtifactMock.mockReset().mockResolvedValue(true);
     confirmMock.mockReset();
+    patchMock.mockReset();
+    store.artifacts = [];
+  });
+
+  // 2026-10-13, a tester: Remove answered 200 `removed: true` and the card stayed. The view adds
+  // every workspace-store card that lists this container, and the store's copy still listed it.
+  it('Remove also drops the membership from the workspace store, so the card does not come back', async () => {
+    store.artifacts = [{ ...member, committed_collection_ids: ['col-1', 'other'] }];
+    render(<CollectionArtifactViewer artifact={collection} />);
+    fireEvent.click(await screen.findByText('remove m1'));
+    await waitFor(() => expect(patchMock).toHaveBeenCalledWith({ id: 'm1', committed_collection_ids: ['other'] }));
+  });
+
+  // 2026-10-13, a tester: a collection kept showing an archived artifact a workspace had dropped.
+  it('does not show an archived card the workspace store still holds', async () => {
+    listMock.mockResolvedValue([]);
+    store.artifacts = [{ id: 'a1', root_id: 'a1', context: '{}', content: '', state: 'archived', committed_collection_ids: ['col-1'] }];
+    render(<CollectionArtifactViewer artifact={collection} />);
+    await screen.findByTestId('grid');
+    expect(screen.queryByText('a1')).toBeNull();
+  });
+
+  it('calls a workspace a workspace', async () => {
+    const workspace = { ...collection, context: '{"content_type":"application/vnd.agience.workspace+json"}' } as Artifact;
+    render(<CollectionArtifactViewer artifact={workspace} />);
+    expect(await screen.findByTestId('grid')).toHaveAttribute('data-noun', 'workspace');
+    expect(screen.getByTitle('New card in this workspace')).toBeTruthy();
   });
 
   it('tells the grid it can delete', async () => {

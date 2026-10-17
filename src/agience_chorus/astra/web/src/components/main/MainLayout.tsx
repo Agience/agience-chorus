@@ -14,12 +14,16 @@ import type { Artifact } from "../../context/workspace/workspace.types";
 import FloatingCardWindow from "../windows/FloatingCardWindow";
 import { getContentType } from "@/registry/content-types";
 import { resolveSearchHitsToArtifacts } from "../../utils/resolveSearchHits";
+import { isUntouchedNewCard, takeNewCard } from "@/utils/untitled";
+
+/** How long after a new card's window closes it is judged: its editors save on close, and the
+ * saves are applied to the store at once, so this only has to outlast a render. */
+const DISCARD_UNTOUCHED_AFTER_MS = 1000;
 
 function MainLayout() {
   const [activeSource, setActiveSource] = useState<ActiveSource>(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [searchSortMode, setSearchSortMode] = useState<'relevance' | 'recency'>('relevance');
-  const [searchPrecision, setSearchPrecision] = useState<number>(0.5);
   const [clearSearchTrigger, setClearSearchTrigger] = useState(0);
   // Resolved search result artifacts to display in SearchPanel
   const [resolvedSearchArtifacts, setResolvedSearchArtifacts] = useState<Artifact[]>([]);
@@ -45,7 +49,11 @@ function MainLayout() {
     setDisplayedArtifacts,
     unselectAllArtifacts,
     addExistingArtifact,
+    discardArtifact,
   } = useWorkspace();
+  // The cards as they are now, for a check that runs after a window has closed.
+  const latestArtifactsRef = useRef<Artifact[]>([]);
+  latestArtifactsRef.current = [...artifacts, ...displayedArtifacts];
   const { activeWorkspaceId } = useWorkspaces();
 
   // Panel widths for header coordination
@@ -103,7 +111,17 @@ function MainLayout() {
   const closeArtifactWindow = useCallback((windowId: string) => {
     setOpenArtifactWindowIds((prev) => prev.filter((id) => id !== windowId));
     setArtifactWindowEditIds((prev) => prev.filter((id) => id !== windowId));
-  }, []);
+    // A new card closed as it was created (no content, its default title) is discarded: it was a
+    // click, not an artifact. 2026-10-13, a tester found such cards piling up.
+    const artifactId = windowId.startsWith('artifact:') ? windowId.slice('artifact:'.length) : windowId;
+    const defaultTitle = takeNewCard(artifactId);
+    if (defaultTitle === undefined) return;
+    window.setTimeout(() => {
+      const card = latestArtifactsRef.current.find((a) => String(a.id) === artifactId);
+      // Deleted for good, not moved to Trash: there is nothing in it to restore.
+      if (card && isUntouchedNewCard(card, defaultTitle)) void discardArtifact(artifactId);
+    }, DISCARD_UNTOUCHED_AFTER_MS);
+  }, [discardArtifact]);
 
   const focusArtifactWindow = useCallback((windowId: string) => {
     setOpenArtifactWindowIds((prev) => {
@@ -267,8 +285,6 @@ function MainLayout() {
               onCollectionSelect={handleOpenCollectionFromContainer}
               sortMode={searchSortMode}
               onSortChange={setSearchSortMode}
-              precision={searchPrecision}
-              onPrecisionChange={setSearchPrecision}
             />
           }
           rightPanel={
@@ -280,10 +296,6 @@ function MainLayout() {
                 setSelectedArtifactId(artifactId ?? null);
               }}
               onOpenArtifact={handleOpenArtifact}
-              onAssignCollections={(artifactId) => {
-                // Collection assignment handled inside Browser.tsx via modal
-                void artifactId;
-              }}
             />
           }
           onPanelWidthsChange={handlePanelWidthsChange}

@@ -20,8 +20,11 @@ export interface WorkspaceContextType {
   updateArtifact: (artifact: Partial<Artifact>) => Promise<void>;
   /** Unlink the artifact from the active workspace. */
   removeArtifact: (id: string) => Promise<void>;
-  /** Destroy the artifact. Resolves false when the server refuses. */
-  deleteArtifact: (id: string) => Promise<boolean>;
+  /** Move the artifact to Trash, restorable for 30 days; `announce: false` skips the Undo toast
+   * (a bulk caller announces once). Resolves false when the server refuses. */
+  deleteArtifact: (id: string, options?: { announce?: boolean }) => Promise<boolean>;
+  /** Delete the artifact for good. Resolves false when the server refuses. */
+  discardArtifact: (id: string) => Promise<boolean>;
   refreshArtifacts: (workspaceId: string) => Promise<void>;
   selectArtifact: (id: string, event: MouseEvent) => void;
   orderArtifacts: (orderedIds: string[]) => Promise<void>;

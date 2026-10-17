@@ -99,6 +99,46 @@ def describer_key(artifact: Dict[str, Any]) -> str:
     return data_type(artifact) or str(artifact.get("content_type") or "")
 
 
+# ── where a type's describer is declared ──────────────────────────────────────────────────────
+# In the type's own `type.json`, beside its `offer` (the fields Mantle indexes as its title,
+# description and tags): `offer_template` and `field_source`. One declaration of the type, read
+# here for rendering and published by Crystal for indexing. A store row of type
+# `application/vnd.agience.content-type+json` (`type.<ct>`) is read only for a type no
+# `type.json` declares: those rows were minted before describers moved into the declarations,
+# and on node stores they are still the only copy of some.
+_DECLARED: Optional[Dict[str, Dict[str, Any]]] = None
+
+
+def declared_types(root: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+    """Every type the personas declare, ``content_type -> type.json``, from
+    ``<persona>/ui/<top>/<sub>/type.json`` under the chorus package (or ``root``)."""
+    global _DECLARED
+    if root is None and _DECLARED is not None:
+        return _DECLARED
+    import json
+    from pathlib import Path
+    base = Path(root) if root else Path(__file__).resolve().parent.parent
+    found: Dict[str, Dict[str, Any]] = {}
+    for path in sorted(base.glob("*/ui/*/*/type.json")):
+        try:
+            definition = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(definition, dict):
+            ct = str(definition.get("content_type")
+                     or "%s/%s" % (path.parent.parent.name, path.parent.name))
+            found[ct.strip().lower()] = definition
+    if root is None:
+        _DECLARED = found
+    return found
+
+
+def declared_describer(content_type: str, root: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """The declared type definition for ``content_type`` when it carries an `offer_template`."""
+    definition = declared_types(root).get(str(content_type or "").strip().lower())
+    return definition if definition and definition.get("offer_template") else None
+
+
 def template_fields(template: str) -> List[str]:
     """Field names a template references, in order of appearance."""
     return _FIELD.findall(template or "")

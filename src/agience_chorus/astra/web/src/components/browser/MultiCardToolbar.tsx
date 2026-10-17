@@ -8,6 +8,8 @@ interface MultiCardToolbarProps {
   moveLabel?: string;
   onDelete: () => void;
   onDrop: () => void;
+  /** The remove action's label, naming the container ("Remove from Inbox"). */
+  dropLabel?: string;
   onClear: () => void;
   /** Selection includes at least one card the user may delete. */
   canDelete: boolean;
@@ -23,6 +25,7 @@ export default function MultiCardToolbar({
   moveLabel = 'Move',
   onDelete,
   onDrop,
+  dropLabel = 'Remove',
   onClear,
   canDelete,
   hasLive,
@@ -68,7 +71,7 @@ export default function MultiCardToolbar({
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
           >
             <FiLogOut className="w-4 h-4" />
-            Drop
+            {dropLabel}
           </button>
         )}
 
