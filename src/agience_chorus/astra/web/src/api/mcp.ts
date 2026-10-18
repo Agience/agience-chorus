@@ -2,89 +2,20 @@
 import api, { getList } from './api';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const UI_URI_HOST_PATTERN = /^ui:\/\/([^/]+)\//i;
 
-const serverArtifactIdCache = new Map<string, string>();
-
-function normalizeServerRef(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s_]+/g, '-');
+// A server is named one of two ways. A persona (seraph, lumen, ...) by its name: Crystal holds the
+// only name -> endpoint map, so its view and tools are reached through `/personas/{name}/...`. A
+// server a person added is a `vnd.agience.mcp-server+json` artifact, named by its UUID, and is
+// reached through that artifact's operations.
+//
+// 2026-10-18: every name was resolved to an artifact first. Personas have none, the lookup threw,
+// and every `vnd.agience.*` viewer said its server was not running.
+function personaPath(server: string, rest: string): string {
+  return `/personas/${encodeURIComponent(server.trim())}/${rest}`;
 }
 
-function cacheServerInfo(serverInfo: MCPServerInfo): void {
-  const serverId = String(serverInfo.server ?? '').trim();
-  if (!serverId) return;
-
-  serverArtifactIdCache.set(serverId, serverId);
-
-  const normalizedName = normalizeServerRef(serverInfo.name ?? '');
-  if (normalizedName) {
-    serverArtifactIdCache.set(normalizedName, serverId);
-  }
-
-  for (const resource of serverInfo.resources ?? []) {
-    const uri = String(resource.uri ?? '').trim();
-    if (!uri) continue;
-
-    const match = UI_URI_HOST_PATTERN.exec(uri);
-    if (!match?.[1]) continue;
-
-    serverArtifactIdCache.set(normalizeServerRef(match[1]), serverId);
-  }
-}
-
-async function resolveServerArtifactId(serverRef: string, workspaceId?: string): Promise<string> {
-  const trimmedRef = serverRef.trim();
-  if (!trimmedRef) {
-    throw new Error('Missing MCP server artifact UUID');
-  }
-
-  if (UUID_PATTERN.test(trimmedRef)) {
-    return trimmedRef;
-  }
-
-  const normalizedRef = normalizeServerRef(trimmedRef);
-  const cached = serverArtifactIdCache.get(trimmedRef) ?? serverArtifactIdCache.get(normalizedRef);
-  if (cached) {
-    return cached;
-  }
-
-  const resolutionErrors: string[] = [];
-
-  if (workspaceId) {
-    try {
-      const workspaceServers = await listWorkspaceMCPServers(workspaceId);
-      workspaceServers.forEach(cacheServerInfo);
-      const workspaceResolved = serverArtifactIdCache.get(trimmedRef) ?? serverArtifactIdCache.get(normalizedRef);
-      if (workspaceResolved) {
-        return workspaceResolved;
-      }
-    } catch (error) {
-      resolutionErrors.push(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  try {
-    const allServers = await listAllMCPServers();
-    allServers.forEach(cacheServerInfo);
-    const globalResolved = serverArtifactIdCache.get(trimmedRef) ?? serverArtifactIdCache.get(normalizedRef);
-    if (globalResolved) {
-      return globalResolved;
-    }
-  } catch (error) {
-    resolutionErrors.push(error instanceof Error ? error.message : String(error));
-  }
-
-  if (resolutionErrors.length > 0) {
-    throw new Error(
-      `Failed to resolve MCP server '${serverRef}' to an artifact UUID: ${resolutionErrors.join('; ')}`,
-    );
-  }
-
-  throw new Error(`Unknown MCP server reference '${serverRef}'. Expected a server artifact UUID.`);
-}
-
-export function __clearServerArtifactIdCacheForTests(): void {
-  serverArtifactIdCache.clear();
+function isArtifactRef(server: string): boolean {
+  return UUID_PATTERN.test(server.trim());
 }
 
 export interface MCPServerTransport {
@@ -189,85 +120,50 @@ function _artifactToServerInfo(artifact: Record<string, unknown>): MCPServerInfo
 }
 
 /**
- * List all MCP servers accessible to the current user.
- *
- * Queries /artifacts/visible filtered to vnd.agience.mcp-server+json.
- * Capabilities (tools, resources, prompts) are materialized as child
- * artifacts and are not returned inline here.
+ * Every MCP server the current user can reach: the personas (from Crystal, with their tools and
+ * resources) and the mcp-server artifacts visible to the user. A source that fails is left out;
+ * the other still answers.
  */
 export async function listAllMCPServers(): Promise<MCPServerInfo[]> {
-  const rows = await getList<Record<string, unknown>>('/artifacts/visible', {
-    params: { content_type: _MCP_SERVER_CONTENT_TYPE },
-  });
-  return rows.map(_artifactToServerInfo);
+  const [personas, artifacts] = await Promise.allSettled([
+    getList<MCPServerInfo>('/personas'),
+    getList<Record<string, unknown>>('/artifacts/visible', {
+      params: { content_type: _MCP_SERVER_CONTENT_TYPE },
+    }),
+  ]);
+  if (personas.status === 'rejected' && artifacts.status === 'rejected') {
+    throw personas.reason;
+  }
+  return [
+    ...(personas.status === 'fulfilled' ? personas.value : []),
+    ...(artifacts.status === 'fulfilled' ? artifacts.value.map(_artifactToServerInfo) : []),
+  ];
 }
 
 /**
- * List MCP servers available to the current user.
- *
- * The workspace parameter is accepted for interface compatibility with
- * callers, but workspace scoping is handled by the ACL on
- * /artifacts/visible — all accessible mcp-server+json artifacts are
- * returned regardless of workspace context.
+ * MCP servers available to the current user. The workspace is accepted for interface
+ * compatibility; access is decided by the token on each source, not by the workspace.
  */
 export async function listWorkspaceMCPServers(_workspaceId: string): Promise<MCPServerInfo[]> {
-  const rows = await getList<Record<string, unknown>>('/artifacts/visible', {
-    params: { content_type: _MCP_SERVER_CONTENT_TYPE },
-  });
-  return rows.map(_artifactToServerInfo);
+  return listAllMCPServers();
 }
 
 /**
- * Import MCP resources as workspace artifacts.
- *
- * Routes through the artifact dispatcher's custom-operation endpoint
- * (`POST /artifacts/{server_id}/op/resources_import`); the server-side
- * handler is `mcp_resource_importer.dispatch_resources_import`.
- */
-export async function importMCPResources(
-  workspaceId: string,
-  server: string,
-  resources: MCPResource[]
-): Promise<{ count: number; artifact_ids: string[] }> {
-  const serverArtifactId = await resolveServerArtifactId(server, workspaceId);
-  const response = await api.post<{ created_artifact_ids: string[]; count: number }>(
-    `/artifacts/${encodeURIComponent(serverArtifactId)}/op/resources_import`,
-    {
-      workspace_id: workspaceId,
-      resources,
-    }
-  );
-  return {
-    count: response.data.count,
-    artifact_ids: response.data.created_artifact_ids,
-  };
-}
-
-/**
- * Read MCP resource contents from an external MCP server.
- *
- * Routes through the artifact dispatcher's custom-operation endpoint
- * (`POST /artifacts/{server_id}/op/resources_read`); the server-side
- * handler is `mcp_resource_importer.dispatch_resources_read`.
- *
- * ``server`` is the artifact UUID of a ``vnd.agience.mcp-server+json``
- * artifact — including the seeded built-in persona artifacts.
- *
- * ``workspaceId`` is an optional context hint for server resolution.
- *
- * Content-type handlers and agents should not call this directly; use
- * ``POST /agents/invoke`` with the appropriate transform/params instead.
+ * Read a resource's contents from an MCP server: a persona by name, or an mcp-server artifact by
+ * UUID. ``workspaceId`` travels with an artifact's op for its own context.
  */
 export async function readMCPResource(
   server: string,
   uri: string,
   workspaceId?: string,
 ): Promise<MCPResourceContents> {
-  const serverArtifactId = await resolveServerArtifactId(server, workspaceId);
-  const response = await api.post<MCPResourceContents>(
-    `/artifacts/${encodeURIComponent(serverArtifactId)}/op/resources_read`,
-    { uri, workspace_id: workspaceId }
-  );
+  if (!server.trim()) throw new Error('Missing MCP server');
+  const response = isArtifactRef(server)
+    ? await api.post<MCPResourceContents>(
+      `/artifacts/${encodeURIComponent(server.trim())}/op/resources_read`,
+      { uri, workspace_id: workspaceId },
+    )
+    : await api.post<MCPResourceContents>(personaPath(server, 'resources/read'), { uri });
   return response.data;
 }
 
@@ -288,26 +184,28 @@ export async function readUiResource(
 }
 
 /**
- * Proxy a tools/call request from an MCP App iframe to the backend.
+ * Call a tool on an MCP server, for an MCP App view or a settings frame.
  *
- * Routes through the unified artifact invoke endpoint
- * (`POST /artifacts/{server_id}/op/invoke`) on Crystal, which dispatches via
- * the operation registry. The body carries the tool name in `name` (not
- * `tool`) because the dispatcher reads it from `body.name`, per the type
- * definition's `operations.invoke.dispatch.tool_ref = $.body.name`.
+ * A persona (by name) is called through Crystal's `/personas/{name}/tools/call`; a view calls the
+ * tools of the persona that served it. An mcp-server artifact (by UUID) goes through its
+ * `invoke` operation (`POST /artifacts/{id}/op/invoke`), whose type definition reads the tool name
+ * from `body.name`. No timeout: a call can run an unbounded LLM and tool chain, with deltas
+ * streamed over WebSocket.
  */
 export async function proxyToolCall(
   toolName: string,
   args: Record<string, unknown>,
-  serverArtifactId: string = 'agience-core',
+  server: string,
   workspaceId?: string,
 ): Promise<{ content: Array<{ type: string; text?: string }> }> {
-  const resolvedServerArtifactId = await resolveServerArtifactId(serverArtifactId, workspaceId);
-  const response = await api.post(
-    `/artifacts/${encodeURIComponent(resolvedServerArtifactId)}/op/invoke`,
-    { name: toolName, arguments: args, workspace_id: workspaceId },
-    { timeout: 0 },  // no timeout — invoke runs unbounded LLM + tool chains; deltas stream via WebSocket
-  );
+  if (!server.trim()) throw new Error('Missing MCP server');
+  const response = isArtifactRef(server)
+    ? await api.post(
+      `/artifacts/${encodeURIComponent(server.trim())}/op/invoke`,
+      { name: toolName, arguments: args, workspace_id: workspaceId },
+      { timeout: 0 },
+    )
+    : await api.post(personaPath(server, 'tools/call'), { name: toolName, arguments: args }, { timeout: 0 });
   return response.data as { content: Array<{ type: string; text?: string }> };
 }
 

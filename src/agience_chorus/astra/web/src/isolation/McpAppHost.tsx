@@ -90,7 +90,7 @@ export interface McpAppHostHandle {
 const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpAppHost({
   artifact,
   html,
-  resourceServer: _resourceServer,
+  resourceServer,
   csp,
   onOpenArtifact,
   onOpenCollection,
@@ -392,14 +392,15 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
       }
 
       default: {
-        // Route through the artifact itself — POST /artifacts/{artifact.id}/invoke.
-        // The artifact's type.json declares how to dispatch (server + tool).
-        // The frontend never needs to know which server owns the tool.
+        // A view calls the tools of the persona that served it (`resource_server`), as an MCP App
+        // calls its own server. Without one, the call goes through the artifact's own `invoke`
+        // operation, which its type declares. 2026-10-18: every call went to the artifact, and a
+        // type that declares no `invoke` (Key, among others) failed every tool its view called.
         try {
           const result = await proxyToolCall(
             toolName,
             toolArgs,
-            artifact.id,
+            resourceServer || artifact.id,
             activeWorkspaceId || undefined,
           );
           sendResponse(req.id, result);

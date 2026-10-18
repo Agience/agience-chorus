@@ -532,7 +532,26 @@ describe('McpAppHost', () => {
 
   describe('tools/call proxied tools', () => {
 
-    it('unknown tools proxy through the artifact invoke endpoint', async () => {
+    it("a view's tools are called on the persona that served it", async () => {
+      // 2026-10-18: every call went to the artifact's own `invoke`, which the Key type does not
+      // declare, so the view's tools failed.
+      proxyToolCallMock.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+      const { container } = render(
+        <McpAppHost artifact={makeArtifact({ id: 'art-7' })} html="" resourceServer="seraph" />,
+      );
+      const { dispatchFromIframe } = wireIframe(container);
+
+      dispatchFromIframe({
+        jsonrpc: '2.0',
+        id: 13,
+        method: 'tools/call',
+        params: { name: 'list_api_keys', arguments: {} },
+      });
+      await waitFor(() => expect(proxyToolCallMock).toHaveBeenCalled());
+      expect(proxyToolCallMock).toHaveBeenCalledWith('list_api_keys', {}, 'seraph', 'ws-1');
+    });
+
+    it('without a serving persona, unknown tools proxy through the artifact invoke endpoint', async () => {
       proxyToolCallMock.mockResolvedValue({
         content: [{ type: 'text', text: 'remote-result' }],
       });

@@ -69,6 +69,12 @@ function isCrystalTypePath(url: string): boolean {
   return url === '/types/all' || url.startsWith('/types/');
 }
 
+// The personas are reached by name through Crystal, which holds the only name -> endpoint map
+// (`crystal/personas.py`): their tools, resources and `ui://` views.
+function isCrystalPersonaPath(url: string): boolean {
+  return url === '/personas' || url.startsWith('/personas/');
+}
+
 function isCrystalOpPath(url: string): boolean {
   // Content-type operations dispatch through Crystal, the gateway
   // (`POST /artifacts/{id}/op/{name}`). Mantle does not mount the op surface,
@@ -87,7 +93,7 @@ api.interceptors.request.use(config => {
   const url = config.url || '';
   if (isOriginAuthPath(url)) {
     config.baseURL = ORIGIN_URI;
-  } else if (isCrystalOpPath(url) || isCrystalTypePath(url)) {
+  } else if (isCrystalOpPath(url) || isCrystalTypePath(url) || isCrystalPersonaPath(url)) {
     config.baseURL = CRYSTAL_URI;
   }
   const token = localStorage.getItem('access_token');
