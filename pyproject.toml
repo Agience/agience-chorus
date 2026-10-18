@@ -44,7 +44,7 @@ dependencies = [
     "cryptography>=42.0",
     "python-jose[cryptography]>=3.3",
     "pydantic>=2.0",        # explicit: fastapi pulls it, but chorus imports it directly
-    "agience-prism[wire,trust]>=0.1.4",  # 0.1.4: seraph's `ServerAuth.verify_user_jwt` accepts only access tokens
+    "agience-prism[wire,trust]>=0.1.5",  # 0.1.5: a persona carries a grant key to the store (timers, agents)
     "agience-crystal[ontology,service]>=0.1.0",
     "agience-mantle>=0.1.3",
 ]

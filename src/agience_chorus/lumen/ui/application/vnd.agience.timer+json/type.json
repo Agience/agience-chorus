@@ -1,0 +1,49 @@
+{
+  "content_type": "application/vnd.agience.timer+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Timer — runs an artifact's operation on a schedule (every N minutes, daily at a time, or once). It acts on a key its owner issues when they arm it, over the timer's workspace, and stops when the key is revoked or the timer is disarmed. Lumen fires it.",
+  "ui": {
+    "label": "Timer",
+    "icon": "clock",
+    "color": "#0f766e",
+    "badge_class": "bg-teal-100 text-teal-800",
+    "tile_class": "",
+    "modes": [
+      "floating"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "viewer": "timer",
+    "resource_uri": "ui://lumen/vnd.agience.timer.html",
+    "resource_server": "lumen"
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "mutable": true
+    },
+    "timer": {
+      "type": "object",
+      "description": "schedule (one of every_minutes, daily_at HH:MM UTC, at ISO time), target {artifact_id, operation, body}, optional results_to, enabled",
+      "mutable": true
+    },
+    "timer_state": {
+      "type": "object",
+      "description": "Written by Lumen on each run: last_run, last_status, last_error, runs",
+      "mutable": false
+    },
+    "key": {
+      "type": "object",
+      "description": "The key the timer acts on: api_key_id, resources, armed_at. Never the secret",
+      "mutable": false
+    }
+  }
+}

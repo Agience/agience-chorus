@@ -63,7 +63,7 @@ describe('legacy artifact states at the API boundary', () => {
   });
 
   it.each([
-    ['/artifacts/srv-1/op/resources_read'],
+    ['/personas/seraph/resources/read'],
     ['/artifacts/art-1/content-url'],
     ['/grants'],
   ])('leaves %s untouched', async (url) => {

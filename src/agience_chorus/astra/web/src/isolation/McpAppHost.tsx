@@ -361,6 +361,84 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         return;
       }
 
+      // Timers. Arming issues a key over the timer's workspace (and where it records runs), after
+      // the user approves it here, and hands the key to Lumen directly; the view gets only its id.
+      case 'arm_timer': {
+        if (!confirmDialog) {
+          sendError(req.id, -32000, 'arm_timer needs the host confirmation dialog');
+          return;
+        }
+        if (credentialRequestPending.current) {
+          sendError(req.id, -32000, 'Another credential request is awaiting the user');
+          return;
+        }
+        const ctx = safeParseArtifactContext(artifact.context) as Record<string, unknown>;
+        const timer = (ctx.timer ?? {}) as { results_to?: unknown };
+        const workspace = artifact.collection_id ?? '';
+        if (!workspace) {
+          sendError(req.id, -32000, 'This timer is in no workspace, so there is nothing for its key to reach');
+          return;
+        }
+        const resources = [workspace, ...(typeof timer.results_to === 'string' && timer.results_to
+          && timer.results_to !== workspace ? [timer.results_to] : [])];
+        credentialRequestPending.current = true;
+        try {
+          const approved = await confirmDialog.confirm({
+            title: 'Arm this timer?',
+            description: 'It will run on its schedule, reading, writing and running operations in the '
+              + 'places below on a key issued to it, until you disarm it. Disarming revokes the key.',
+            customContent: (
+              <pre className="max-h-48 overflow-auto rounded bg-gray-50 p-2 text-xs">
+                {JSON.stringify({ reaches: resources, access: 'read, write and run' }, null, 2)}
+              </pre>
+            ),
+            confirmLabel: 'Arm timer',
+            tone: 'warn',
+          });
+          if (!approved) {
+            sendError(req.id, -32000, 'The user declined to arm the timer');
+            return;
+          }
+          const { createKeyOver, deleteAPIKey } = await import('@/api/apiKeys');
+          const title = typeof ctx.title === 'string' && ctx.title ? ctx.title : 'Timer';
+          const created = await createKeyOver(`Timer: ${title}`, 'collaborator', resources);
+          const answer = await proxyToolCall('arm_timer',
+            { timer_id: artifact.id, key: created.key, key_id: created.id }, 'lumen');
+          const text = answer.content?.[0]?.text ?? '{}';
+          const armed = JSON.parse(text) as { armed?: boolean; error?: string };
+          if (!armed.armed) {
+            await deleteAPIKey(created.id).catch(() => undefined);
+            sendError(req.id, -32000, `Arming failed: ${armed.error ?? text}`);
+            return;
+          }
+          sendResponse(req.id, {
+            content: [{ type: 'text', text: JSON.stringify({ key_id: created.id, resources }) }],
+          });
+        } catch (e) {
+          sendError(req.id, -32000, `Arming failed: ${e}`);
+        } finally {
+          credentialRequestPending.current = false;
+        }
+        return;
+      }
+
+      case 'disarm_timer': {
+        const keyId = typeof toolArgs.id === 'string' ? toolArgs.id : '';
+        if (!keyId || !recordedKeyIds(artifact).includes(keyId)) {
+          sendError(req.id, -32000, 'disarm_timer is limited to the key recorded on the hosted timer');
+          return;
+        }
+        try {
+          const { deleteAPIKey } = await import('@/api/apiKeys');
+          await deleteAPIKey(keyId);
+          await proxyToolCall('disarm_timer', { timer_id: artifact.id }, 'lumen').catch(() => undefined);
+          sendResponse(req.id, { content: [{ type: 'text', text: 'OK' }] });
+        } catch (e) {
+          sendError(req.id, -32000, `Disarming failed: ${e}`);
+        }
+        return;
+      }
+
       case 'delete_api_key': {
         // Only the key recorded on the hosted artifact can be revoked from its view.
         const keyId = typeof toolArgs.id === 'string' ? toolArgs.id : '';

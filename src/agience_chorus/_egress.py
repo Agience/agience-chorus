@@ -84,6 +84,7 @@ class Response:
     content_type: str
     body: bytes
     truncated: bool          # the body stopped at the byte cap
+    headers: Optional[Dict[str, str]] = None   # lower-cased names; set by `post`
 
     def text(self) -> str:
         """The body decoded by the charset the response declares, UTF-8 when it declares none."""
@@ -238,24 +239,7 @@ def fetch(url: str, *, timeout: float = 20.0, max_bytes: int = MAX_BYTES,
             if resp.status in _REDIRECT_CODES and location:
                 current = urljoin(current, location.strip())
                 continue
-            chunks, size, truncated = [], 0, False
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise EgressError("timed out after %ss" % timeout)
-                if conn.sock is not None:
-                    conn.sock.settimeout(remaining)
-                # read1: at most one read from the socket, so the deadline is checked between
-                # every arrival rather than after a buffered read that waits for the full amount.
-                chunk = resp.read1(min(_CHUNK, max_bytes - size + 1))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                size += len(chunk)
-                if size > max_bytes:
-                    truncated = True
-                    break
-            body = b"".join(chunks)[:max_bytes]
+            body, truncated = _read(conn, resp, deadline, timeout, max_bytes)
             return Response(current, resp.status, resp.getheader("Content-Type") or "",
                             body, truncated)
         except EgressError:
@@ -265,6 +249,60 @@ def fetch(url: str, *, timeout: float = 20.0, max_bytes: int = MAX_BYTES,
         finally:
             conn.close()
     raise EgressRefused("more than %d redirects" % max_redirects)
+
+
+def _read(conn, resp, deadline: float, timeout: float, max_bytes: int):
+    """The body, read in chunks against the shared deadline and stopped at the byte cap."""
+    chunks, size, truncated = [], 0, False
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise EgressError("timed out after %ss" % timeout)
+        if conn.sock is not None:
+            conn.sock.settimeout(remaining)
+        # read1: at most one read from the socket, so the deadline is checked between
+        # every arrival rather than after a buffered read that waits for the full amount.
+        chunk = resp.read1(min(_CHUNK, max_bytes - size + 1))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        size += len(chunk)
+        if size > max_bytes:
+            truncated = True
+            break
+    return b"".join(chunks)[:max_bytes], truncated
+
+
+def post(url: str, body: bytes, *, timeout: float = 20.0, max_bytes: int = MAX_BYTES,
+         headers: Optional[Dict[str, str]] = None) -> Response:
+    """POST `body` to `url` through the same guard as `fetch`, for a protocol that needs it (an
+    MCP server's JSON-RPC endpoint). A redirect is refused rather than followed: re-sending a
+    request body to wherever a server points is how a guarded POST turns into an unguarded one.
+    The response carries its headers (`Response.headers`, lower-cased)."""
+    timeout = max(0.1, min(float(timeout or MAX_TIMEOUT), MAX_TIMEOUT))
+    max_bytes = max(0, min(int(max_bytes), MAX_BYTES))
+    deadline = time.monotonic() + timeout
+    sent = {"User-Agent": "Agience/1.0", "Accept-Encoding": "identity", "Connection": "close"}
+    for k, v in (headers or {}).items():
+        if k.lower() not in ("host", "accept-encoding", "connection", "content-length"):
+            sent[k] = v
+    target = check_url(url)
+    conn_cls = _PinnedHTTPS if target.scheme == "https" else _PinnedHTTP
+    conn = conn_cls(target, max(0.1, deadline - time.monotonic()))
+    try:
+        conn.request("POST", target.path, body=body, headers=sent)
+        resp = conn.getresponse()
+        if resp.status in _REDIRECT_CODES:
+            raise EgressRefused("the server redirected a POST; redirects are not followed")
+        data, truncated = _read(conn, resp, deadline, timeout, max_bytes)
+        return Response(url, resp.status, resp.getheader("Content-Type") or "", data, truncated,
+                        {k.lower(): v for k, v in resp.getheaders()})
+    except EgressError:
+        raise
+    except (OSError, http.client.HTTPException, ValueError) as exc:
+        raise EgressError("request failed: %s" % type(exc).__name__) from None
+    finally:
+        conn.close()
 
 
 def require_token_endpoint(url: Optional[str]) -> str:

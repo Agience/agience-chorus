@@ -150,20 +150,16 @@ export async function listWorkspaceMCPServers(_workspaceId: string): Promise<MCP
 
 /**
  * Read a resource's contents from an MCP server: a persona by name, or an mcp-server artifact by
- * UUID. ``workspaceId`` travels with an artifact's op for its own context.
+ * UUID, which Crystal reaches through Iris. ``workspaceId`` is accepted for interface
+ * compatibility.
  */
 export async function readMCPResource(
   server: string,
   uri: string,
-  workspaceId?: string,
+  _workspaceId?: string,
 ): Promise<MCPResourceContents> {
   if (!server.trim()) throw new Error('Missing MCP server');
-  const response = isArtifactRef(server)
-    ? await api.post<MCPResourceContents>(
-      `/artifacts/${encodeURIComponent(server.trim())}/op/resources_read`,
-      { uri, workspace_id: workspaceId },
-    )
-    : await api.post<MCPResourceContents>(personaPath(server, 'resources/read'), { uri });
+  const response = await api.post<MCPResourceContents>(personaPath(server, 'resources/read'), { uri });
   return response.data;
 }
 

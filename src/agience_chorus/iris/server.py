@@ -1149,6 +1149,127 @@ async def server_startup() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tool: call_mcp_server — reach an MCP server a person added
+# ---------------------------------------------------------------------------
+
+#: What a person's MCP server may be asked through the platform: discovery, reading, calling.
+_RELAYED_METHODS = frozenset({"tools/list", "tools/call", "resources/list", "resources/read",
+                              "prompts/list", "prompts/get"})
+_MCP_SERVER_TYPE = "application/vnd.agience.mcp-server+json"
+
+
+def _mcp_rpc_result(resp: "_egress.Response") -> dict:
+    """The JSON-RPC result out of a JSON or event-stream answer; an error is raised."""
+    payload = None
+    text = resp.text()
+    if "text/event-stream" in (resp.content_type or ""):
+        for line in text.splitlines():
+            if line.startswith("data:"):
+                try:
+                    cand = json.loads(line[5:].strip())
+                except ValueError:
+                    continue
+                if isinstance(cand, dict) and ("result" in cand or "error" in cand):
+                    payload = cand
+    else:
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            payload = None
+    if not isinstance(payload, dict):
+        raise _egress.EgressError("the server's answer is not JSON-RPC")
+    if "error" in payload:
+        raise _egress.EgressError("the server answered an error: %s" % json.dumps(payload["error"])[:300])
+    return payload.get("result") or {}
+
+
+def _mcp_exchange(endpoint: str, method: str, params: dict, auth: Optional[str]) -> dict:
+    """initialize → notifications/initialized → `method`, each POST through the egress guard."""
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+    if auth:
+        headers["Authorization"] = f"Bearer {auth}"
+
+    def rpc(rid, m, p):
+        return json.dumps({"jsonrpc": "2.0", "id": rid, "method": m, "params": p}).encode()
+
+    init = _egress.post(endpoint, rpc(1, "initialize", {
+        "protocolVersion": "2025-06-18", "capabilities": {},
+        "clientInfo": {"name": "agience-iris", "version": "1"}}), headers=headers)
+    if init.status >= 400:
+        raise _egress.EgressError(f"the server refused initialize ({init.status})")
+    session = (init.headers or {}).get("mcp-session-id")
+    if session:
+        headers["mcp-session-id"] = session
+    _egress.post(endpoint, json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}).encode(),
+                 headers=headers)
+    resp = _egress.post(endpoint, rpc(2, method, params or {}), headers=headers)
+    if resp.status >= 400:
+        raise _egress.EgressError(f"the server answered {method} with {resp.status}")
+    return _mcp_rpc_result(resp)
+
+
+def _server_endpoint(context: dict) -> str:
+    """The server's MCP endpoint from its card: an HTTP transport, never a command to run here."""
+    transport = context.get("transport") or {}
+    kind = transport.get("type") or ("http" if context.get("url") else "")
+    if kind != "http":
+        raise _egress.EgressRefused(
+            f"this server's transport is {kind or 'unset'}; the platform reaches HTTP servers only "
+            "(a command runs on the machine that hosts it, through a relay)")
+    endpoint = (transport.get("well_known") or context.get("url") or "").strip()
+    if not endpoint:
+        raise _egress.EgressRefused("this server's card names no endpoint")
+    if endpoint.endswith(".json"):
+        # A discovery document: it names the MCP endpoint.
+        doc = json.loads(_egress.fetch(endpoint, max_bytes=200_000).text() or "{}")
+        endpoint = str(doc.get("endpoint") or doc.get("url") or doc.get("mcp") or "").strip()
+        if not endpoint:
+            raise _egress.EgressRefused("the server's discovery document names no endpoint")
+    return endpoint
+
+
+@mcp.tool(
+    description=(
+        "Send one MCP request (tools/list, tools/call, resources/list, resources/read, "
+        "prompts/list, prompts/get) to an MCP server a person added as an artifact, and return its "
+        "result. The server's card is read as the caller, so only a caller who can read it reaches "
+        "the server. Only an HTTP endpoint is reached, through the platform's egress guard (no "
+        "private or local addresses, no redirects). The caller's Agience credential is never sent "
+        "to the server; a server that needs one names a secret artifact (`transport.secret_id`)."
+    ),
+    annotations=ToolAnnotations(openWorldHint=True),
+)
+async def call_mcp_server(server_artifact_id: str, method: str, params: Optional[dict] = None) -> str:
+    if method not in _RELAYED_METHODS:
+        return json.dumps({"error": f"method {method!r} is not relayed; one of {sorted(_RELAYED_METHODS)}"})
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": f"call_mcp_server refused: {exc}"})
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(artifact_url(MANTLE_URI, server_artifact_id), headers=headers)
+        if resp.status_code == 404:
+            return json.dumps({"error": "no such MCP server, or the caller cannot read it", "status": 404})
+        resp.raise_for_status()
+        card = resp.json()
+        if card.get("content_type") != _MCP_SERVER_TYPE:
+            return json.dumps({"error": f"artifact {server_artifact_id} is not an MCP server", "status": 400})
+        context = _as_dict(card.get("context"))
+        auth = None
+        secret_id = (context.get("transport") or {}).get("secret_id")
+        if secret_id:
+            auth = await _fetch_secret_material(client, secret_id)
+    try:
+        endpoint = _server_endpoint(context)
+        result = await asyncio.to_thread(_mcp_exchange, endpoint, method, params or {}, auth)
+    except _egress.EgressRefused as exc:
+        return json.dumps({"error": str(exc), "status": 403})
+    except (_egress.EgressError, ValueError) as exc:
+        return json.dumps({"error": str(exc), "status": 503})
+    return json.dumps({"result": result})
+
+
+# ---------------------------------------------------------------------------
 # Self-registration: this persona owns its registration.
 # The host holds no roster — it calls each persona's register(). `PERSONA` is the
 # single source of truth for {name, role, endpoint}; register() self-registers

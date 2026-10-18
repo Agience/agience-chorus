@@ -92,14 +92,14 @@ export async function addAPIKeyMember(
 }
 
 /**
- * A key over the collections a view names, at one access level: `viewer` (read only) or `editor`
- * (read and write). One collection is a plain key on it; several are a bundle with one member
+ * A key over the collections a view names, at one access level: `viewer` (read only), `editor`
+ * (read and write) or `collaborator` (also invoke operations, as a timer running a workflow needs). One collection is a plain key on it; several are a bundle with one member
  * each, so the key reaches those and nothing else. A key that names nothing is refused: a bundle
  * with no members would be a credential that reaches nothing and looks like one that works.
  */
 export async function createKeyOver(
   name: string,
-  role: 'viewer' | 'editor',
+  role: 'viewer' | 'editor' | 'collaborator',
   resources: string[],
 ): Promise<GrantKeyCreated> {
   const ids = resources.map((r) => r.trim()).filter(Boolean);

@@ -51,6 +51,7 @@ Transport
 from __future__ import annotations
 
 import json
+from urllib.parse import quote
 import logging
 import os
 import pathlib
@@ -154,6 +155,7 @@ mcp = FastMCP(
 )
 
 from mantle.clients.artifact_helpers import artifact_url, register_types_manifest
+from agience_chorus.lumen import timers as _timers
 register_types_manifest(mcp, "lumen", __file__)
 
 
@@ -500,6 +502,24 @@ async def _patch_artifact_context(
     )
 
 
+async def _call_server_tool(client: httpx.AsyncClient, server: str, tool: str, arguments: dict,
+                            *, headers: Optional[dict] = None, timeout: float = 120) -> Any:
+    """Call `tool` on an MCP server through Crystal: a persona by name, or an MCP server artifact
+    by id (`POST /personas/{server}/tools/call`), under the caller's delegation.
+
+    2026-10-18: steps posted to `/artifacts/{server}/op/invoke` with a persona's name, which names
+    no artifact, so every tool step and every `chain_tasks` step answered 404.
+    """
+    resp = await client.post(
+        f"{CRYSTAL_URI.rstrip('/')}/personas/{quote(str(server).strip(), safe='')}/tools/call",
+        headers=headers or _require_user_headers(),
+        json={"name": tool, "arguments": arguments or {}},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 async def _dispatch_child_transform(
     client: httpx.AsyncClient,
     workspace_id: str,
@@ -515,7 +535,7 @@ async def _dispatch_child_transform(
     """
     body: dict[str, Any] = {
         "workspace_id": workspace_id,
-        "params": extra_params or {},
+        "params": extra_params or {},     # the transform type maps it to `execute_transform(params=)`
     }
     resp = await client.post(
         artifact_url(CRYSTAL_URI, transform_id, "op", "invoke"),
@@ -799,40 +819,55 @@ def _resolve_input_mapping(mapping: dict[str, Any], params: dict[str, Any]) -> d
     )
 )
 async def execute_transform(
-    workspace_id: str,
     transform_id: str,
-    params: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    params: Optional[Any] = None,
+    input: Optional[str] = None,
+    artifacts: Optional[list[str]] = None,
     depth: int = 0,
 ) -> str:
     """
     Args:
-        workspace_id: Workspace containing the Transform artifact.
         transform_id: ID of the Transform artifact to execute.
-        params: JSON string of additional parameters (e.g. artifact IDs, input values).
+        workspace_id: Workspace the run belongs to; the artifact's own container when omitted.
+        params: Additional parameters, as an object or a JSON string.
+        input: A text input, available to input mappings as `input`.
+        artifacts: Artifact ids, available to input mappings as `artifacts`.
         depth: Internal recursion depth guard — do not set manually.
     """
-    if not workspace_id or not transform_id:
-        return json.dumps({"error": "workspace_id and transform_id are required"})
+    if not transform_id:
+        return json.dumps({"error": "transform_id is required"})
 
     if depth >= _MAX_TRANSFORM_DEPTH:
         return json.dumps({"error": f"Transform recursion depth exceeded (max {_MAX_TRANSFORM_DEPTH})"})
 
     invoke_params: dict[str, Any] = {}
-    if params:
+    if isinstance(params, dict):
+        invoke_params = dict(params)
+    elif params:
         try:
             invoke_params = json.loads(params)
-        except json.JSONDecodeError:
-            return json.dumps({"error": f"params is not valid JSON: {params[:200]}"})
-
-    invoke_params["workspace_id"] = workspace_id
-    invoke_params["transform_id"] = transform_id
+        except (TypeError, json.JSONDecodeError):
+            return json.dumps({"error": f"params is not an object or valid JSON: {str(params)[:200]}"})
+    if input is not None:
+        invoke_params["input"] = input
+    if artifacts is not None:
+        invoke_params["artifacts"] = artifacts
 
     # Fetch the transform artifact
     async with httpx.AsyncClient() as client:
         try:
-            transform_artifact = await _get_artifact(client, workspace_id, transform_id)
+            transform_artifact = await _get_artifact(client, workspace_id or "", transform_id)
         except httpx.HTTPStatusError as exc:
             return json.dumps({"error": f"Transform artifact not found: {transform_id} (HTTP {exc.response.status_code})"})
+        except MissingDelegationError as exc:
+            return json.dumps({"error": str(exc)})
+    # A transform invoked on its card runs in the container that holds it.
+    workspace_id = workspace_id or transform_artifact.get("collection_id") or ""
+    if not workspace_id:
+        return json.dumps({"error": "workspace_id is required: the transform is in no container"})
+    invoke_params["workspace_id"] = workspace_id
+    invoke_params["transform_id"] = transform_id
 
     # Parse context
     raw_ctx = transform_artifact.get("context", {})
@@ -859,9 +894,7 @@ async def execute_transform(
 
     # --- mcp-tool: call an MCP tool on a named server ---
     if run_type == "mcp-tool":
-        # Server name from artifact context (e.g. "astra"). The platform
-        # router resolves short names to UUIDs via the server registry, so
-        # POST /artifacts/{server}/op/invoke works with either form.
+        # A persona by name ("astra") or an MCP server artifact by id; Crystal resolves either.
         server = run.get("server")
         if not server:
             return json.dumps({"error": "Transform run block is missing 'server'"})
@@ -873,22 +906,10 @@ async def execute_transform(
         input_mapping = run.get("input_mapping") or {}
         tool_args = _resolve_input_mapping(input_mapping, invoke_params)
 
-        # Dispatch via the artifact-native invoke path.
-        # POST /artifacts/{server}/op/invoke accepts both server names and UUIDs.
         async with httpx.AsyncClient() as client:
             try:
-                resp = await client.post(
-                    artifact_url(CRYSTAL_URI, server, "op", "invoke"),
-                    headers=_require_user_headers(),
-                    json={
-                        "name": tool,
-                        "arguments": tool_args,
-                        "workspace_id": workspace_id,
-                    },
-                    timeout=120,
-                )
-                resp.raise_for_status()
-                return json.dumps(resp.json(), indent=2)
+                result = await _call_server_tool(client, server, tool, tool_args)
+                return json.dumps(result, indent=2)
             except httpx.HTTPStatusError as exc:
                 return json.dumps({"error": f"Tool execution failed: HTTP {exc.response.status_code} — {exc.response.text[:300]}"})
     # --- transform-ref: delegate to another Transform artifact ---
@@ -990,18 +1011,9 @@ async def chain_tasks(
             for k, v in args.items():
                 if v == "$prev":
                     args[k] = prev
-            body: dict[str, Any] = {"name": step["tool"], "arguments": args}
-            if workspace_id:
-                body["workspace_id"] = workspace_id
             try:
-                resp = await client.post(
-                    artifact_url(CRYSTAL_URI, step["server"], "op", "invoke"),
-                    headers=headers,
-                    json=body,
-                    timeout=120,
-                )
-                resp.raise_for_status()
-                prev = resp.json()
+                prev = await _call_server_tool(client, step["server"], step["tool"], args,
+                                               headers=headers)
             except httpx.HTTPStatusError as exc:
                 results.append({
                     "step": i, "server": step["server"], "tool": step["tool"],
@@ -1033,35 +1045,159 @@ async def chain_tasks(
 
 
 # ---------------------------------------------------------------------------
-# Tool: schedule_action
+# Timers: schedule_action, arm_timer, disarm_timer, and the loop that fires them (`timers.py`)
 # ---------------------------------------------------------------------------
+
+def _timer_store() -> Optional["_timers.Store"]:
+    """The node's armed-timer store, or None when this node keeps no timers (`LUMEN_TIMERS_DIR`)."""
+    directory = os.getenv("LUMEN_TIMERS_DIR", "").strip()
+    return _timers.Store(pathlib.Path(directory)) if directory else None
+
 
 @mcp.tool(
     description=(
-        "Schedule a deferred action for future execution. "
-        "Creates a task card that will be executed at the specified time or interval."
+        "Create a Timer card that will run an artifact's operation on a schedule: `every_minutes`, "
+        "`daily_at` (HH:MM UTC) or `at` (an ISO time, once). The target is usually a Transform "
+        "(a workflow) or an Operator. The timer runs only once its owner arms it from the card, "
+        "which issues the key it acts on."
     )
 )
 async def schedule_action(
     workspace_id: str,
-    action: str,
-    cron: str = "0 8 * * 1",
-    params: Optional[str] = None,
+    target_artifact_id: str,
+    every_minutes: Optional[int] = None,
+    daily_at: Optional[str] = None,
+    at: Optional[str] = None,
+    operation: str = "invoke",
+    body: Optional[dict] = None,
+    title: Optional[str] = None,
+    results_to: Optional[str] = None,
 ) -> str:
     """
     Args:
-        workspace_id: Workspace for the task card.
-        action: Action identifier or tool name to execute.
-        cron: Cron expression for schedule (default: Mondays at 08:00).
-        params: JSON string of action parameters.
+        workspace_id: Workspace for the Timer card (and what its key will reach).
+        target_artifact_id: The artifact whose operation runs.
+        every_minutes / daily_at / at: The schedule; exactly one.
+        operation: The target's operation (default `invoke`).
+        body: The operation's request body.
+        title: The card's title.
+        results_to: A container each run is recorded into.
     """
-    # No component in the platform fires deferred actions: chorus has no timer loop and ember's
-    # ScheduleWakeup never fires. Creating a task card here would advertise deferred execution
-    # that nothing in the platform performs.
-    raise NotImplementedError(
-        f"schedule_action awaits a live scheduler/executor — no platform component "
-        f"fires deferred actions, so a task card would never run. action={action}, cron={cron}"
+    schedule = {k: v for k, v in (("every_minutes", every_minutes), ("daily_at", daily_at), ("at", at))
+                if v not in (None, "")}
+    try:
+        _timers.check_schedule(schedule)
+    except _timers.ScheduleError as exc:
+        return json.dumps({"error": str(exc)})
+    context = {
+        "title": title or "Timer",
+        "content_type": _timers.TIMER_TYPE,
+        "timer": {"schedule": schedule,
+                  "target": {"artifact_id": target_artifact_id, "operation": operation, "body": body or {}},
+                  **({"results_to": results_to} if results_to else {})},
+    }
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{MANTLE_URI}/artifacts", headers=headers, json={
+            "container_id": workspace_id, "content_type": _timers.TIMER_TYPE,
+            "context": json.dumps(context)})
+    if resp.status_code >= 400:
+        return json.dumps({"error": f"could not create the timer ({resp.status_code})"})
+    doc = resp.json()
+    return json.dumps({"timer_id": doc.get("id"), "armed": False,
+                       "next": "open the Timer card and arm it; it runs on the key arming issues"})
+
+
+@mcp.tool(
+    description=(
+        "Arm a Timer: keep the key it acts on, sealed, and fire it on its schedule. Called by the "
+        "app's host after the owner approves the key; the caller must be able to read the timer, "
+        "and the key must reach it."
     )
+)
+async def arm_timer(timer_id: str, key: str, key_id: str) -> str:
+    store = _timer_store()
+    if store is None:
+        return json.dumps({"error": "this node keeps no timers (LUMEN_TIMERS_DIR is not set)"})
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=20) as client:
+        mine = await client.get(artifact_url(MANTLE_URI, timer_id), headers=headers)
+        if mine.status_code != 200 or mine.json().get("content_type") != _timers.TIMER_TYPE:
+            return json.dumps({"error": "no such timer, or you cannot read it"})
+        reach = await client.get(artifact_url(MANTLE_URI, timer_id), headers={"Authorization": f"Bearer {key}"})
+        if reach.status_code != 200:
+            return json.dumps({"error": "the key does not reach this timer"})
+    try:
+        _timers.check_schedule((_timers._context(mine.json()).get("timer") or {}).get("schedule"))
+    except _timers.ScheduleError as exc:
+        return json.dumps({"error": f"the timer's schedule: {exc}"})
+    store.arm(timer_id, _timers.seal(key), key_id)
+    log.info("timer armed: %s (key %s)", timer_id, key_id)
+    return json.dumps({"timer_id": timer_id, "armed": True})
+
+
+@mcp.tool(description="Disarm a Timer: forget its key; it does not fire again. The caller must be able to read it.")
+async def disarm_timer(timer_id: str) -> str:
+    store = _timer_store()
+    if store is None:
+        return json.dumps({"error": "this node keeps no timers (LUMEN_TIMERS_DIR is not set)"})
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=20) as client:
+        mine = await client.get(artifact_url(MANTLE_URI, timer_id), headers=headers)
+    if mine.status_code != 200:
+        return json.dumps({"error": "no such timer, or you cannot read it"})
+    return json.dumps({"timer_id": timer_id, "disarmed": store.disarm(timer_id)})
+
+
+def _timer_http() -> "_timers.Http":
+    client = httpx.Client(timeout=120)
+
+    def call(method, url, key, body=None):
+        try:
+            r = client.request(method, url, headers={"Authorization": f"Bearer {key}"}, json=body)
+            try:
+                return r.status_code, r.json()
+            except ValueError:
+                return r.status_code, {"text": r.text[:500]}
+        except httpx.HTTPError as exc:
+            return 599, {"error": type(exc).__name__}
+
+    return _timers.Http(get=lambda u, k: call("GET", u, k),
+                        post=lambda u, k, b: call("POST", u, k, b),
+                        patch=lambda u, k, b: call("PATCH", u, k, b))
+
+
+async def _run_timers(store: "_timers.Store") -> None:
+    """Fire due timers every `TICK_SECONDS`, for as long as the process runs."""
+    import asyncio as _asyncio
+    from datetime import datetime as _dt, timezone as _tz
+    http = _timer_http()
+    while True:
+        try:
+            report = await _asyncio.to_thread(_timers.fire_due, store, http, MANTLE_URI, CRYSTAL_URI,
+                                              _dt.now(_tz.utc))
+            for timer_id, what in report.items():
+                if what != "not due":
+                    log.info("timer %s: %s", timer_id, what)
+        except Exception:
+            log.warning("timer pass failed", exc_info=True)
+        await _asyncio.sleep(_timers.TICK_SECONDS)
+
+
+@mcp.resource("ui://lumen/vnd.agience.timer.html")
+async def timer_viewer_html() -> str:
+    """Serve the viewer HTML for vnd.agience.timer+json."""
+    view_path = pathlib.Path(__file__).parent / "ui" / "application" / "vnd.agience.timer+json" / "view.html"
+    return view_path.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -1707,6 +1843,13 @@ def create_server_app():
 async def server_startup() -> None:
     """Run Lumen startup tasks. The trust map is on disk; nothing to fetch."""
     await _auth.startup()
+    store = _timer_store()
+    if store is not None:
+        import asyncio as _asyncio
+        _asyncio.get_running_loop().create_task(_run_timers(store))
+        log.info("lumen: timers firing from %s", store.path)
+    else:
+        log.info("lumen: no timers on this node (LUMEN_TIMERS_DIR is not set)")
     # Stands lumen up as the conversation-tekton provider (op.respond/op.act/op.learn/op.thought)
     # over the ground plane, so other nodes can reach it. Dark by default — with no carrier wired,
     # the provider does not start and ember honestly refuses op.respond rather than fabricating one;

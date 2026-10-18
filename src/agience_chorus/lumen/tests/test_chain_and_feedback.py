@@ -114,10 +114,12 @@ class TestChainTasks:
 
         assert result["steps_executed"] == 2
         assert result["final"] == {"output": "result-2"}
-        # First call: dispatched to sage via the artifact-invoke path.
+        # First call: to sage, by name, through Crystal's persona route. 2026-10-18: it went to
+        # `/artifacts/sage/op/invoke`, which names no artifact, and every step answered 404; this
+        # test pinned that path, so the suite stayed green over it.
         url0, body0, hdrs0 = calls[0]
-        assert "/artifacts/sage/op/invoke" in url0
-        assert body0 == {"name": "search", "arguments": {"query": "alpha"}, "workspace_id": "ws-1"}
+        assert url0.endswith("/personas/sage/tools/call")
+        assert body0 == {"name": "search", "arguments": {"query": "alpha"}}
         assert hdrs0["Authorization"] == "Bearer test-delegation-token"
         # Second call: "$prev" resolved to the first step's full result.
         _, body1, _ = calls[1]

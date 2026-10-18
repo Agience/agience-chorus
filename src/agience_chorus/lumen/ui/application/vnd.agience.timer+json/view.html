@@ -1,0 +1,180 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 16px; color: #111827; font-size: 13px; }
+  .card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .row { display: flex; justify-content: space-between; padding: 4px 0; }
+  .label { color: #6b7280; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  label { font-weight: 600; font-size: 12px; }
+  input, select { padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+  .btns { display: flex; gap: 8px; }
+  button { padding: 7px 12px; border-radius: 6px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; font-size: 13px; }
+  button.primary { background: #0f766e; color: #fff; border-color: #0f766e; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+  .armed { background: #ccfbf1; color: #115e59; }
+  .off { background: #f3f4f6; color: #6b7280; }
+  .error { color: #b91c1c; margin-bottom: 8px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <div id="title" style="font-weight:600;font-size:15px;margin-bottom:10px">Timer</div>
+  <div class="card">
+    <div class="row"><span class="label">Status</span><span id="status" class="badge off">Not armed</span></div>
+    <div class="row"><span class="label">Last run</span><span id="lastRun">—</span></div>
+    <div class="row"><span class="label">Last result</span><span id="lastStatus">—</span></div>
+    <div class="row"><span class="label">Runs</span><span id="runs">0</span></div>
+  </div>
+
+  <div class="error hidden" id="error"></div>
+
+  <div class="card">
+    <div class="form-group">
+      <label for="scheduleKind">Runs</label>
+      <select id="scheduleKind">
+        <option value="every_minutes">Every N minutes</option>
+        <option value="daily_at">Daily at (HH:MM, UTC)</option>
+        <option value="at">Once, at (ISO time)</option>
+      </select>
+      <input id="scheduleValue" placeholder="15">
+    </div>
+    <div class="form-group">
+      <label for="target">Target artifact</label>
+      <input id="target" placeholder="artifact id (a workflow, an operator)">
+    </div>
+    <div class="form-group">
+      <label for="operation">Operation</label>
+      <input id="operation" value="invoke">
+    </div>
+    <div class="form-group">
+      <label for="resultsTo">Record each run in (optional)</label>
+      <input id="resultsTo" placeholder="collection or workspace id">
+    </div>
+    <div class="btns">
+      <button id="saveBtn" onclick="handleSave()">Save</button>
+      <button id="armBtn" class="primary" onclick="handleArm()">Arm</button>
+      <button id="disarmBtn" class="hidden" onclick="handleDisarm()">Disarm</button>
+    </div>
+  </div>
+
+  <script type="module">
+    let _rpcId = 0;
+    const _pending = {};
+    function sendRpc(method, params) {
+      const id = ++_rpcId;
+      return new Promise((resolve, reject) => {
+        _pending[id] = { resolve, reject };
+        parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*');
+      });
+    }
+    window.addEventListener('message', (e) => {
+      const d = e.data;
+      if (!d || d.jsonrpc !== '2.0') return;
+      if (d.id && _pending[d.id]) {
+        if (d.error) _pending[d.id].reject(d.error); else _pending[d.id].resolve(d.result);
+        delete _pending[d.id];
+        return;
+      }
+      if (d.method === 'ui/notifications/tool-result') handleToolResult(d.params);
+    });
+    sendRpc('ui/initialize', { protocolVersion: '2026-01-26', clientInfo: { name: 'agience-viewer', version: '0.1.0' } })
+      .then(() => { parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/initialized' }, '*'); render(); });
+
+    let artifactId = null;
+    let ctx = {};
+
+    function handleToolResult(params) {
+      for (const block of (params && params.content) || []) {
+        if (block.type !== 'text' || !block.text) continue;
+        try {
+          const data = JSON.parse(block.text);
+          artifactId = data.artifact_id || artifactId;
+          ctx = typeof data.context === 'string' ? JSON.parse(data.context) : (data.context || {});
+          render();
+        } catch { /* ignore */ }
+      }
+    }
+
+    const armed = () => Boolean(ctx.key && ctx.key.api_key_id && !ctx.key.revoked_at);
+
+    function render() {
+      const t = ctx.timer || {}, s = t.schedule || {}, st = ctx.timer_state || {};
+      document.getElementById('title').textContent = ctx.title || 'Timer';
+      const kind = ['every_minutes', 'daily_at', 'at'].find(k => s[k] !== undefined) || 'every_minutes';
+      document.getElementById('scheduleKind').value = kind;
+      document.getElementById('scheduleValue').value = s[kind] ?? '';
+      document.getElementById('target').value = (t.target && t.target.artifact_id) || '';
+      document.getElementById('operation').value = (t.target && t.target.operation) || 'invoke';
+      document.getElementById('resultsTo').value = t.results_to || '';
+      document.getElementById('lastRun').textContent = st.last_run || '—';
+      document.getElementById('lastStatus').textContent = st.last_status ? String(st.last_status) : '—';
+      document.getElementById('runs').textContent = String(st.runs || 0);
+      const status = document.getElementById('status');
+      status.textContent = armed() ? 'Armed' : 'Not armed';
+      status.className = 'badge ' + (armed() ? 'armed' : 'off');
+      document.getElementById('armBtn').classList.toggle('hidden', armed());
+      document.getElementById('disarmBtn').classList.toggle('hidden', !armed());
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error');
+      el.textContent = msg; el.classList.toggle('hidden', !msg);
+    }
+
+    function readForm() {
+      const kind = document.getElementById('scheduleKind').value;
+      const raw = document.getElementById('scheduleValue').value.trim();
+      const schedule = { [kind]: kind === 'every_minutes' ? parseInt(raw, 10) : raw };
+      const timer = {
+        ...(ctx.timer || {}),
+        schedule,
+        target: { artifact_id: document.getElementById('target').value.trim(),
+                  operation: document.getElementById('operation').value.trim() || 'invoke',
+                  body: (ctx.timer && ctx.timer.target && ctx.timer.target.body) || {} },
+      };
+      const resultsTo = document.getElementById('resultsTo').value.trim();
+      if (resultsTo) timer.results_to = resultsTo; else delete timer.results_to;
+      return timer;
+    }
+
+    async function save(next) {
+      ctx = next;
+      await sendRpc('tools/call', { name: 'update_artifact',
+        arguments: { id: artifactId, patch: { context: JSON.stringify(ctx) } } });
+      render();
+    }
+
+    window.handleSave = async function() {
+      showError('');
+      try { await save({ ...ctx, timer: readForm() }); } catch (e) { showError(e.message || 'Save failed'); }
+    };
+
+    // The host issues the key (after the owner approves it in its own dialog) and hands it to Lumen
+    // directly; the key never enters this view. The view records only the key's id.
+    window.handleArm = async function() {
+      showError('');
+      try {
+        const timer = readForm();
+        if (!timer.target.artifact_id) { showError('Name the target artifact first.'); return; }
+        await save({ ...ctx, timer });
+        const res = await sendRpc('tools/call', { name: 'arm_timer', arguments: { timer_id: artifactId } });
+        const armedKey = JSON.parse(res.content[0].text);
+        await save({ ...ctx, key: { api_key_id: armedKey.key_id, resources: armedKey.resources,
+                                    armed_at: new Date().toISOString() } });
+      } catch (e) { showError((e && e.message) || 'Arming failed'); }
+    };
+
+    window.handleDisarm = async function() {
+      showError('');
+      try {
+        await sendRpc('tools/call', { name: 'disarm_timer', arguments: { id: ctx.key.api_key_id } });
+        await save({ ...ctx, key: { ...ctx.key, revoked_at: new Date().toISOString() } });
+      } catch (e) { showError((e && e.message) || 'Disarming failed'); }
+    };
+  </script>
+</body>
+</html>

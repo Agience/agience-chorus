@@ -76,15 +76,17 @@ describe('api/mcp — readMCPResource', () => {
     expect(html).toBe('<html/>');
   });
 
-  it('reads through the artifact op for an mcp-server artifact UUID', async () => {
+  it("reads an mcp-server artifact's resource through Crystal, by its UUID", async () => {
+    // The card's own `resources_read` op pointed at a removed Mantle importer; Crystal reaches a
+    // person's server through Iris.
     mockPost.mockResolvedValueOnce({
       data: { uri: 'external://doc', name: 'External Doc', mimeType: 'text/plain', text: 'content' },
     });
 
     await readMCPResource(SERVER_ARTIFACT, 'external://doc', 'ws-1');
 
-    expect(mockPost).toHaveBeenCalledWith(`/artifacts/${SERVER_ARTIFACT}/op/resources_read`,
-      { uri: 'external://doc', workspace_id: 'ws-1' });
+    expect(mockPost).toHaveBeenCalledWith(`/personas/${SERVER_ARTIFACT}/resources/read`,
+      { uri: 'external://doc' });
   });
 
   it('propagates read errors', async () => {

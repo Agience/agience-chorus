@@ -24,12 +24,19 @@
     },
     {
       "name": "chain_tasks",
-      "description": "Chain multiple MCP tool calls sequentially via the platform's artifact-invoke path"
+      "description": "Chain multiple MCP tool calls sequentially, each through Crystal to a persona by name or a person's MCP server by id"
     },
     {
       "name": "schedule_action",
-      "description": "Schedule a deferred action for future execution. Creates a task card that will be executed at the specified time or interval",
-      "status": "not_implemented"
+      "description": "Create a Timer card that will run an artifact's operation on a schedule; it runs once its owner arms it from the card"
+    },
+    {
+      "name": "arm_timer",
+      "description": "Arm a Timer: keep the key it acts on, sealed, and fire it on its schedule"
+    },
+    {
+      "name": "disarm_timer",
+      "description": "Disarm a Timer: forget its key; it does not fire again"
     },
     {
       "name": "evaluate_output",
@@ -68,6 +75,9 @@
       },
       "LUMEN_GROUNDING_PER_DOC_CHARS": {
         "description": "Per-document grounding budget in characters"
+      },
+      "LUMEN_TIMERS_DIR": {
+        "description": "Where the timers armed on this node are kept, each key sealed with the node's chorus key; no timers fire when unset"
       },
       "MANTLE_URI": {
         "description": "Base URI of the Mantle backend",

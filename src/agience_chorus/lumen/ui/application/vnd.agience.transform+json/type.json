@@ -223,7 +223,14 @@
       "dispatch": {
         "kind": "mcp_tool",
         "server_ref": "lumen",
-        "tool_ref": "execute_transform"
+        "tool_ref": "execute_transform",
+        "arguments": {
+          "transform_id": "$.root_id",
+          "workspace_id": "$.body.workspace_id?",
+          "params": "$.body.params?",
+          "input": "$.body.input?",
+          "artifacts": "$.body.artifacts?"
+        }
       },
       "input_schema": {
         "type": "object",

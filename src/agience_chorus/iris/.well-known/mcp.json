@@ -66,6 +66,10 @@
     {
       "name": "ask_human",
       "description": "Ask a question to the human operator"
+    },
+    {
+      "name": "call_mcp_server",
+      "description": "Send one MCP request to an MCP server a person added, through the platform's egress guard; the caller's credential is never sent to it"
     }
   ],
   "resources": [],

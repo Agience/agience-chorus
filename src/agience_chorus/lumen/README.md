@@ -2,12 +2,12 @@
 
 Status: **Reference** --- current server.py surface
 
-Lumen is the wisdom & inference tekton (a tekton is a chorus member — the operators of one domain): reasoning, learning, curriculum, consolidation, illumination. It exposes seven live tools — synthesis, a workflow runner, a transform dispatcher, package
-export/install, task chaining and feedback capture — alongside four declared placeholders.
+Lumen is the wisdom & inference tekton (a tekton is a chorus member — the operators of one domain): reasoning, learning, curriculum, consolidation, illumination. It exposes ten live tools — synthesis, a workflow runner, a transform dispatcher, timers, package
+export/install, task chaining and feedback capture — alongside one declared placeholder.
 
 ## Current MCP Tools
 
-Rows are derived from the `@mcp.tool` registrations in `server.py`, not maintained by hand. Seven
+Rows are derived from the `@mcp.tool` registrations in `server.py`, not maintained by hand. Ten
 tools are live: `chain_tasks` dispatches real cross-server tool calls under the caller's
 delegation, `submit_feedback` writes an append-only feedback artifact, and `execute_transform`
 raises only for `run.type` of `llm` or `webhook`, fully executing `mcp-tool`, `transform-ref`,
@@ -20,7 +20,10 @@ Implemented (live):
 | `synthesize` | Synthesize an evidence-backed answer: retrieve→reason→respond |
 | `execute_transform` | Execute a Transform artifact |
 | `run_workflow` | Execute a multi-step workflow defined by a Transform artifact |
-| `chain_tasks` | Chain multiple MCP tool calls sequentially via the platform's artifact-invoke path |
+| `chain_tasks` | Chain multiple MCP tool calls sequentially, each through Crystal to a persona by name or a person's MCP server by id |
+| `schedule_action` | Create a Timer card that will run an artifact's operation on a schedule; it runs once its owner arms it from the card |
+| `arm_timer` | Arm a Timer: keep the key it acts on, sealed, and fire it on its schedule |
+| `disarm_timer` | Disarm a Timer: forget its key; it does not fire again |
 | `submit_feedback` | Submit evaluation feedback on an artifact |
 | `install_package` | Install a package into a target workspace |
 | `export_package` | Populate a package manifest from workspace contents |
@@ -29,7 +32,6 @@ Declared placeholders (registered, raise `NotImplementedError`):
 
 | Tool | Description |
 |---|---|
-| `schedule_action` | Schedule a deferred action for future execution. Creates a task card that will be executed at the specified time or interval |
 | `evaluate_output` | Evaluate the quality and accuracy of generated output. Scores content against criteria like relevance, completeness, coherence, and factual accuracy |
 
 ## Configuration
