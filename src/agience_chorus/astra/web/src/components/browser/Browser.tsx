@@ -28,6 +28,7 @@ import type { SearchResponse, SearchHit } from "../../api/types/search";
 import { useConfirm } from "@/context/dialog/useConfirm";
 import { CARD_CONFIRM, BULK_CONFIRM, BUTTON_LABELS, SHORTCUTS, TRASH_RETENTION_DAYS } from "@/constants/strings";
 import { noun } from "@/product/copy";
+import { inboxWorkspaceId as inboxWorkspaceIdOf } from "@/utils/inbox";
 import { canDeleteArtifact, type CardRemoveMode } from "@/utils/artifact-permissions";
 import { useShortcuts } from "@/context/shortcuts/useShortcuts";
 import BrowserHeader from "./BrowserHeader";
@@ -123,8 +124,8 @@ export default function Browser({
 
   const { workspaces, activeWorkspace, createWorkspace, setActiveWorkspaceId, updateWorkspace } = useWorkspaces();
   const { user } = useAuth();
-  // The Inbox workspace has the same ID as the current user (backend convention)
-  const inboxWorkspaceId = user?.id ?? null;
+  // The person's Inbox: their oldest own workspace, as Mantle provisions it. Not their user id.
+  const inboxWorkspaceId = useMemo(() => inboxWorkspaceIdOf(workspaces, user?.id), [workspaces, user?.id]);
   // Use activeWorkspace ID, or fall back to inboxWorkspaceId if viewing a workspace, or empty string
   const workspaceId = activeWorkspace?.id || (activeSource?.type === 'workspace' ? inboxWorkspaceId : "") || "";
   const [editArtifact, setEditArtifact] = useState<ArtifactCreate | ArtifactUpdate | null>(null);
