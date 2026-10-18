@@ -253,14 +253,15 @@ async function generateKey() {
   render();
   try {
     const c = ctx();
-    const filters = c.workspace_id
-      ? { workspaces: [c.workspace_id] }
-      : { workspaces: '*', collections: '*' };
+    // A key is a grant on what it names (`POST /grants/keys`): this client's workspace, read and
+    // write. There is no key over everything; with no workspace the host refuses.
+    const resources = c.workspace_id ? [c.workspace_id] : [];
     const result = await sendRpc('tools/call', {
       name: 'create_api_key',
       arguments: {
         name: c.title || _artifactData.description || 'MCP Client Key',
-        resource_filters: filters,
+        role: 'editor',
+        resources,
       }
     });
     // The host shows the new key's secret in its own dialog and returns the key record
@@ -273,8 +274,8 @@ async function generateKey() {
         id: data.id,
         preview,
         is_active: true,
-        scopes: data.scopes || [],
-        resource_filters: data.resource_filters || filters,
+        role: 'editor',
+        resources,
         created_time: data.created_time || new Date().toISOString(),
         last_used_at: null,
       },

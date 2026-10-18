@@ -322,8 +322,16 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
             sendError(req.id, -32000, 'The user declined to create an API key');
             return;
           }
-          const { createAPIKey } = await import('@/api/apiKeys');
-          const created = await createAPIKey((toolArgs as unknown) as Parameters<typeof createAPIKey>[0]);
+          // The view names the collections the key reaches and one access level; anything it
+          // did not name, the key cannot reach. 2026-10-18: the view's `scopes` and
+          // `resource_filters` were passed through as they were, Mantle read neither, and every
+          // key made from a Key card was a bundle that reached nothing.
+          const { createKeyOver } = await import('@/api/apiKeys');
+          const resources = Array.isArray(toolArgs.resources)
+            ? (toolArgs.resources as unknown[]).filter((r): r is string => typeof r === 'string')
+            : [];
+          const role = toolArgs.role === 'editor' ? 'editor' : 'viewer';
+          const created = await createKeyOver(keyName, role, resources);
           const { key: secret, ...record } = created;
           if (secret) {
             await confirmDialog.confirm({

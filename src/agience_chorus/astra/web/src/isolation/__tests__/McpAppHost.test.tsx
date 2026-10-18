@@ -61,7 +61,7 @@ vi.mock('@/api/mcp', () => ({
   proxyToolCall: (...args: unknown[]) => proxyToolCallMock(...args),
 }));
 vi.mock('@/api/apiKeys', () => ({
-  createAPIKey: (...args: unknown[]) => createAPIKeyMock(...args),
+  createKeyOver: (...args: unknown[]) => createAPIKeyMock(...args),
   deleteAPIKey: (...args: unknown[]) => deleteAPIKeyMock(...args),
 }));
 
@@ -456,11 +456,12 @@ describe('McpAppHost', () => {
         jsonrpc: '2.0',
         id: 17,
         method: 'tools/call',
-        params: { name: 'create_api_key', arguments: { name: 'test' } },
+        params: { name: 'create_api_key', arguments: { name: 'test', role: 'editor', resources: ['c-1'] } },
       });
       await waitFor(() => expect(responseFor(posted, 17)).toBeDefined());
 
-      expect(createAPIKeyMock).toHaveBeenCalledWith({ name: 'test' });
+      // The key reaches the collection the view named, at the access it chose.
+      expect(createAPIKeyMock).toHaveBeenCalledWith('test', 'editor', ['c-1']);
       // The second host dialog carries the secret.
       const secretDialog = confirmMock.mock.calls[1][0];
       const shown = render(<>{secretDialog.customContent}</>);

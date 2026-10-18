@@ -82,6 +82,36 @@ export async function createAPIKey(payload: GrantKeyCreateRequest): Promise<Gran
   return response.data;
 }
 
+/** Attach a resource to a key's bundle, with its own permissions (`POST /grants/keys/{id}/members`). */
+export async function addAPIKeyMember(
+  keyId: string,
+  member: GrantCapabilities & { resource_id: string; role?: string | null },
+): Promise<unknown> {
+  const response = await api.post(`/grants/keys/${encodeURIComponent(keyId)}/members`, member);
+  return response.data;
+}
+
+/**
+ * A key over the collections a view names, at one access level: `viewer` (read only) or `editor`
+ * (read and write). One collection is a plain key on it; several are a bundle with one member
+ * each, so the key reaches those and nothing else. A key that names nothing is refused: a bundle
+ * with no members would be a credential that reaches nothing and looks like one that works.
+ */
+export async function createKeyOver(
+  name: string,
+  role: 'viewer' | 'editor',
+  resources: string[],
+): Promise<GrantKeyCreated> {
+  const ids = resources.map((r) => r.trim()).filter(Boolean);
+  if (!ids.length) throw new Error('A key must name at least one collection it reaches');
+  if (ids.length === 1) return createAPIKey({ name, role, resource_id: ids[0] });
+  const created = await createAPIKey({ name, role });
+  for (const resource_id of ids) {
+    await addAPIKeyMember(created.id, { resource_id, role });
+  }
+  return created;
+}
+
 export async function listAPIKeys(): Promise<GrantKey[]> {
   const response = await api.get<GrantKey[]>('/grants/keys');
   return response.data;

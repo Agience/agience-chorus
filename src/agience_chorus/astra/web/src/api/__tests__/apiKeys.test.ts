@@ -22,7 +22,7 @@ vi.mock('../api', () => ({
 }));
 
 import api from '../api';
-import { createAPIKey, deleteAPIKey, getAPIKey, listAPIKeys } from '../apiKeys';
+import { createAPIKey, createKeyOver, deleteAPIKey, getAPIKey, listAPIKeys } from '../apiKeys';
 
 const mockGet = api.get as ReturnType<typeof vi.fn>;
 const mockPost = api.post as ReturnType<typeof vi.fn>;
@@ -78,5 +78,33 @@ describe('api/apiKeys', () => {
     const revoked = await deleteAPIKey('k1');
     expect(mockDelete).toHaveBeenCalledWith('/grants/keys/k1');
     expect(revoked.state).toBe('revoked');
+  });
+});
+
+describe('api/apiKeys — createKeyOver (the Key card)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('one collection is a plain key on it, at the chosen access', async () => {
+    mockPost.mockResolvedValueOnce({ data: { id: 'k1', key: 'agk_s' } });
+    await createKeyOver('agent', 'editor', ['c-1']);
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    expect(mockPost).toHaveBeenCalledWith('/grants/keys', { name: 'agent', role: 'editor', resource_id: 'c-1' });
+  });
+
+  it('several collections are a bundle with one member each', async () => {
+    mockPost.mockResolvedValueOnce({ data: { id: 'k2', key: 'agk_s' } }).mockResolvedValue({ data: {} });
+    await createKeyOver('agent', 'viewer', ['c-1', 'c-2']);
+    expect(mockPost.mock.calls).toEqual([
+      ['/grants/keys', { name: 'agent', role: 'viewer' }],
+      ['/grants/keys/k2/members', { resource_id: 'c-1', role: 'viewer' }],
+      ['/grants/keys/k2/members', { resource_id: 'c-2', role: 'viewer' }],
+    ]);
+  });
+
+  it('a key that names nothing is refused before anything is created', async () => {
+    // 2026-10-18: the Key card sent `scopes` and `resource_filters`, Mantle read neither, and the
+    // key it made reached nothing.
+    await expect(createKeyOver('agent', 'viewer', [' '])).rejects.toThrow('at least one collection');
+    expect(mockPost).not.toHaveBeenCalled();
   });
 });

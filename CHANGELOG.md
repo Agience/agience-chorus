@@ -8,6 +8,7 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 ## [0.2.4] - 2026-10-17
 
 ### Changed
+- The Key card issues a key over the collections it names, read only or read and write, and can revoke it. It sent the retired `scopes` and `resource_filters`, which Mantle does not read, so every key made from a Key card reached nothing; and it had no way to revoke. An MCP client card's key is likewise a grant on the client's workspace.
 - Card viewers open: a type's view is read from the persona that serves it, and the view's tools are called on that persona, through Crystal's `/personas` routes. Every `vnd.agience.*` viewer (Key, Chat, Account and the rest) said its server was not running, because the app looked the persona up as an MCP-server artifact and none exists. The Tools and Resources panels and the sidebar list the personas with their tools and resources, beside any MCP-server artifacts.
 - A new card is added to the workspace once: its "created" event can arrive before the create request answers, and both added it.
 - The Archived filter in a workspace or collection loads its archived artifacts from the server, counts them, and shows them read-only with Restore and Delete. Restore returns the card to the live list.

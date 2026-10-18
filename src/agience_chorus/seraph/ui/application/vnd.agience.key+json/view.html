@@ -109,8 +109,12 @@
     <!-- Key Info -->
     <div class="card" id="keyInfo">
       <div class="info-row" style="align-items:flex-start">
-        <span class="info-label" style="padding-top:2px">Scopes</span>
+        <span class="info-label" style="padding-top:2px">Reaches</span>
         <span class="info-value" id="keyScope" style="white-space:pre-line;font-size:11px;font-family:monospace;text-align:right">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Access</span>
+        <span class="info-value" id="keyAccess">—</span>
       </div>
       <div class="info-row">
         <span class="info-label">Status</span>
@@ -131,12 +135,15 @@
       <div class="label">Generate Key</div>
       <div style="display:flex;flex-direction:column;gap:12px">
         <div class="form-group">
-          <label>Scopes <span style="font-weight:400;color:#9ca3af">— one per line</span></label>
-          <textarea id="inputScopes" rows="4" placeholder="resource:*:read&#10;resource:*:write&#10;resource:*:search"></textarea>
+          <label for="inputCollections">Collections <span style="font-weight:400;color:#9ca3af">— IDs, one per line. The key reaches these and nothing else.</span></label>
+          <textarea id="inputCollections" rows="3" placeholder="collection-id"></textarea>
         </div>
         <div class="form-group">
-          <label>Collections <span style="font-weight:400;color:#9ca3af">— IDs, one per line (blank = all)</span></label>
-          <textarea id="inputCollections" rows="2" placeholder="collection-id"></textarea>
+          <label for="inputAccess">Access</label>
+          <select id="inputAccess">
+            <option value="viewer">Read only</option>
+            <option value="editor">Read and write</option>
+          </select>
         </div>
         <button class="btn btn-generate" id="generateBtn" onclick="handleGenerate()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
@@ -155,6 +162,14 @@
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
         <span>Rotate key</span>
       </button>
+      <button class="btn-rotate" onclick="handleRevoke()" style="margin-top:8px" id="revokeBtn">
+        <span>Revoke key</span>
+      </button>
+    </div>
+    <!-- State 3: the key was revoked; the record stays. -->
+    <div id="revokedSection" class="hidden">
+      <div class="label">Revoked</div>
+      <p style="font-size:12px;color:#6b7280">This key no longer works. Anyone holding it was cut off when it was revoked.</p>
     </div>
   </div>
 
@@ -232,63 +247,68 @@
     function render() {
       const ctx = artifactContext;
       const keyMeta = ctx.key || {};
-      const hasKeyStored = Boolean(keyMeta.api_key_id);
+      const revoked = Boolean(keyMeta.revoked_at);
+      const hasKeyStored = Boolean(keyMeta.api_key_id) && !revoked;
 
       // Header title
       document.getElementById('headerTitle').textContent = ctx.title || 'API Key';
 
       // Key info card
-      const scopes = keyMeta.scopes;
-      document.getElementById('keyScope').textContent = scopes?.length ? scopes.join('\n') : '—';
+      const resources = keyMeta.resources;
+      document.getElementById('keyScope').textContent = resources?.length ? resources.join('\n') : '—';
+      document.getElementById('keyAccess').textContent =
+        keyMeta.role === 'editor' ? 'Read and write' : keyMeta.role === 'viewer' ? 'Read only' : '—';
 
       // Status badge
       const badgeEl = document.getElementById('keyStatusBadge');
-      if (hasKeyStored) {
+      if (revoked) {
+        badgeEl.innerHTML = '<span class="status-badge none"><span class="status-dot none"></span>Revoked</span>';
+      } else if (hasKeyStored) {
         badgeEl.innerHTML = '<span class="status-badge stored"><span class="status-dot stored"></span>Stored</span>';
       } else {
         badgeEl.innerHTML = '<span class="status-badge none"><span class="status-dot none"></span>No key</span>';
       }
 
       // Section visibility
-      document.getElementById('createSection').classList.toggle('hidden', hasKeyStored);
+      document.getElementById('createSection').classList.toggle('hidden', hasKeyStored || revoked);
       document.getElementById('storedSection').classList.toggle('hidden', !hasKeyStored);
+      document.getElementById('revokedSection').classList.toggle('hidden', !revoked);
     }
 
     // =========================================================================
     // Actions
     // =========================================================================
+    // A key is a grant on the collections it names (`POST /grants/keys`): `role` is `viewer` or
+    // `editor`, and `resources` are what it reaches. The host creates it, shows its secret once in
+    // its own dialog, and returns the record without the secret.
+    async function issue(name, role, resources) {
+      const result = await sendRpc('tools/call', {
+        name: 'create_api_key',
+        arguments: { name, role, resources }
+      });
+      const resultText = result?.content?.[0]?.text;
+      if (!resultText) return;
+      const created = JSON.parse(resultText);
+      artifactContext = { ...artifactContext, key: { api_key_id: created.id, name, role, resources } };
+      await sendRpc('tools/call', {
+        name: 'update_artifact',
+        arguments: { id: artifactId, patch: { context: JSON.stringify(artifactContext) } }
+      });
+      render();
+    }
+
     window.handleGenerate = async function() {
       const name = artifactContext.title || 'api-key';
-      const scopes = document.getElementById('inputScopes').value.split('\n').map(s => s.trim()).filter(Boolean);
-      const collectionIds = document.getElementById('inputCollections').value.split('\n').map(s => s.trim()).filter(Boolean);
-      const resource_filters = {};
-      if (collectionIds.length) resource_filters.collections = collectionIds;
+      const resources = document.getElementById('inputCollections').value.split('\n').map(s => s.trim()).filter(Boolean);
+      const role = document.getElementById('inputAccess').value;
       clearError();
+      if (!resources.length) {
+        showError('Name at least one collection the key reaches.');
+        return;
+      }
       setWorking(true);
       try {
-        const args = { name };
-        if (scopes.length) args.scopes = scopes;
-        if (Object.keys(resource_filters).length) args.resource_filters = resource_filters;
-        const result = await sendRpc('tools/call', {
-          name: 'create_api_key',
-          arguments: args
-        });
-        // The host shows the key's secret in its own dialog and returns the key record without it.
-        const resultText = result?.content?.[0]?.text;
-        if (resultText) {
-          const created = JSON.parse(resultText);
-          // Persist key metadata in artifact context
-          const updatedContext = {
-            ...artifactContext,
-            key: { api_key_id: created.id, name, scopes, resource_filters }
-          };
-          artifactContext = updatedContext;
-          await sendRpc('tools/call', {
-            name: 'update_artifact',
-            arguments: { id: artifactId, patch: { context: JSON.stringify(updatedContext) } }
-          });
-          render();
-        }
+        await issue(name, role, resources);
       } catch (err) {
         showError(err.message || 'Failed to generate key.');
       } finally {
@@ -301,38 +321,31 @@
       setWorking(true);
       try {
         const keyMeta = artifactContext.key || {};
-        // Delete the old key if present
         if (keyMeta.api_key_id) {
-          try {
-            await sendRpc('tools/call', { name: 'delete_api_key', arguments: { id: keyMeta.api_key_id } });
-          } catch { /* ignore deletion errors */ }
+          await sendRpc('tools/call', { name: 'delete_api_key', arguments: { id: keyMeta.api_key_id } });
         }
-        const keyName = artifactContext.title || keyMeta.name || 'api-key';
-        const scopes = keyMeta.scopes || [];
-        const resource_filters = keyMeta.resource_filters || {};
-        const args = { name: keyName };
-        if (scopes.length) args.scopes = scopes;
-        if (Object.keys(resource_filters).length) args.resource_filters = resource_filters;
-        const result = await sendRpc('tools/call', {
-          name: 'create_api_key',
-          arguments: args
-        });
-        const resultText = result?.content?.[0]?.text;
-        if (resultText) {
-          const created = JSON.parse(resultText);
-          const updatedContext = {
-            ...artifactContext,
-            key: { api_key_id: created.id, name: keyName, scopes, resource_filters }
-          };
-          artifactContext = updatedContext;
-          await sendRpc('tools/call', {
-            name: 'update_artifact',
-            arguments: { id: artifactId, patch: { context: JSON.stringify(updatedContext) } }
-          });
-          render();
-        }
+        await issue(artifactContext.title || keyMeta.name || 'api-key', keyMeta.role || 'viewer', keyMeta.resources || []);
       } catch (err) {
         showError(err.message || 'Failed to rotate key.');
+      } finally {
+        setWorking(false);
+      }
+    };
+
+    window.handleRevoke = async function() {
+      clearError();
+      setWorking(true);
+      try {
+        const keyMeta = artifactContext.key || {};
+        await sendRpc('tools/call', { name: 'delete_api_key', arguments: { id: keyMeta.api_key_id } });
+        artifactContext = { ...artifactContext, key: { ...keyMeta, revoked_at: new Date().toISOString() } };
+        await sendRpc('tools/call', {
+          name: 'update_artifact',
+          arguments: { id: artifactId, patch: { context: JSON.stringify(artifactContext) } }
+        });
+        render();
+      } catch (err) {
+        showError(err.message || 'Failed to revoke key.');
       } finally {
         setWorking(false);
       }
