@@ -400,7 +400,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           const result = await proxyToolCall(
             toolName,
             toolArgs,
-            resourceServer || artifact.id,
+            resourceServer || String(artifact.id ?? ''),
             activeWorkspaceId || undefined,
           );
           sendResponse(req.id, result);
