@@ -159,6 +159,25 @@ describe('WorkspaceProvider', () => {
       expect(screen.getByTestId('artifact-3')).toHaveTextContent('Artifact 3');
     });
 
+    it("shows the workspace switched to, when the previous one's list arrives after the switch", async () => {
+      // 2026-10-19, on staging: the Inbox tab showed the Operations workspace's cards.
+      let answerOps;
+      listWorkspaceArtifacts.mockImplementation((id) => id === 'ops'
+        ? new Promise((resolve) => { answerOps = resolve; })
+        : Promise.resolve({ items: [mockArtifact({ id: 'in-1', title: 'In the inbox', state: 'live' })] }));
+      useWorkspacesMock.mockReturnValue({ activeWorkspace: { id: 'ops', name: 'Operations' } });
+      const view = render(<WorkspaceProvider><TestConsumer /></WorkspaceProvider>);
+
+      useWorkspacesMock.mockReturnValue({ activeWorkspace: { id: 'inbox', name: 'Inbox' } });
+      view.rerender(<WorkspaceProvider><TestConsumer /></WorkspaceProvider>);
+      await waitFor(() => expect(screen.getByTestId('artifact-in-1')).toBeTruthy());
+
+      answerOps({ items: [mockArtifact({ id: 'ops-1', title: 'In operations', state: 'live' })] });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(screen.queryByTestId('artifact-ops-1')).toBeNull();
+      expect(screen.getByTestId('artifact-in-1')).toBeTruthy();
+    });
+
     it('handles API errors gracefully', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       listWorkspaceArtifacts.mockRejectedValueOnce(new Error('Network error'));

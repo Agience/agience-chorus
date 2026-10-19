@@ -106,9 +106,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [orderVersion, setOrderVersion] = useState<number | null>(null);
   const newArtifactHandlerRef = useRef<((artifact: Artifact) => void) | null>(null);
 
+  // The workspace on screen now, read when an answer arrives: a list fetched for another one is
+  // dropped rather than shown under this one's tab.
+  const activeIdRef = useRef<string | undefined>(activeWorkspace?.id);
+  activeIdRef.current = activeWorkspace?.id;
+
   // central loader
   const refreshArtifacts = useCallback(async (workspaceId: string) => {
     const res = await listWorkspaceArtifacts(workspaceId);
+    if (String(activeIdRef.current ?? '') !== String(workspaceId)) return;
     const { items, order_version } = res as unknown as ListWorkspaceArtifactsResult;
     setArtifacts(items);
     if (typeof order_version === 'number') setOrderVersion(order_version);
@@ -124,7 +130,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        await refreshArtifacts(activeWorkspace.id);
+        // Applied only while this workspace is still the active one. 2026-10-19, on staging: a tab
+        // opened while the previous workspace was loading showed the previous workspace's cards,
+        // because its answer arrived after the switch and replaced the new one's.
+        const res = await listWorkspaceArtifacts(activeWorkspace.id);
+        if (cancelled) return;
+        const { items, order_version } = res as unknown as ListWorkspaceArtifactsResult;
+        setArtifacts(items);
+        if (typeof order_version === 'number') setOrderVersion(order_version);
       } catch (err) {
         if (!cancelled) {
           console.error('Failed to load artifacts', err);
