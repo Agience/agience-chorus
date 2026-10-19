@@ -140,19 +140,14 @@ class TestSynthesizeRefusal:
         assert any("op.retrieve returned no evidence" in f for f in result["refusal"]["findings"])
 
     @pytest.mark.asyncio
-    async def test_non_compact_series_refusal_is_computed(self):
-        """A numeric series with no compact law: the quantitative refusal carries
-        the measured regime, and with no evidence the whole answer refuses."""
-        _op_reason = _lumen_server._op_reason
-
+    async def test_a_pasted_series_is_not_forecast(self):
+        """synthesize returns evidence and nothing else. The numeric forecaster (`op.reason`) read
+        series pasted into the question, a different job from answering from what the caller holds;
+        it stays an operator of its own and is no longer run here (2026-10-19)."""
         series = "\n".join(f"{i} {i * 3}" for i in range(1, 13))
-        refused = _op_reason.ReasoningResult(_op_reason.NON_COMPACT, complexity=5, curve=[5])
-        with patch.object(_op_reason.ReasoningRouter, "reason", return_value=refused):
-            result = json.loads(await synthesize(input=series))
-        assert result["answer"] is None
-        assert result["reasoning"]["regime"] == _op_reason.NON_COMPACT
-        assert "non-compact" in result["reasoning"]["refusal"]
-        assert "non-compact" in result["refusal"]["reason"]
+        result = json.loads(await synthesize(input=series))
+        assert "reasoning" not in result
+        assert result["answer"] is None and result["refusal"] is not None
 
 
 # ---------------------------------------------------------------------------
@@ -209,24 +204,3 @@ class TestSynthesizeGrounded:
         result = json.loads(await synthesize(input="q", artifact_ids=["a-1"]))
         assert result["answer"] is None
         assert any("cited-artifact fetch refused" in f for f in result["refusal"]["findings"])
-
-    @pytest.mark.asyncio
-    async def test_deterministic_series_yields_unverified_projection(self):
-        """A compact numeric read is answered as an UNVERIFIED projection —
-        the same honesty contract as op.reason's own grounding message."""
-        import numpy as np
-        _op_reason = _lumen_server._op_reason
-
-        series = "\n".join(f"{i} {i * 2}" for i in range(1, 13))
-        res = _op_reason.ReasoningResult(
-            _op_reason.DETERMINISTIC, "ember.optics",
-            np.array([[13.0, 26.0], [14.0, 28.0]]), None, 3, float("nan"), [3],
-        )
-        with patch.object(_op_reason.ReasoningRouter, "reason", return_value=res):
-            result = json.loads(await synthesize(input=series))
-        assert result["refusal"] is None
-        assert "UNVERIFIED projection" in result["answer"]
-        assert result["reasoning"]["regime"] == _op_reason.DETERMINISTIC
-        assert result["reasoning"]["forecast"] == [[13.0, 26.0], [14.0, 28.0]]
-        # No corpus evidence was involved: the projection cites nothing.
-        assert result["citations"] == []

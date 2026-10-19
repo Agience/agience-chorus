@@ -8,6 +8,7 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 ## [0.2.4] - 2026-10-17
 
 ### Changed
+- Lumen's `synthesize` returns evidence and nothing else: it no longer runs the numeric forecaster (`op.reason`) on a series pasted into the question, a different job from answering from what the caller holds. The forecaster stays an operator of its own.
 - A workflow step, `chain_tasks` and Lumen's grounding call another persona with the caller's own token, not Lumen's delegation; every cross-persona step answered 401. A step whose result carries an error fails the workflow, and a timer records the run as failed (`timer_state.last_ok`); both were reported as successes.
 - Workflow tool steps and `chain_tasks` call a persona by name (or a person's MCP server by id) through Crystal's `/personas` routes. They posted to `/artifacts/<name>/op/invoke`, which names no artifact, and every step answered 404. An MCP server card's resources are read the same way; its three operations that named a removed Mantle importer are gone.
 - The Key card issues a key over the collections it names, read only or read and write, and can revoke it. It sent the retired `scopes` and `resource_filters`, which Mantle does not read, so every key made from a Key card reached nothing; and it had no way to revoke. An MCP client card's key is likewise a grant on the client's workspace.

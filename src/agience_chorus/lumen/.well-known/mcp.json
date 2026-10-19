@@ -12,7 +12,7 @@
   "tools": [
     {
       "name": "synthesize",
-      "description": "Synthesize an evidence-backed answer: retrieve→reason→respond"
+      "description": "The evidence for a question: the artifacts that bear on it, retrieved on sage under the caller's grants, as numbered extracts with their ids; cited or refused"
     },
     {
       "name": "run_workflow",

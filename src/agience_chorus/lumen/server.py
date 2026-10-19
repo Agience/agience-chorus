@@ -18,12 +18,11 @@ Pipeline position: Reasoning & workflow execution.
 
 Tools
 -----
-  synthesize             — Grounded synthesis: retrieve (op.retrieve, mantle FTS) →
-                            reason (op.reason where the input is quantitative) →
-                            respond {answer, citations, refusal} — cited or refused
+  synthesize             — Grounded evidence: retrieve (op.retrieve on sage, under the caller's
+                            grants) → {answer, citations, refusal} — cited extracts or refused
   run_workflow           — Execute a defined multi-step workflow
   execute_transform      — Dispatch a Transform artifact by its run.type (mcp-tool/transform-ref/workflow)
-  chain_tasks            — Chain MCP tool calls sequentially via /artifacts/{server}/op/invoke
+  chain_tasks            — Chain MCP tool calls sequentially, through Crystal's /personas routes
   schedule_action        — Stub: awaits a live scheduler/executor (nothing fires deferred actions)
   evaluate_output        — Stub: awaits a grounded verifier (a judge model would grade from inside; overlap ≠ quality)
   submit_feedback        — Record a human judgment as an append-only feedback artifact
@@ -64,9 +63,6 @@ from prism.trust import (
     MissingDelegationError,
 )
 
-# op.reason is lumen's own organon — imported directly (persona-local; shared substrate lives in
-# `crystal`).
-import agience_chorus.lumen.reasoning as _op_reason  # noqa: E402 — persona-local organon (op.reason)
 
 # Lumen never loads sage's module in-process. The retrieval call is a reach to sage's served
 # `op.retrieve` (`_reach_retrieve`, below), inactive by default with an honest empty degrade — lumen
@@ -202,69 +198,6 @@ def _grounded_extract(evidence: list[dict]) -> tuple[str, list[str]]:
     return "\n\n".join(blocks), cited
 
 
-def _reason_over_input(input_text: str, findings: list[str]) -> tuple[Optional[str], Optional[dict]]:
-    """The quantitative leg: op.reason over a numeric series pasted in the input.
-
-    Returns (answer_fragment, reasoning_read). The fragment is None when there is
-    no series to reason over, or when the regime is NON_COMPACT (that refusal is
-    a computed finding, recorded in the read). The reasoning organon (`_op_reason`) is
-    injected by the composition adapter; if the deployment did not wire it, that is
-    reported as a finding rather than swallowed silently.
-    """
-    if _op_reason is None:  # the organon was not injected in this deployment
-        findings.append(
-            "op.reason unavailable in this deployment (organon not wired at assembly); "
-            "the quantitative leg did not run"
-        )
-        return None, None
-
-    try:
-        X = _op_reason.parse_trajectory(input_text or "")
-    except Exception as exc:
-        findings.append(f"op.reason: trajectory parse failed ({type(exc).__name__})")
-        return None, None
-    if X is None:
-        return None, None  # no numeric series to reason over — not a finding
-
-    # The forecast horizon is the operator's own, read off its fitted spectrum
-    # (`reasoning._operator_horizon`) rather than a fixed row count, so there is no horizon constant
-    # to keep in sync with op.reason's own default; a frame that does not carry a proper compact
-    # subspace is refused on the instrument's own terms, below.
-    res = _op_reason.ReasoningRouter().reason([X], X, dt=1.0)
-    read: dict[str, Any] = {
-        "regime": res.regime,
-        "complexity": int(res.complexity),
-        "series_shape": [int(X.shape[0]), int(X.shape[1])],
-    }
-    if res.regime != _op_reason.DETERMINISTIC or res.forecast is None:
-        # A computed refusal of the quantitative ask: the resolved-rank read
-        # found no proper compact subspace — no exact answer exists.
-        read["refusal"] = (
-            f"non-compact: the resolved-rank read found K_signal={res.complexity} "
-            "with no proper compact subspace, so no deterministic forecast exists "
-            "for this series"
-        )
-        return None, read
-
-    # fit_error is NaN by construction on this path (no in-sample error is measured), so the
-    # projection is presented as unverified — the same honesty contract as op.reason's own grounding
-    # message. The forecast is reported at the length it was computed at: `_operator_horizon` already
-    # reads that length off the operator's own spectrum, so clipping it here would reintroduce a fixed
-    # horizon constant. `reasoning._grounding_msg` states the identical rule for its own copy of this
-    # report.
-    import numpy as _np
-    fc = _np.asarray(res.forecast)
-    rows = "; ".join("[" + ", ".join(f"{v:.4g}" for v in r) + "]" for r in fc)
-    read["forecast"] = fc.tolist()
-    fragment = (
-        "Deterministic-regime read of the numeric series in the input "
-        f"(op.reason, K_signal={res.complexity}). UNVERIFIED projection — a linear "
-        "operator was fitted and rolled forward with no in-sample error measured — "
-        f"next {len(fc)} steps: {rows}"
-    )
-    return fragment, read
-
-
 async def _retrieve_on_sage(query: str, findings: list[str]) -> list[dict]:
     """op.retrieve on sage (`sage.server.retrieve`) through Crystal. Fail-soft: why it found nothing
     is recorded in `findings`."""
@@ -294,11 +227,10 @@ async def _retrieve_on_sage(query: str, findings: list[str]) -> list[dict]:
 
 @mcp.tool(
     description=(
-        "Synthesize an evidence-backed answer: retrieve→reason→respond. Grounds the "
-        "input in the corpus via the retrieval organon (mantle FTS under the caller's "
-        "grants) and/or explicitly cited artifacts, runs the deterministic reasoning "
-        "organon when the input carries a numeric series, and returns "
-        "{answer, citations, refusal} — cited or refused, never fabricated. No models."
+        "The evidence for a question: the artifacts that bear on it, retrieved on sage under "
+        "the caller's grants and/or cited explicitly, returned as numbered extracts with their "
+        "ids — {answer, citations, refusal}. Writes nothing of its own: cited or refused, never "
+        "fabricated. No models; a written answer is an LLM connection's job."
     )
 )
 async def synthesize(
@@ -317,7 +249,6 @@ async def synthesize(
     _ = model  # synthesis assembles its answer from grounded operators
     findings: list[str] = []   # computed facts about legs that could not run
     evidence: list[dict] = []
-    reasoning_read: Optional[dict] = None
 
     token = _delegation_token()
 
@@ -397,14 +328,9 @@ async def synthesize(
             "corpus search runs only under the caller's own grants"
         )
 
-    # (c) the quantitative leg: op.reason over a numeric series in the input.
-    fragment, reasoning_read = _reason_over_input(input, findings)
-
     # (d) respond: grounded answer with citations, or a computed refusal.
     parts: list[str] = []
     citations: list[str] = []
-    if fragment:
-        parts.append(fragment)
     if evidence:
         extract, cited = _grounded_extract(evidence)
         if extract:
@@ -420,20 +346,13 @@ async def synthesize(
         "refusal": None,
         "findings": findings,
     }
-    if reasoning_read:
-        result["reasoning"] = reasoning_read
     if not parts:
         # A computed refusal: every leg that ran came back empty, and every
         # leg that could not run is named above.
         result["refusal"] = {
             "reason": (
                 "no grounded answer exists for this input: "
-                f"{len(evidence)} evidence artifact(s), no deterministic read"
-                + (
-                    f"; quantitative leg refused ({reasoning_read['refusal']})"
-                    if reasoning_read and reasoning_read.get("refusal")
-                    else ""
-                )
+                f"{len(evidence)} evidence artifact(s)"
             ),
             "query": (input or "")[:500],
             "evidence_count": len(evidence),

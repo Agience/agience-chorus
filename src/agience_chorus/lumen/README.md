@@ -17,7 +17,7 @@ Implemented (live):
 
 | Tool | Description |
 |---|---|
-| `synthesize` | Synthesize an evidence-backed answer: retrieve→reason→respond |
+| `synthesize` | The evidence for a question: the artifacts that bear on it, retrieved on sage under the caller's grants, as numbered extracts with their ids; cited or refused |
 | `execute_transform` | Execute a Transform artifact |
 | `run_workflow` | Execute a multi-step workflow defined by a Transform artifact |
 | `chain_tasks` | Chain multiple MCP tool calls sequentially, each through Crystal to a persona by name or a person's MCP server by id |
