@@ -3,234 +3,334 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Transform Viewer</title>
+<title>Workflow</title>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    font-size: 14px; color: #1e293b; background: #fff; line-height: 1.5;
-  }
-  .container { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
-
-  .card {
-    border-radius: 12px; border: 1px solid #e2e8f0;
-    background: linear-gradient(135deg, #f8fafc 0%, #fff 50%, #eff6ff 100%);
-    padding: 16px;
-  }
-
-  .badge-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-  .badge {
-    border-radius: 9999px; padding: 3px 10px; font-size: 11px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.04em;
-  }
-  .badge-dark { background: #0f172a; color: #fff; }
-  .badge-light { background: #f1f5f9; color: #475569; }
-  .badge-blue { border: 1px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; }
-  .badge-purple { border: 1px solid #ddd6fe; background: #f5f3ff; color: #6d28d9; }
-
-  .description { font-size: 13px; color: #64748b; margin-top: 10px; }
-
-  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-  .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 10px; }
-  @media (max-width: 400px) { .grid-5 { grid-template-columns: 1fr 1fr; } }
-
-  .stat-box {
-    border-radius: 8px; border: 1px solid #e2e8f0; background: #fff;
-    padding: 8px 10px;
-  }
-  .stat-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
-  .stat-value { font-size: 13px; color: #0f172a; margin-top: 2px; word-break: break-all; }
-
-  .section-label {
-    font-size: 11px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 6px;
-  }
-  .field-value {
-    font-size: 13px; color: #1e293b; padding: 8px 12px;
-    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
-    word-break: break-all;
-  }
-  .field-value.mono { font-family: 'SF Mono','Fira Code',monospace; font-size: 12px; color: #475569; }
-
-  .run-type-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-
-  .empty { font-size: 13px; color: #94a3b8; font-style: italic; text-align: center; padding: 24px 0; }
+  *, *::before, *::after { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 16px;
+         font-size: 13px; color: #111827; background: #fff; }
+  h2 { font-size: 12px; font-weight: 600; color: #6b7280; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; }
+  .card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; min-width: 0; }
+  label { display: block; font-weight: 600; font-size: 12px; margin: 8px 0 4px; }
+  .hint { color: #6b7280; font-size: 12px; margin-top: 2px; }
+  input, select, textarea { width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; font: inherit; }
+  textarea { min-height: 54px; font-family: ui-monospace, monospace; font-size: 12px; }
+  input[type=checkbox] { width: auto; }
+  button { padding: 6px 12px; border-radius: 6px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; font: inherit; }
+  button.primary { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .seg { display: inline-flex; border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; }
+  .seg button.on { background: #eef2ff; color: #3730a3; font-weight: 600; }
+  .step { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid #f3f4f6; }
+  .step:first-child { border-top: 0; }
+  .num { width: 22px; height: 22px; border-radius: 999px; background: #eef2ff; color: #3730a3; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+  .muted { color: #6b7280; }
+  .recipes { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+  .recipe { text-align: left; padding: 10px; border-radius: 8px; }
+  .recipe b { display: block; margin-bottom: 2px; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #f9fafb; border-radius: 6px; padding: 8px; margin: 8px 0 0; font-size: 12px; max-height: 260px; overflow: auto; }
+  .ok { color: #166534; } .err { color: #b91c1c; }
+  .hidden { display: none; }
 </style>
 </head>
 <body>
-<div class="container" id="app">
-  <div style="color:#94a3b8;font-size:13px;">Loading...</div>
-</div>
+  <div class="row" style="margin-bottom:12px">
+    <input id="title" class="grow" placeholder="Name this workflow" style="font-size:15px;font-weight:600" />
+    <div class="seg" id="kind">
+      <button data-kind="step" class="on">One step</button>
+      <button data-kind="workflow">Several steps</button>
+    </div>
+  </div>
+
+  <div class="card" id="recipesCard">
+    <h2>Start from a recipe</h2>
+    <div class="recipes" id="recipes"></div>
+  </div>
+
+  <div class="card" id="stepCard">
+    <h2>What it does</h2>
+    <label for="tool">Tool</label>
+    <select id="tool"></select>
+    <div class="hint" id="toolHint"></div>
+    <div id="argForm"></div>
+  </div>
+
+  <div class="card hidden" id="flowCard">
+    <h2>Steps, in order</h2>
+    <div id="steps"><div class="muted">No steps yet.</div></div>
+    <div style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px">
+      <label for="newTool">Add a step</label>
+      <select id="newTool"></select>
+      <div class="hint" id="newToolHint"></div>
+      <div id="newArgForm"></div>
+      <label for="newName">Step name</label>
+      <input id="newName" placeholder="e.g. Reconcile the accounts" />
+      <div class="row" style="margin-top:8px"><button id="addStep">Add step</button>
+        <span class="muted">or reuse</span>
+        <select id="existing" class="grow"></select><button id="reuse" class="small">Use</button></div>
+    </div>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <button id="save">Save</button>
+    <button id="run" class="primary">Run now</button>
+    <span id="status" class="muted"></span>
+  </div>
+  <pre id="result" class="hidden"></pre>
+
+  <div class="card">
+    <h2>Run it on a schedule</h2>
+    <div class="row">
+      <select id="every" style="width:auto">
+        <option value="every_minutes">Every N minutes</option>
+        <option value="daily_at">Daily at (HH:MM UTC)</option>
+      </select>
+      <input id="when" style="width:120px" value="60" />
+      <label style="margin:0;font-weight:400" class="row"><input type="checkbox" id="inbox" checked /> tell me in my Inbox if it fails</label>
+      <button id="schedule">Create timer</button>
+    </div>
+    <div class="hint" id="scheduleHint">A Timer card is made next to this one; open it and press Arm. It runs on a key you approve there.</div>
+  </div>
 
 <script>
-/* MCP Apps postMessage protocol */
-let _nextId = 1;
-const _pending = {};
-
-function sendRpc(method, params) {
-  return new Promise((resolve, reject) => {
-    const id = _nextId++;
-    _pending[id] = { resolve, reject };
-    window.parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*');
-  });
+let _id = 0; const _pending = {};
+function rpc(method, params) {
+  return new Promise((resolve, reject) => { const id = ++_id; _pending[id] = { resolve, reject };
+    parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*'); });
 }
-
-function sendNotification(method, params) {
-  window.parent.postMessage({ jsonrpc: '2.0', method, params }, '*');
-}
-
 window.addEventListener('message', (e) => {
-  if (!e.data || e.data.jsonrpc !== '2.0') return;
-  if (typeof e.data.id === 'number' && _pending[e.data.id]) {
-    const { resolve, reject } = _pending[e.data.id];
-    delete _pending[e.data.id];
-    if (e.data.error) reject(new Error(e.data.error.message));
-    else resolve(e.data.result);
-  }
-  if (e.data.method === 'ui/notifications/tool-result') {
-    handleToolResult(e.data.params);
-  }
+  const d = e.data; if (!d || d.jsonrpc !== '2.0') return;
+  if (d.id && _pending[d.id]) { const p = _pending[d.id]; delete _pending[d.id];
+    d.error ? p.reject(new Error(d.error.message || 'failed')) : p.resolve(d.result); return; }
+  if (d.method === 'ui/notifications/tool-result') onCard(d.params);
 });
+rpc('ui/initialize', { protocolVersion: '2026-01-26', clientInfo: { name: 'agience-viewer', version: '0.1.0' } })
+  .then(() => parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/initialized' }, '*'));
 
-let _artifactData = null;
-
-sendRpc('ui/initialize', {}).then(() => {
-  sendNotification('ui/notifications/initialized', {});
-});
-
-function handleToolResult(params) {
-  if (!params || !params.content) return;
-  try {
-    const text = params.content[0]?.text;
-    const data = JSON.parse(text);
-    if (data.artifact_id) {
-      _artifactData = data;
-      render();
-    }
-  } catch {}
+async function tool(name, args) {
+  const res = await rpc('tools/call', { name, arguments: args });
+  const text = (res && res.content && res.content[0] && res.content[0].text) || '';
+  let data = text; try { data = JSON.parse(text); } catch { /* text */ }
+  if (data && typeof data === 'object' && data.error) throw new Error(data.error);
+  return data;
 }
 
-function ctx() {
-  if (!_artifactData) return {};
-  try {
-    return typeof _artifactData.context === 'string'
-      ? JSON.parse(_artifactData.context)
-      : (_artifactData.context || {});
-  } catch { return {}; }
+const $ = (id) => document.getElementById(id);
+let artifactId = null, ctx = {}, catalog = { tools: [], steps: [], inbox_id: '' }, kind = 'step';
+
+// What a person most often starts from. Each fills the form; nothing runs until they press Run.
+const RECIPES = [
+  { title: 'Reconcile accounts', blurb: 'Compare several write-ups of one event; agreements, conflicts, and an Inbox item per conflict.',
+    server: 'lumen', tool: 'reconcile', args: { inbox_to: '$inbox' } },
+  { title: 'Answer from my notes', blurb: 'A question answered with cited extracts from what you can read.',
+    server: 'lumen', tool: 'synthesize', args: {} },
+  { title: 'List my collections', blurb: 'A quick check that a step runs.', server: 'sage', tool: 'browse_collections', args: { limit: 10 } },
+  { title: 'Raise an Inbox item', blurb: 'Put something in front of a person, with why.',
+    server: 'lumen', tool: 'raise_item', args: { container_id: '$inbox' } },
+];
+
+function onCard(params) {
+  for (const b of (params && params.content) || []) {
+    if (b.type !== 'text' || !b.text) continue;
+    try { const d = JSON.parse(b.text); artifactId = d.artifact_id || artifactId;
+      ctx = typeof d.context === 'string' ? JSON.parse(d.context) : (d.context || {}); } catch { /* ignore */ }
+  }
+  kind = (ctx.run && ctx.run.type === 'workflow') ? 'workflow' : 'step';
+  render();
+  tool('workflow_catalog', { workflow_id: artifactId }).then((c) => { catalog = c; render(); })
+    .catch((e) => status(e.message, true));
 }
 
-function labelForRunType(runType) {
-  const labels = {
-    'palette-run': 'Palette Run',
-    'llm': 'LLM Prompt',
-    'mcp-tool': 'MCP Tool',
-    'flow-run': 'Flow Run',
-    'host-script': 'Host Script',
-    'transform-ref': 'Transform Ref',
-    'order-ref': 'Transform Ref',
-    'webhook': 'Webhook',
-  };
-  return labels[runType] || runType || 'Unspecified';
+function toolKey(t) { return `${t.server}:${t.name}`; }
+function findTool(key) { return catalog.tools.find((t) => toolKey(t) === key); }
+
+function fillToolSelect(sel, chosen) {
+  sel.replaceChildren(new Option('Choose a tool…', ''));
+  const groups = {};
+  for (const t of catalog.tools) (groups[t.server] = groups[t.server] || []).push(t);
+  for (const server of Object.keys(groups).sort()) {
+    const g = document.createElement('optgroup'); g.label = server;
+    for (const t of groups[server]) g.appendChild(new Option(t.name, toolKey(t)));
+    sel.appendChild(g);
+  }
+  sel.value = chosen || '';
 }
 
-// Escapes text for element content and for quoted attribute values.
-function esc(s) {
-  return String(s || '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+// A form from the tool's own input schema: one field per argument, required ones marked.
+function argForm(host, t, values) {
+  host.replaceChildren();
+  if (!t) return;
+  const props = (t.input_schema && t.input_schema.properties) || {};
+  const required = new Set((t.input_schema && t.input_schema.required) || []);
+  for (const [name, spec] of Object.entries(props)) {
+    const l = document.createElement('label');
+    l.textContent = name + (required.has(name) ? ' *' : '');
+    const type = (spec && spec.type) || (spec && spec.anyOf && (spec.anyOf.find((x) => x.type !== 'null') || {}).type) || 'string';
+    let input;
+    if (type === 'boolean') { input = document.createElement('input'); input.type = 'checkbox'; input.checked = !!values[name]; }
+    else if (type === 'object' || type === 'array') { input = document.createElement('textarea');
+      input.value = values[name] !== undefined ? JSON.stringify(values[name], null, 1) : ''; input.placeholder = type === 'array' ? '[ ]' : '{ }'; }
+    else { input = document.createElement('input'); input.type = (type === 'integer' || type === 'number') ? 'number' : 'text';
+      input.value = values[name] !== undefined ? (values[name] === '$inbox' ? catalog.inbox_id || '' : values[name]) : ''; }
+    input.dataset.arg = name; input.dataset.type = type;
+    host.appendChild(l); host.appendChild(input);
+    if (spec && spec.description) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = spec.description; host.appendChild(h); }
+  }
+  if (!Object.keys(props).length) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = 'This tool takes no arguments.'; host.appendChild(h); }
 }
 
-function parseTransform(c) {
-  /* Support both flat and nested transform context layouts */
-  const root = c.transform || c;
-  return {
-    kind: root.kind || c.kind || 'palette',
-    subtype: root.subtype || c.subtype || null,
-    run: root.run || c.run || null,
-    spec: root.spec || c.spec || null,
-    title: c.title || null,
-    description: c.description || null,
-  };
+function readArgs(host) {
+  const out = {};
+  for (const el of host.querySelectorAll('[data-arg]')) {
+    const t = el.dataset.type, v = t === 'boolean' ? el.checked : el.value.trim();
+    if (v === '' || v === undefined) continue;
+    if (t === 'integer' || t === 'number') out[el.dataset.arg] = Number(v);
+    else if (t === 'object' || t === 'array') out[el.dataset.arg] = JSON.parse(v);
+    else out[el.dataset.arg] = v;
+  }
+  return out;
 }
 
 function render() {
-  const app = document.getElementById('app');
-  if (!_artifactData) return;
+  $('title').value = ctx.title || '';
+  for (const b of $('kind').querySelectorAll('button')) b.classList.toggle('on', b.dataset.kind === kind);
+  $('stepCard').classList.toggle('hidden', kind !== 'step');
+  $('flowCard').classList.toggle('hidden', kind !== 'workflow');
+  $('recipesCard').classList.toggle('hidden', Boolean(ctx.run && (ctx.run.tool || (ctx.run.steps || []).length)));
 
-  const c = ctx();
-  const t = parseTransform(c);
-  const run = t.run || {};
-  const spec = t.spec || {};
-  const panelData = spec.panelData || {};
+  $('recipes').replaceChildren(...RECIPES.map((r) => { const b = document.createElement('button'); b.className = 'recipe';
+    b.innerHTML = '<b></b><span class="muted"></span>'; b.querySelector('b').textContent = r.title;
+    b.querySelector('span').textContent = r.blurb; b.onclick = () => useRecipe(r); return b; }));
 
-  const inputCount = (panelData.input && panelData.input.artifacts) ? panelData.input.artifacts.length : 0;
-  const resourceCount = (panelData.resources && panelData.resources.resources) ? panelData.resources.resources.length : 0;
-  const toolCount = (panelData.tools && panelData.tools.tools) ? panelData.tools.tools.length : 0;
-  const knowledgeCount = (panelData.knowledge && panelData.knowledge.artifacts) ? panelData.knowledge.artifacts.length : 0;
-  const targetCount = (panelData.targets && panelData.targets.collections) ? panelData.targets.collections.length : 0;
+  const run = ctx.run || {};
+  const chosen = run.type === 'mcp-tool' ? `${run.server}:${run.tool}` : '';
+  fillToolSelect($('tool'), chosen);
+  const t = findTool(chosen); $('toolHint').textContent = (t && t.description) || '';
+  argForm($('argForm'), t, run.input_mapping || {});
 
-  /* Run-type specific details */
-  let detailRows = [];
-  if (run.type) {
-    detailRows.push({ label: 'Runner', value: esc(labelForRunType(run.type)) });
-  }
-  if (run.type === 'mcp-tool' && run.tool) {
-    detailRows.push({ label: 'Tool', value: `${esc(run.server || 'agience-core')}:${esc(run.tool)}` });
-  }
-  if ((run.type === 'transform-ref' || run.type === 'order-ref') && (run.transform_id || run.transform_id)) {
-    detailRows.push({ label: 'Transform Ref', value: esc(run.transform_id || run.transform_id) });
-  }
-  if (run.type === 'webhook' && run.url) {
-    detailRows.push({ label: 'Webhook', value: esc(run.url) });
-  }
-  if (run.type === 'host-script' && run.host_policy) {
-    detailRows.push({ label: 'Host Policy', value: esc(run.host_policy) });
-  }
-
-  const hasStats = inputCount + resourceCount + toolCount + knowledgeCount + targetCount > 0;
-
-  app.innerHTML = `
-    <div class="card">
-      <div class="badge-row">
-        <span class="badge badge-dark">${esc(t.kind)}</span>
-        ${t.subtype ? `<span class="badge badge-light">${esc(t.subtype)}</span>` : ''}
-        <span class="badge badge-purple">${esc(labelForRunType(run.type))}</span>
-      </div>
-
-      <div class="description">
-        Saved transform. Open it in the transform dock to edit execution flow and run behavior.
-      </div>
-
-      ${detailRows.length > 0 ? `
-        <div class="grid-2">
-          ${detailRows.map(row => `
-            <div class="stat-box">
-              <div class="stat-label">${esc(row.label)}</div>
-              <div class="stat-value">${row.value}</div>
-            </div>`).join('')}
-        </div>` : ''}
-
-      ${hasStats ? `
-        <div class="grid-5">
-          <div class="stat-box"><div class="stat-label">Input</div><div class="stat-value">${esc(inputCount)} artifacts</div></div>
-          <div class="stat-box"><div class="stat-label">Resources</div><div class="stat-value">${esc(resourceCount)} refs</div></div>
-          <div class="stat-box"><div class="stat-label">Tools</div><div class="stat-value">${esc(toolCount)}</div></div>
-          <div class="stat-box"><div class="stat-label">Knowledge</div><div class="stat-value">${esc(knowledgeCount)} artifacts</div></div>
-          <div class="stat-box"><div class="stat-label">Targets</div><div class="stat-value">${esc(targetCount)} collections</div></div>
-        </div>` : ''}
-    </div>
-
-    ${t.title || _artifactData.description ? `
-      <div>
-        <div class="section-label">Title</div>
-        <div class="field-value">${esc(t.title || _artifactData.description)}</div>
-      </div>` : ''}
-
-    ${t.description && t.description !== t.title ? `
-      <div>
-        <div class="section-label">Description</div>
-        <div class="field-value">${esc(t.description)}</div>
-      </div>` : ''}
-  `;
+  fillToolSelect($('newTool'), $('newTool').value);
+  const steps = run.type === 'workflow' ? (run.steps || []) : [];
+  const names = Object.fromEntries((catalog.steps || []).map((s) => [s.id, s]));
+  $('steps').replaceChildren(...(steps.length ? steps.map((s, i) => {
+    const row = document.createElement('div'); row.className = 'step';
+    const known = names[s.transform_id];
+    row.innerHTML = `<span class="num">${i + 1}</span><span class="grow"><b></b><div class="muted"></div></span>`;
+    row.querySelector('b').textContent = s.name || (known && known.title) || s.transform_id;
+    row.querySelector('.muted').textContent = known ? known.does : s.transform_id;
+    for (const [label, fn] of [['↑', () => move(i, -1)], ['↓', () => move(i, 1)], ['Remove', () => removeStep(i)]]) {
+      const b = document.createElement('button'); b.className = 'small'; b.textContent = label; b.onclick = fn; row.appendChild(b);
+    }
+    return row;
+  }) : [Object.assign(document.createElement('div'), { className: 'muted', textContent: 'No steps yet. Add one below.' })]));
+  $('existing').replaceChildren(new Option('an existing step…', ''),
+    ...(catalog.steps || []).filter((s) => s.id !== artifactId).map((s) => new Option(s.title, s.id)));
 }
+
+function status(text, bad) { $('status').textContent = text || ''; $('status').className = bad ? 'err' : 'muted'; }
+
+async function save(next) {
+  ctx = { ...ctx, ...next, title: $('title').value.trim() || ctx.title || 'Workflow', content_type: 'application/vnd.agience.transform+json' };
+  await rpc('tools/call', { name: 'update_artifact', arguments: { id: artifactId, patch: { context: JSON.stringify(ctx) } } });
+}
+
+function currentStepRun() {
+  const t = findTool($('tool').value);
+  if (!t) throw new Error('Choose a tool first.');
+  return { type: 'mcp-tool', server: t.server, tool: t.name, input_mapping: readArgs($('argForm')) };
+}
+
+async function saveNow() {
+  status('Saving…');
+  try {
+    if (kind === 'step') await save({ run: currentStepRun() });
+    else await save({ run: { type: 'workflow', steps: ((ctx.run && ctx.run.type === 'workflow') ? ctx.run.steps : []) || [] } });
+    status('Saved.'); render();
+  } catch (e) { status(e.message, true); }
+}
+
+function useRecipe(r) {
+  kind = 'step';
+  const t = catalog.tools.find((x) => x.server === r.server && x.name === r.tool);
+  if (!t) { status(`${r.server}: ${r.tool} is not available to you.`, true); return; }
+  ctx = { ...ctx, title: ctx.title || r.title, run: { type: 'mcp-tool', server: r.server, tool: r.tool, input_mapping: r.args } };
+  render(); status('Fill in the fields, then Save and Run now.');
+}
+
+async function move(i, d) {
+  const steps = [...(ctx.run.steps || [])]; const j = i + d; if (j < 0 || j >= steps.length) return;
+  [steps[i], steps[j]] = [steps[j], steps[i]]; await save({ run: { type: 'workflow', steps } }); render();
+}
+async function removeStep(i) {
+  const steps = [...(ctx.run.steps || [])]; steps.splice(i, 1); await save({ run: { type: 'workflow', steps } }); render();
+}
+
+$('kind').onclick = (e) => { const k = e.target.dataset && e.target.dataset.kind; if (!k) return;
+  kind = k; if (k === 'workflow' && !(ctx.run && ctx.run.type === 'workflow')) ctx = { ...ctx, run: { type: 'workflow', steps: [] } };
+  render(); };
+$('tool').onchange = () => { const t = findTool($('tool').value); $('toolHint').textContent = (t && t.description) || ''; argForm($('argForm'), t, {}); };
+$('newTool').onchange = () => { const t = findTool($('newTool').value); $('newToolHint').textContent = (t && t.description) || ''; argForm($('newArgForm'), t, {}); };
+$('save').onclick = saveNow;
+
+$('addStep').onclick = async () => {
+  const t = findTool($('newTool').value); if (!t) { status('Choose the step\'s tool.', true); return; }
+  status('Adding…');
+  try {
+    if (!$('title').value.trim()) $('title').value = 'Workflow';
+    await save({ run: { type: 'workflow', steps: ((ctx.run && ctx.run.steps) || []) } });
+    const out = await tool('add_workflow_step', { workflow_id: artifactId, server: t.server, tool: t.name,
+      arguments: readArgs($('newArgForm')), name: $('newName').value.trim() });
+    ctx = { ...ctx, run: out.run }; catalog = await tool('workflow_catalog', { workflow_id: artifactId });
+    $('newName').value = ''; status('Step added.'); render();
+  } catch (e) { status(e.message, true); }
+};
+$('reuse').onclick = async () => {
+  const id = $('existing').value; if (!id) return;
+  const s = (catalog.steps || []).find((x) => x.id === id);
+  const steps = [...((ctx.run && ctx.run.steps) || []), { name: s ? s.title : '', transform_id: id }];
+  await save({ run: { type: 'workflow', steps } }); status('Step added.'); render();
+};
+
+// A step's answer arrives as the tool's MCP result (text in `content`, `isError` on failure),
+// sometimes passed on whole inside another; a person reads the tool's own answer, or its error.
+function unwrap(o) {
+  if (!o || typeof o !== 'object' || !Array.isArray(o.content)) return o;
+  const text = (o.content[0] && o.content[0].text) || '';
+  if (o.isError) throw new Error(text || 'the tool reported an error');
+  try {
+    const j = JSON.parse(text);
+    if (j && typeof j === 'object' && j.error) throw new Error(j.error);
+    return j;
+  } catch (e) { if (e instanceof SyntaxError) return text; throw e; }
+}
+
+$('run').onclick = async () => {
+  await saveNow(); if ($('status').className === 'err') return;
+  status('Running…'); $('run').disabled = true;
+  try {
+    const out = unwrap(unwrap(await tool('execute_transform', { transform_id: artifactId })));
+    $('result').classList.remove('hidden');
+    $('result').textContent = typeof out === 'string' ? out : JSON.stringify(out, null, 2);
+    status('Done.');
+  } catch (e) { $('result').classList.remove('hidden'); $('result').textContent = e.message; status('It failed.', true); }
+  finally { $('run').disabled = false; }
+};
+
+$('schedule').onclick = async () => {
+  status('Creating the timer…');
+  try {
+    await saveNow();
+    const every = $('every').value, when = $('when').value.trim();
+    const args = { workspace_id: catalog.workspace_id, target_artifact_id: artifactId, title: `${ctx.title || 'Workflow'} (schedule)` };
+    args[every] = every === 'every_minutes' ? Number(when) : when;
+    if ($('inbox').checked && catalog.inbox_id) args.inbox_to = catalog.inbox_id;
+    const out = await tool('schedule_action', args);
+    $('scheduleHint').textContent = `Timer "${args.title}" is ready next to this card. Open it and press Arm.`;
+    status(out.timer_id ? 'Timer created.' : '');
+  } catch (e) { status(e.message, true); }
+};
 </script>
 </body>
 </html>

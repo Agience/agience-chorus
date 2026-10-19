@@ -170,6 +170,7 @@ from mantle.clients.artifact_helpers import artifact_url, register_types_manifes
 from agience_chorus.lumen import timers as _timers
 from agience_chorus.lumen import inbox as _inbox
 from agience_chorus.lumen import connection as _connection
+from agience_chorus.lumen import reconcile as _reconcile
 from agience_chorus._secrets import SecretUnavailable as _SecretUnavailable, use_secret as _use_secret
 register_types_manifest(mcp, "lumen", __file__)
 
@@ -1291,6 +1292,185 @@ async def invoke_connection(connection_id: str, messages: Any = None, input: Opt
     log.info("connection %s invoked: %s %s (%s)", connection_id, card["provider"], card["model"],
              "error" if "error" in out else "ok")
     return json.dumps({**out, "connection_id": connection_id, "provider": card["provider"]})
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation: several accounts of one event, compared fact by fact
+# ---------------------------------------------------------------------------
+
+def _ctx_of(doc: dict) -> dict:
+    return _timers._context(doc)
+
+
+@mcp.tool(
+    description=(
+        "Reconcile several accounts of one event: read every account in `collection_id` (each "
+        "stating facts as `Label: value` lines), and write a reconciliation — what all agree on, "
+        "where they differ (each version with its accounts and their evidence), and what only one "
+        "states. No account is changed. With `inbox_to`, each difference is raised there as an Inbox "
+        "item for a person to settle."
+    )
+)
+async def reconcile(collection_id: str, inbox_to: str = "", out_to: str = "") -> str:
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=60) as client:
+        coll = await client.get(artifact_url(MANTLE_URI, collection_id), headers=headers)
+        if coll.status_code != 200:
+            return json.dumps({"error": "no such collection, or you cannot read it"})
+        page = await client.get(f"{artifact_url(MANTLE_URI, collection_id)}/children", headers=headers,
+                                params={"limit": 500})
+        page.raise_for_status()
+        body = page.json()
+        members = body.get("items", body) if isinstance(body, dict) else body
+        accounts = []
+        for m in members or []:
+            ctx = _ctx_of(m)
+            if m.get("content_type") == _inbox.ITEM_TYPE or ctx.get("kind") == _reconcile.RECONCILIATION_KIND:
+                continue
+            full = await client.get(artifact_url(MANTLE_URI, m.get("id")), headers=headers)
+            if full.status_code != 200:
+                continue
+            doc = full.json()
+            ctx = _ctx_of(doc)
+            ev = ctx.get("evidence") or []
+            accounts.append(_reconcile.Account(
+                id=str(doc.get("root_id") or doc.get("id")), name=str(ctx.get("title") or doc.get("id"))[:80],
+                content=str(doc.get("content") or ""), evidence=[str(e) for e in ev] if isinstance(ev, list) else []))
+        if len(accounts) < 2:
+            return json.dumps({"error": f"{len(accounts)} account(s) in the collection; a reconciliation needs two or more"})
+        result = _reconcile.reconcile(accounts)
+        title = f"Reconciliation of {_ctx_of(coll.json()).get('title') or 'the accounts'}"
+        made = await client.post(f"{MANTLE_URI}/artifacts", headers=headers, json={
+            "container_id": out_to or collection_id, "content_type": "text/markdown",
+            "context": json.dumps({"title": title, "kind": _reconcile.RECONCILIATION_KIND,
+                                   "sources": [a.id for a in accounts], "result": result}),
+            "content": _reconcile.report(result, title)})
+        if made.status_code >= 400:
+            return json.dumps({"error": f"could not write the reconciliation ({made.status_code})"})
+        rec_id = made.json().get("id")
+        items = []
+        if inbox_to:
+            for entry in result["conflicts"]:
+                evidence = [a["id"] for v in entry["versions"] for a in v["accounts"]]
+                evidence += [e for v in entry["versions"] for e in v["evidence"]]
+                ctx = _inbox.new_context(f"Settle: {entry['label']}", _reconcile.conflict_reason(entry),
+                                         evidence=[rec_id, *evidence],
+                                         source={"artifact_id": rec_id, "kind": "reconciliation"}, by=_who())
+                r = await client.post(f"{MANTLE_URI}/artifacts", headers=headers, json={
+                    "container_id": inbox_to, "content_type": _inbox.ITEM_TYPE, "context": json.dumps(ctx)})
+                if r.status_code < 400:
+                    items.append(r.json().get("id"))
+    return json.dumps({"reconciliation_id": rec_id, "accounts": result["accounts"],
+                       "agreed": len(result["agreed"]), "conflicts": len(result["conflicts"]),
+                       "single": len(result["single"]), "inbox_items": items})
+
+
+# ---------------------------------------------------------------------------
+# Building a workflow in its card
+# ---------------------------------------------------------------------------
+
+_TRANSFORM_TYPE = "application/vnd.agience.transform+json"
+
+
+def _step_summary(ctx: dict) -> str:
+    run = ctx.get("run") or {}
+    if run.get("type") == "mcp-tool":
+        return f"{run.get('server')}: {run.get('tool')}"
+    if run.get("type") == "workflow":
+        return f"workflow of {len(run.get('steps') or [])} steps"
+    return str(run.get("type") or "not set")
+
+
+@mcp.tool(
+    description=(
+        "What a workflow card's builder offers: every tool the caller can use, by persona, with its "
+        "inputs; the steps already in the card's workspace; the workspace; and the caller's Inbox."
+    )
+)
+async def workflow_catalog(workflow_id: str) -> str:
+    try:
+        headers, caller = _require_user_headers(), _require_caller_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=60) as client:
+        card = await client.get(artifact_url(MANTLE_URI, workflow_id), headers=headers)
+        if card.status_code != 200:
+            return json.dumps({"error": "no such workflow, or you cannot read it"})
+        workspace_id = card.json().get("collection_id") or ""
+        personas = await client.get(f"{CRYSTAL_URI}/personas", headers=caller)
+        tools = []
+        if personas.status_code == 200:
+            for p in (personas.json() or {}).get("items") or []:
+                if p.get("status") != "ok":
+                    continue
+                for t in p.get("tools") or []:
+                    tools.append({"server": p.get("server") or p.get("name"), "name": t.get("name"),
+                                  "description": (t.get("description") or "")[:300],
+                                  "input_schema": t.get("input_schema") or {}})
+        steps = []
+        if workspace_id:
+            page = await client.get(f"{artifact_url(MANTLE_URI, workspace_id)}/children", headers=headers,
+                                    params={"limit": 500})
+            if page.status_code == 200:
+                body = page.json()
+                for m in (body.get("items", body) if isinstance(body, dict) else body) or []:
+                    if m.get("content_type") == _TRANSFORM_TYPE:
+                        ctx = _ctx_of(m)
+                        steps.append({"id": m.get("root_id") or m.get("id"), "title": ctx.get("title") or "Step",
+                                      "does": _step_summary(ctx)})
+        inbox_id = ""
+        me = _get_delegation_user_id()
+        ws = await client.get(f"{MANTLE_URI}/artifacts/visible", headers=headers,
+                              params={"content_type": "application/vnd.agience.workspace+json", "limit": 500})
+        if ws.status_code == 200:
+            body = ws.json()
+            own = [w for w in (body.get("items", body) if isinstance(body, dict) else body) or []
+                   if str(w.get("created_by")) == str(me)]
+            own.sort(key=lambda w: str(w.get("created_time") or ""))
+            inbox_id = own[0].get("id") if own else ""
+    return json.dumps({"workspace_id": workspace_id, "tools": tools, "steps": steps, "inbox_id": inbox_id})
+
+
+@mcp.tool(
+    description=(
+        "Add a step to a workflow card: make a step (a Transform calling `tool` on `server` with "
+        "`arguments`) beside the workflow, and append it to the workflow's steps."
+    )
+)
+async def add_workflow_step(workflow_id: str, server: str, tool: str, arguments: Optional[dict] = None,
+                            name: str = "") -> str:
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=30) as client:
+        card = await client.get(artifact_url(MANTLE_URI, workflow_id), headers=headers)
+        if card.status_code != 200:
+            return json.dumps({"error": "no such workflow, or you cannot read it"})
+        doc = card.json()
+        ctx = _ctx_of(doc)
+        run = ctx.get("run") or {}
+        if run.get("type") not in (None, "workflow"):
+            return json.dumps({"error": "this card runs one step; make it a workflow first"})
+        title = name.strip() or f"{server}: {tool}"
+        step = await client.post(f"{MANTLE_URI}/artifacts", headers=headers, json={
+            "container_id": doc.get("collection_id"), "content_type": _TRANSFORM_TYPE,
+            "context": json.dumps({"title": title, "content_type": _TRANSFORM_TYPE,
+                                   "run": {"type": "mcp-tool", "server": server, "tool": tool,
+                                           "input_mapping": arguments or {}}})})
+        if step.status_code >= 400:
+            return json.dumps({"error": f"could not make the step ({step.status_code})"})
+        step_id = step.json().get("id")
+        steps = [*(run.get("steps") or []), {"name": title, "transform_id": step_id}]
+        ctx["run"] = {**run, "type": "workflow", "steps": steps}
+        patched = await client.patch(artifact_url(MANTLE_URI, workflow_id), headers=headers,
+                                     json={"context": json.dumps(ctx)})
+        if patched.status_code >= 400:
+            return json.dumps({"error": f"could not add the step ({patched.status_code})"})
+    return json.dumps({"step_id": step_id, "run": ctx["run"]})
 
 
 @mcp.resource("ui://lumen/vnd.agience.inbox-item.html")

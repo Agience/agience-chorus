@@ -39,6 +39,18 @@
       "description": "Disarm a Timer: forget its key; it does not fire again"
     },
     {
+      "name": "reconcile",
+      "description": "Reconcile several accounts of one event: what all agree on, where they differ (with the accounts and evidence behind each version), what only one states; each difference raised for a person to settle"
+    },
+    {
+      "name": "workflow_catalog",
+      "description": "What a workflow card's builder offers: the tools the caller can use, the steps in its workspace, and the caller's Inbox"
+    },
+    {
+      "name": "add_workflow_step",
+      "description": "Add a step to a workflow card: a Transform calling a tool, made beside the workflow and appended to its steps"
+    },
+    {
       "name": "invoke_connection",
       "description": "Invoke an LLM connection card: send a conversation to the model it names, with the key it points at, on the caller's grant to that key"
     },
