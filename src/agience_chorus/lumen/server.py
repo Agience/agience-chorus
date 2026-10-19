@@ -1320,7 +1320,7 @@ async def reconcile(collection_id: str, inbox_to: str = "", out_to: str = "") ->
         coll = await client.get(artifact_url(MANTLE_URI, collection_id), headers=headers)
         if coll.status_code != 200:
             return json.dumps({"error": "no such collection, or you cannot read it"})
-        page = await client.get(f"{artifact_url(MANTLE_URI, collection_id)}/children", headers=headers,
+        page = await client.get(artifact_url(MANTLE_URI, collection_id, "children"), headers=headers,
                                 params={"limit": 500})
         page.raise_for_status()
         body = page.json()
@@ -1412,7 +1412,7 @@ async def workflow_catalog(workflow_id: str) -> str:
                                   "input_schema": t.get("input_schema") or {}})
         steps = []
         if workspace_id:
-            page = await client.get(f"{artifact_url(MANTLE_URI, workspace_id)}/children", headers=headers,
+            page = await client.get(artifact_url(MANTLE_URI, workspace_id, "children"), headers=headers,
                                     params={"limit": 500})
             if page.status_code == 200:
                 body = page.json()
