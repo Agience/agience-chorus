@@ -39,6 +39,10 @@
       "description": "Disarm a Timer: forget its key; it does not fire again"
     },
     {
+      "name": "invoke_connection",
+      "description": "Invoke an LLM connection card: send a conversation to the model it names, with the key it points at, on the caller's grant to that key"
+    },
+    {
       "name": "raise_item",
       "description": "Raise an Inbox item: something that needs a person, with why, what it came from, and optionally an action approving it runs"
     },

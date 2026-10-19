@@ -4,7 +4,7 @@
   "inherits": [
     "application/json"
   ],
-  "description": "LLM Connection — configures access to a language model provider with credential resolution and rate limiting.",
+  "description": "LLM Connection — a model its owner connected: provider, model, and a pointer to the key, kept as a credential artifact. Invoking the card sends a conversation to that model on the caller's grant to the key.",
   "context_schema": {
     "provider": {
       "type": "string",
@@ -123,13 +123,21 @@
   },
   "operations": {
     "invoke": {
-      "enabled": false,
+      "enabled": true,
       "requires_grant": "invoke",
       "input_schema": {
         "type": "object",
         "properties": {
           "workspace_id": {
             "type": "string"
+          },
+          "input": {
+            "type": "string",
+            "description": "One user turn, when there is no conversation."
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "The most the reply may run to (default 1024, at most 4096)."
           },
           "params": {
             "type": "object",
@@ -152,7 +160,18 @@
           "phase": "error"
         }
       ],
-      "note": "Model dispatch belongs on a tekton outside the core, invoked deliberately, so the call is explicit and the provenance records who chose it. Disabled until that dispatch target exists; it previously pointed at lumen, whose answer path is grounded operators."
+      "dispatch": {
+        "kind": "mcp_tool",
+        "server_ref": "lumen",
+        "tool_ref": "invoke_connection",
+        "arguments": {
+          "connection_id": "$.root_id",
+          "messages": "$.body.params.messages?",
+          "input": "$.body.input?",
+          "max_tokens": "$.body.max_tokens?"
+        }
+      },
+      "note": "Invoking the card is the deliberate act that calls a model: the call names the card, its provider and model, and who made it. The key is read on the caller's own grant and the request goes only to the provider's own address, through the egress guard."
     }
   },
   "ui": {

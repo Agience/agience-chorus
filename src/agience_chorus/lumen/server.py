@@ -169,6 +169,7 @@ mcp = FastMCP(
 from mantle.clients.artifact_helpers import artifact_url, register_types_manifest
 from agience_chorus.lumen import timers as _timers
 from agience_chorus.lumen import inbox as _inbox
+from agience_chorus.lumen import connection as _connection
 register_types_manifest(mcp, "lumen", __file__)
 
 
@@ -1249,6 +1250,63 @@ async def approve_item(item_id: str, note: str = "") -> str:
     if failure is not None:
         return json.dumps({"error": f"the action failed: {failure}", "item_id": item_id})
     return json.dumps({"item_id": item_id, "state": "resolved", "status": run.status_code})
+
+
+# ---------------------------------------------------------------------------
+# LLM connection: invoking the card calls the model it names
+# ---------------------------------------------------------------------------
+
+async def _read_credential(client: httpx.AsyncClient, secret_id: str, headers: dict) -> str:
+    """A credential artifact's value, read on the caller's own grant (as Iris reads an
+    Authorizer's). Never returned to the caller."""
+    resp = await client.get(artifact_url(MANTLE_URI, secret_id), headers=headers, timeout=15)
+    if resp.status_code != 200:
+        raise _connection.ConnectionError_("the card's key cannot be read on your grant")
+    content = (resp.json() or {}).get("content")
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except (ValueError, TypeError):
+            return content.strip()
+    if isinstance(content, dict):
+        return str(content.get("material") or content.get("value") or "").strip()
+    return str(content or "").strip()
+
+
+@mcp.tool(
+    description=(
+        "Invoke an LLM connection card: send a conversation (`messages`, [{role, content}]) or one "
+        "`input` to the model the card names, with the key it points at, and return the reply. The "
+        "caller must be able to read the card and its key."
+    )
+)
+async def invoke_connection(connection_id: str, messages: Any = None, input: Optional[str] = None,
+                            max_tokens: Optional[int] = None) -> str:
+    import asyncio as _asyncio
+    from agience_chorus import _egress
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(artifact_url(MANTLE_URI, connection_id), headers=headers)
+            if resp.status_code != 200:
+                return json.dumps({"error": "no such connection, or you cannot read it"})
+            card = _connection.read_card(resp.json())
+            system, turns = _connection.messages_of(messages, input)
+            key = await _read_credential(client, card["secret_id"], headers)
+        req = _connection.build(card, key, system, turns, max_tokens)
+    except _connection.ConnectionError_ as exc:
+        return json.dumps({"error": str(exc)})
+    try:
+        answer = await _asyncio.to_thread(_egress.post, req.url, req.body, headers=req.headers, timeout=30)
+    except _egress.EgressError as exc:
+        return json.dumps({"error": f"{card['provider']} could not be reached: {exc}"})
+    out = _connection.read_answer(card["provider"], answer.status, answer.text())
+    log.info("connection %s invoked: %s %s (%s)", connection_id, card["provider"], card["model"],
+             "error" if "error" in out else "ok")
+    return json.dumps({**out, "connection_id": connection_id, "provider": card["provider"]})
 
 
 @mcp.resource("ui://lumen/vnd.agience.inbox-item.html")
