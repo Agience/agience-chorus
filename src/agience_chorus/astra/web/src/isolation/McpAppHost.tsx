@@ -20,6 +20,8 @@ import { buildCspMetaTag } from './csp';
 import { isWebUrl } from './openLink';
 import { getAgienceDragPayload } from '@/dnd/agienceDrag';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
+import { getArtifact } from '@/api/artifacts';
+import { mergeViewContext } from './mergeViewContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -105,6 +107,9 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
   // neither see nor click it. Absent (no DialogProvider above this host), credential tools refuse.
   const confirmDialog = useContext(ConfirmContext);
   const credentialRequestPending = useRef(false);
+  // The context the view was given (at initialize), and after each save the one it wrote: the base
+  // a save is merged against, so what an operator wrote meanwhile is kept (`mergeViewContext`).
+  const viewContextBase = useRef<Record<string, unknown> | null>(null);
   const { content: resolvedContent } = useArtifactContent(artifact);
 
   // Assemble the HTML with CSP meta tag injected
@@ -184,6 +189,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         setInitialized(true);
 
         // After initialize, send the artifact data as tool-result
+        viewContextBase.current = safeParseArtifactContext(artifact.context) as Record<string, unknown>;
         sendNotification('ui/notifications/tool-result', {
           content: [
             {
@@ -269,7 +275,18 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           return;
         }
         try {
-          const patch = toolArgs.patch as Record<string, unknown> | undefined;
+          let patch = toolArgs.patch as Record<string, unknown> | undefined;
+          if (patch && patch.context !== undefined && viewContextBase.current) {
+            const fromView = safeParseArtifactContext(patch.context as string) as Record<string, unknown>;
+            const stored = await getArtifact(String(artifact.id))
+              .then((a) => safeParseArtifactContext((a as { context?: unknown }).context as string) as Record<string, unknown>)
+              .catch(() => null);
+            if (stored) {
+              const merged = mergeViewContext(viewContextBase.current, stored, fromView);
+              patch = { ...patch, context: typeof patch.context === 'string' ? JSON.stringify(merged) : merged };
+            }
+            viewContextBase.current = fromView;
+          }
           if (patch) {
             await updateArtifact({ ...patch, id: artifact.id } as Parameters<typeof updateArtifact>[0]);
           }

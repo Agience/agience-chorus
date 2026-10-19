@@ -53,6 +53,11 @@ vi.mock('@/hooks/useWorkspaces', () => ({
 }));
 
 // Dynamic imports inside the component — stubbed so we never hit axios.
+const getArtifactMock = vi.fn();
+vi.mock('@/api/artifacts', () => ({
+  getArtifact: (...args: unknown[]) => getArtifactMock(...args),
+}));
+
 const proxyToolCallMock = vi.fn();
 const createAPIKeyMock = vi.fn();
 const deleteAPIKeyMock = vi.fn();
@@ -283,6 +288,24 @@ describe('McpAppHost', () => {
   });
 
   describe('tools/call platform tools', () => {
+    it("a view's context save keeps what an operator wrote to the card while the view was open", async () => {
+      // 2026-10-19, on staging: disarming a timer from its card wiped Lumen's record of its runs.
+      updateArtifactMock.mockResolvedValue(undefined);
+      const given = { title: 'Routine', key: { api_key_id: 'k1' } };
+      getArtifactMock.mockResolvedValue({ id: 't1', context: JSON.stringify({ ...given, timer_state: { runs: 2 } }) });
+      const { container } = render(
+        <McpAppHost artifact={makeArtifact({ id: 't1', context: JSON.stringify(given) })} html="" />,
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 40, method: 'ui/initialize', params: {} });
+      await waitFor(() => expect(responseFor(posted, 40)).toBeDefined());
+      dispatchFromIframe({ jsonrpc: '2.0', id: 41, method: 'tools/call', params: { name: 'update_artifact',
+        arguments: { id: 't1', patch: { context: JSON.stringify({ ...given, key: { api_key_id: 'k1', revoked_at: 'now' } }) } } } });
+      await waitFor(() => expect(updateArtifactMock).toHaveBeenCalledTimes(1));
+      expect(JSON.parse(updateArtifactMock.mock.calls[0][0].context)).toEqual({
+        title: 'Routine', key: { api_key_id: 'k1', revoked_at: 'now' }, timer_state: { runs: 2 } });
+    });
+
     it('routes update_artifact to useWorkspace.updateArtifact', async () => {
       updateArtifactMock.mockResolvedValue(undefined);
       const { container } = render(

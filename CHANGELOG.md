@@ -9,6 +9,7 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ### Changed
 - Lumen's `synthesize` returns evidence and nothing else: it no longer runs the numeric forecaster (`op.reason`) on a series pasted into the question, a different job from answering from what the caller holds. The forecaster stays an operator of its own.
+- A card view's save keeps what was written to the card while the view was open: each key the view changed takes the view's value, every other key keeps the stored one. Disarming a timer from its card wrote the view's copy back whole and erased Lumen's record of its runs.
 - A workspace tab opened while the previous workspace was still loading shows its own cards. The previous workspace's list arrived after the switch and replaced them, so the Inbox tab could show another workspace's cards.
 - A workflow step whose tool refused (a Transform passing on its tool's result, `isError` inside) fails the workflow, and its timer records the run as failed. A step naming a tool its persona does not have answered "Unknown tool" inside a result marked successful, and the workflow reported completion.
 - Ophan's platform email (plan receipts and usage warnings) invokes the email operator through Crystal (`CRYSTAL_URI`). It posted to Mantle, which serves no operations, and every send answered 404.
