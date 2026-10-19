@@ -1,6 +1,7 @@
 // "Artifact Floating" – full-size movable window for a single artifact on the desktop.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, FolderOpen, Info, Pencil, Tag, Calendar, Folder, Layers } from 'lucide-react';
+import { X, FolderOpen, Info, Pencil, Tag, Calendar, Folder, Layers, History } from 'lucide-react';
+import { HistoryPanel } from './HistoryPanel';
 import { IconButton } from '@/components/ui/icon-button';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
@@ -28,7 +29,7 @@ import { COLLECTION_CONTENT_TYPE, WORKSPACE_CONTENT_TYPE } from '@/utils/content
 import { buildCollectionLabelMap, resolveCollectionLabel } from '@/utils/collectionLabels';
 
 /** Which panel is active in the floating window body */
-type ActivePanel = 'content' | 'context' | 'collections' | 'children';
+type ActivePanel = 'content' | 'context' | 'collections' | 'children' | 'history';
 
 type Rect = { x: number; y: number; w: number; h: number };
 
@@ -992,6 +993,22 @@ export default function FloatingCardWindow(props: {
 						<FolderOpen />
 					</IconButton>
 
+					{/* History — who reached this card, and how */}
+					<IconButton
+						size="sm"
+						variant="ghost"
+						active={activePanel === 'history'}
+						onPointerDown={(e) => e.stopPropagation()}
+						onClick={(e) => {
+							e.preventDefault();
+							e.stopPropagation();
+							togglePanel('history');
+						}}
+						title="History"
+					>
+						<History />
+					</IconButton>
+
 					{/* Children — only if artifact has children */}
 					{artifact?.has_children && (
 						<IconButton
@@ -1084,6 +1101,8 @@ export default function FloatingCardWindow(props: {
 					<ContextPanel artifact={artifact} />
 				) : activePanel === 'collections' && artifact ? (
 					<CollectionsPanel artifact={artifact} />
+				) : activePanel === 'history' && artifact ? (
+					<HistoryPanel artifact={artifact} />
 				) : activePanel === 'children' && artifact ? (
 					<ChildrenPanel artifactId={String(artifact.id)} onOpenArtifact={onOpenArtifact} />
 				) : (
