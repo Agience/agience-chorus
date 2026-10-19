@@ -32,7 +32,7 @@
     },
     "timer": {
       "type": "object",
-      "description": "schedule (one of every_minutes, daily_at HH:MM UTC, at ISO time), target {artifact_id, operation, body}, optional results_to, enabled",
+      "description": "schedule (one of every_minutes, daily_at HH:MM UTC, at ISO time), target {artifact_id, operation, body}, optional results_to (where each run is recorded), optional inbox_to (where a failed run is raised as an Inbox item), enabled",
       "mutable": true
     },
     "timer_state": {

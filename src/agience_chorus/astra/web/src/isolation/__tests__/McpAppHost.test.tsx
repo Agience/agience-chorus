@@ -554,6 +554,21 @@ describe('McpAppHost', () => {
         { key_id: 'k9', resources: ['ws-1', 'log-1'] });
     });
 
+    it("arm_timer's key also reaches the Inbox a failed run is raised into, once", async () => {
+      createAPIKeyMock.mockResolvedValue({ id: 'k9', key: 'agk_timer_secret' });
+      proxyToolCallMock.mockResolvedValue({ content: [{ type: 'text', text: '{"armed": true}' }] });
+      const ctx = JSON.stringify({ title: 'Digest', timer: { results_to: 'log-1', inbox_to: 'inbox-1' } });
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ id: 't1', collection_id: 'ws-1', context: ctx })} html="" />,
+        [true],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 35, method: 'tools/call',
+                           params: { name: 'arm_timer', arguments: { timer_id: 't1' } } });
+      await waitFor(() => expect(responseFor(posted, 35)).toBeDefined());
+      expect(createAPIKeyMock).toHaveBeenCalledWith('Timer: Digest', 'collaborator', ['ws-1', 'log-1', 'inbox-1']);
+    });
+
     it('a timer Lumen will not arm leaves no key behind', async () => {
       createAPIKeyMock.mockResolvedValue({ id: 'k9', key: 'agk_timer_secret' });
       proxyToolCallMock.mockResolvedValue({ content: [{ type: 'text', text: '{"error": "no timers here"}' }] });

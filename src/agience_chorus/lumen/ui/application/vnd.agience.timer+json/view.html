@@ -54,6 +54,10 @@
       <label for="resultsTo">Record each run in (optional)</label>
       <input id="resultsTo" placeholder="collection or workspace id">
     </div>
+    <div class="form-group">
+      <label for="inboxTo">Raise a failed run as an Inbox item in (optional)</label>
+      <input id="inboxTo" placeholder="your Inbox, or another workspace id">
+    </div>
     <div class="btns">
       <button id="saveBtn" onclick="handleSave()">Save</button>
       <button id="armBtn" class="primary" onclick="handleArm()">Arm</button>
@@ -110,6 +114,7 @@
       document.getElementById('target').value = (t.target && t.target.artifact_id) || '';
       document.getElementById('operation').value = (t.target && t.target.operation) || 'invoke';
       document.getElementById('resultsTo').value = t.results_to || '';
+      document.getElementById('inboxTo').value = t.inbox_to || '';
       document.getElementById('lastRun').textContent = st.last_run || '—';
       document.getElementById('lastStatus').textContent = !st.last_status ? '—'
         : st.last_ok === false ? `failed (${st.last_status}): ${st.last_error || ''}` : `ok (${st.last_status})`;
@@ -139,6 +144,8 @@
       };
       const resultsTo = document.getElementById('resultsTo').value.trim();
       if (resultsTo) timer.results_to = resultsTo; else delete timer.results_to;
+      const inboxTo = document.getElementById('inboxTo').value.trim();
+      if (inboxTo) timer.inbox_to = inboxTo; else delete timer.inbox_to;
       return timer;
     }
 

@@ -168,6 +168,7 @@ mcp = FastMCP(
 
 from mantle.clients.artifact_helpers import artifact_url, register_types_manifest
 from agience_chorus.lumen import timers as _timers
+from agience_chorus.lumen import inbox as _inbox
 register_types_manifest(mcp, "lumen", __file__)
 
 
@@ -1038,6 +1039,7 @@ async def schedule_action(
     body: Optional[dict] = None,
     title: Optional[str] = None,
     results_to: Optional[str] = None,
+    inbox_to: Optional[str] = None,
 ) -> str:
     """
     Args:
@@ -1048,6 +1050,7 @@ async def schedule_action(
         body: The operation's request body.
         title: The card's title.
         results_to: A container each run is recorded into.
+        inbox_to: A container (usually the owner's Inbox) a failed run is raised into as an item.
     """
     schedule = {k: v for k, v in (("every_minutes", every_minutes), ("daily_at", daily_at), ("at", at))
                 if v not in (None, "")}
@@ -1060,7 +1063,8 @@ async def schedule_action(
         "content_type": _timers.TIMER_TYPE,
         "timer": {"schedule": schedule,
                   "target": {"artifact_id": target_artifact_id, "operation": operation, "body": body or {}},
-                  **({"results_to": results_to} if results_to else {})},
+                  **({"results_to": results_to} if results_to else {}),
+                  **({"inbox_to": inbox_to} if inbox_to else {})},
     }
     try:
         headers = _require_user_headers()
@@ -1122,6 +1126,137 @@ async def disarm_timer(timer_id: str) -> str:
     if mine.status_code != 200:
         return json.dumps({"error": "no such timer, or you cannot read it"})
     return json.dumps({"timer_id": timer_id, "disarmed": store.disarm(timer_id)})
+
+
+# ---------------------------------------------------------------------------
+# Inbox items: what needs a person
+# ---------------------------------------------------------------------------
+
+def _who() -> str:
+    """Who is acting, for an item's history: the person's id, or "key" for a grant key."""
+    try:
+        return _get_delegation_user_id() or "key"
+    except Exception:
+        return "key"
+
+
+async def _read_item(client: httpx.AsyncClient, item_id: str, headers: dict) -> tuple[Optional[dict], str]:
+    resp = await client.get(artifact_url(MANTLE_URI, item_id), headers=headers)
+    if resp.status_code != 200:
+        return None, "no such item, or you cannot read it"
+    doc = resp.json()
+    if doc.get("content_type") != _inbox.ITEM_TYPE:
+        return None, "this card is not an inbox item"
+    return doc, ""
+
+
+@mcp.tool(
+    description=(
+        "Raise an Inbox item: something that needs a person — an outlier, a failed routine, a draft "
+        "to approve. It is placed in `container_id` (usually the person's Inbox) on the caller's own "
+        "credential, with why it needs them, the artifacts it came from, and optionally an action "
+        "(`artifact_id`, `operation`, `body`) that approving it runs."
+    )
+)
+async def raise_item(container_id: str, title: str, reason: str,
+                     evidence: Optional[list[str]] = None, action: Optional[dict] = None,
+                     source_id: Optional[str] = None) -> str:
+    try:
+        context = _inbox.new_context(title, reason, evidence, action,
+                                     {"artifact_id": source_id, "kind": "raised"} if source_id else None,
+                                     by=_who())
+        headers = _require_user_headers()
+    except (_inbox.ItemError, MissingDelegationError) as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(f"{MANTLE_URI}/artifacts", headers=headers, json={
+            "container_id": container_id, "content_type": _inbox.ITEM_TYPE,
+            "context": json.dumps(context)})
+    if resp.status_code >= 400:
+        return json.dumps({"error": f"could not place the item there ({resp.status_code})"})
+    return json.dumps({"item_id": resp.json().get("id"), "state": "new"})
+
+
+@mcp.tool(
+    description=(
+        "Move an Inbox item: `triaged` (seen, being handled), `resolved` (done), or `new` (reopened). "
+        "The move is recorded in the item's history with who made it and an optional note."
+    )
+)
+async def set_item_state(item_id: str, state: str, note: str = "") -> str:
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=30) as client:
+        doc, why = await _read_item(client, item_id, headers)
+        if doc is None:
+            return json.dumps({"error": why})
+        try:
+            ctx = _inbox.move(_timers._context(doc), state, by=_who(), note=note)
+        except _inbox.ItemError as exc:
+            return json.dumps({"error": str(exc)})
+        resp = await client.patch(artifact_url(MANTLE_URI, item_id), headers=headers,
+                                  json={"context": json.dumps(ctx)})
+    if resp.status_code >= 400:
+        return json.dumps({"error": f"could not record the move ({resp.status_code})"})
+    return json.dumps({"item_id": item_id, "state": state})
+
+
+@mcp.tool(
+    description=(
+        "Approve an Inbox item: run the action it carries on the approver's own credential, record "
+        "what it returned on the item, and resolve it. An action that fails is recorded and the item "
+        "stays open."
+    )
+)
+async def approve_item(item_id: str, note: str = "") -> str:
+    try:
+        headers = _require_user_headers()
+        caller = _require_caller_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=300) as client:
+        doc, why = await _read_item(client, item_id, headers)
+        if doc is None:
+            return json.dumps({"error": why})
+        ctx = _timers._context(doc)
+        try:
+            item = _inbox.item_of(ctx)
+        except _inbox.ItemError as exc:
+            return json.dumps({"error": str(exc)})
+        action = item.get("action")
+        if not action:
+            return json.dumps({"error": "this item carries no action to approve; resolve it instead"})
+        if item["state"] == "resolved":
+            return json.dumps({"error": "this item is already resolved"})
+        run = await client.post(
+            artifact_url(CRYSTAL_URI, action["artifact_id"], "op", action.get("operation") or "invoke"),
+            headers=caller, json=action.get("body") or {})
+        try:
+            result = run.json()
+        except ValueError:
+            result = {"text": run.text[:500]}
+        failure = (_timers.step_failure(result) if 200 <= run.status_code < 300
+                   else json.dumps(result)[:500])
+        outcome = _inbox.outcome_of(run.status_code, result, failure)
+        if failure is None:
+            ctx = _inbox.move(ctx, "resolved", by=_who(), note=note or "approved", outcome=outcome)
+        else:
+            ctx = {**ctx, "item": {**item, "outcome": outcome}}
+        await client.patch(artifact_url(MANTLE_URI, item_id), headers=headers,
+                           json={"context": json.dumps(ctx)})
+    if failure is not None:
+        return json.dumps({"error": f"the action failed: {failure}", "item_id": item_id})
+    return json.dumps({"item_id": item_id, "state": "resolved", "status": run.status_code})
+
+
+@mcp.resource("ui://lumen/vnd.agience.inbox-item.html")
+async def inbox_item_viewer_html() -> str:
+    """Serve the viewer HTML for vnd.agience.inbox-item+json."""
+    view_path = (pathlib.Path(__file__).parent / "ui" / "application" / "vnd.agience.inbox-item+json"
+                 / "view.html")
+    return view_path.read_text(encoding="utf-8")
 
 
 def _timer_http() -> "_timers.Http":

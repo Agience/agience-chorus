@@ -24,6 +24,9 @@ Implemented (live):
 | `schedule_action` | Create a Timer card that will run an artifact's operation on a schedule; it runs once its owner arms it from the card |
 | `arm_timer` | Arm a Timer: keep the key it acts on, sealed, and fire it on its schedule |
 | `disarm_timer` | Disarm a Timer: forget its key; it does not fire again |
+| `raise_item` | Raise an Inbox item: something that needs a person, with why, what it came from, and optionally an action approving it runs |
+| `set_item_state` | Move an Inbox item to triaged, resolved, or back to new, recorded in its history |
+| `approve_item` | Approve an Inbox item: run its action on the approver's credential, record the result, and resolve it |
 | `submit_feedback` | Submit evaluation feedback on an artifact |
 | `install_package` | Install a package into a target workspace |
 | `export_package` | Populate a package manifest from workspace contents |

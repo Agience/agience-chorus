@@ -1,0 +1,181 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 16px; color: #111827; font-size: 13px; }
+  .card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+  .label { color: #6b7280; }
+  h4 { margin: 0 0 6px; font-size: 12px; color: #6b7280; font-weight: 600; }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-word; background: #f9fafb; padding: 8px; border-radius: 6px; font-size: 12px; }
+  ul { margin: 0; padding-left: 18px; }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { padding: 7px 12px; border-radius: 6px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; font-size: 13px; }
+  button.primary { background: #b45309; color: #fff; border-color: #b45309; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+  .new { background: #fef3c7; color: #92400e; }
+  .triaged { background: #dbeafe; color: #1e40af; }
+  .resolved { background: #dcfce7; color: #166534; }
+  .error { color: #b91c1c; margin-bottom: 8px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <div id="title" style="font-weight:600;font-size:15px;margin-bottom:10px">Inbox item</div>
+  <div class="card">
+    <div class="row"><span class="label">State</span><span id="state" class="badge new">new</span></div>
+    <div class="row"><span class="label">Why</span><span id="reason" style="text-align:right">—</span></div>
+    <div class="row"><span class="label">Raised by</span><span id="source">—</span></div>
+  </div>
+
+  <div class="card" id="evidenceCard">
+    <h4>Came from</h4>
+    <ul id="evidence"></ul>
+  </div>
+
+  <div class="card hidden" id="actionCard">
+    <h4>Approving runs this, as you</h4>
+    <pre id="action"></pre>
+  </div>
+
+  <div class="card hidden" id="outcomeCard">
+    <h4>What the approval returned</h4>
+    <pre id="outcome"></pre>
+  </div>
+
+  <div class="error hidden" id="error"></div>
+
+  <div class="btns">
+    <button id="triageBtn" onclick="handleMove('triaged')">Triage</button>
+    <button id="approveBtn" class="primary hidden" onclick="handleApprove()">Approve</button>
+    <button id="confirmBtn" class="primary hidden" onclick="handleConfirm()">Run it</button>
+    <button id="resolveBtn" onclick="handleMove('resolved')">Resolve</button>
+    <button id="reopenBtn" class="hidden" onclick="handleMove('new')">Reopen</button>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h4>History</h4>
+    <ul id="history"></ul>
+  </div>
+
+  <script type="module">
+    let _rpcId = 0;
+    const _pending = {};
+    function sendRpc(method, params) {
+      const id = ++_rpcId;
+      return new Promise((resolve, reject) => {
+        _pending[id] = { resolve, reject };
+        parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*');
+      });
+    }
+    window.addEventListener('message', (e) => {
+      const d = e.data;
+      if (!d || d.jsonrpc !== '2.0') return;
+      if (d.id && _pending[d.id]) {
+        if (d.error) _pending[d.id].reject(d.error); else _pending[d.id].resolve(d.result);
+        delete _pending[d.id];
+        return;
+      }
+      if (d.method === 'ui/notifications/tool-result') handleToolResult(d.params);
+    });
+    sendRpc('ui/initialize', { protocolVersion: '2026-01-26', clientInfo: { name: 'agience-viewer', version: '0.1.0' } })
+      .then(() => { parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/initialized' }, '*'); render(); });
+
+    let artifactId = null;
+    let ctx = {};
+
+    function handleToolResult(params) {
+      for (const block of (params && params.content) || []) {
+        if (block.type !== 'text' || !block.text) continue;
+        try {
+          const data = JSON.parse(block.text);
+          artifactId = data.artifact_id || artifactId;
+          ctx = typeof data.context === 'string' ? JSON.parse(data.context) : (data.context || {});
+          render();
+        } catch { /* ignore */ }
+      }
+    }
+
+    function li(text) { const el = document.createElement('li'); el.textContent = text; return el; }
+
+    function render() {
+      const item = ctx.item || {};
+      const state = item.state || 'new';
+      document.getElementById('title').textContent = ctx.title || 'Inbox item';
+      const badge = document.getElementById('state');
+      badge.textContent = state; badge.className = 'badge ' + state;
+      document.getElementById('reason').textContent = item.reason || '—';
+      const src = item.source || {};
+      document.getElementById('source').textContent = src.artifact_id ? `${src.kind || 'artifact'} ${src.artifact_id}` : '—';
+      const ev = document.getElementById('evidence');
+      ev.replaceChildren(...(item.evidence || []).map(li));
+      document.getElementById('evidenceCard').classList.toggle('hidden', !(item.evidence || []).length);
+      const action = item.action;
+      document.getElementById('actionCard').classList.toggle('hidden', !action);
+      document.getElementById('action').textContent = action ? JSON.stringify(action, null, 2) : '';
+      document.getElementById('outcomeCard').classList.toggle('hidden', !item.outcome);
+      document.getElementById('outcome').textContent = item.outcome
+        ? `${item.outcome.ok ? 'ok' : 'failed'} (${item.outcome.status})${item.outcome.error ? ': ' + item.outcome.error : ''}\n${item.outcome.result || ''}`
+        : '';
+      const open = state !== 'resolved';
+      document.getElementById('triageBtn').classList.toggle('hidden', state !== 'new');
+      document.getElementById('approveBtn').classList.toggle('hidden', !(open && action));
+      document.getElementById('confirmBtn').classList.add('hidden');
+      document.getElementById('resolveBtn').classList.toggle('hidden', !open);
+      document.getElementById('reopenBtn').classList.toggle('hidden', open);
+      document.getElementById('history').replaceChildren(...(item.history || []).map(
+        (h) => li(`${h.at || ''} — ${h.state}${h.by ? ' by ' + h.by : ''}${h.note ? ': ' + h.note : ''}`)));
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error');
+      el.textContent = msg; el.classList.toggle('hidden', !msg);
+    }
+
+    async function call(name, args) {
+      const res = await sendRpc('tools/call', { name, arguments: args });
+      const out = JSON.parse((res.content && res.content[0] && res.content[0].text) || '{}');
+      if (out.error) throw new Error(out.error);
+      return out;
+    }
+
+    // Each move is made by Lumen, which checks it and records who made it; the view writes nothing.
+    window.handleMove = async function(to) {
+      showError('');
+      try {
+        await call('set_item_state', { item_id: artifactId, state: to });
+        const item = ctx.item || {};
+        ctx = { ...ctx, item: { ...item, state: to,
+          history: [...(item.history || []), { state: to, at: new Date().toISOString(), by: 'you' }] } };
+        render();
+      } catch (e) { showError((e && e.message) || 'The move failed'); }
+    };
+
+    // Approving runs the action as the approver, so it asks twice: the action is shown above, and
+    // "Run it" is the second press.
+    window.handleApprove = function() {
+      document.getElementById('approveBtn').classList.add('hidden');
+      document.getElementById('confirmBtn').classList.remove('hidden');
+    };
+
+    window.handleConfirm = async function() {
+      showError('');
+      document.getElementById('confirmBtn').disabled = true;
+      try {
+        await call('approve_item', { item_id: artifactId });
+        const item = ctx.item || {};
+        ctx = { ...ctx, item: { ...item, state: 'resolved',
+          history: [...(item.history || []), { state: 'resolved', at: new Date().toISOString(), by: 'you', note: 'approved' }] } };
+        render();
+      } catch (e) {
+        showError((e && e.message) || 'Approval failed');
+        render();
+      } finally {
+        document.getElementById('confirmBtn').disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>

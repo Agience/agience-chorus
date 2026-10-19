@@ -1,0 +1,39 @@
+{
+  "content_type": "application/vnd.agience.inbox-item+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Inbox item — something that needs a person: an outlier, a failed routine, a draft to approve. It says why, names the artifacts it came from, and moves new → triaged → resolved. An item may carry an action; approving it runs the action on the approver's own credential and records what it returned. Raised by Lumen's raise_item, or by a Timer whose run failed.",
+  "ui": {
+    "label": "Inbox item",
+    "icon": "inbox",
+    "color": "#b45309",
+    "badge_class": "bg-amber-100 text-amber-800",
+    "tile_class": "",
+    "modes": [
+      "floating"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": false,
+    "viewer": "inbox-item",
+    "resource_uri": "ui://lumen/vnd.agience.inbox-item.html",
+    "resource_server": "lumen"
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "mutable": true
+    },
+    "item": {
+      "type": "object",
+      "description": "state (new, triaged, resolved), reason, evidence (artifact ids), optional action {artifact_id, operation, body}, optional source {artifact_id, kind}, history [{state, at, by, note}], outcome (what an approval returned). Moved by Lumen's set_item_state and approve_item",
+      "mutable": false
+    }
+  }
+}

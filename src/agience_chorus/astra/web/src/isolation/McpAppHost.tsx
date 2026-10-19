@@ -373,14 +373,17 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           return;
         }
         const ctx = safeParseArtifactContext(artifact.context) as Record<string, unknown>;
-        const timer = (ctx.timer ?? {}) as { results_to?: unknown };
+        const timer = (ctx.timer ?? {}) as { results_to?: unknown; inbox_to?: unknown };
         const workspace = artifact.collection_id ?? '';
         if (!workspace) {
           sendError(req.id, -32000, 'This timer is in no workspace, so there is nothing for its key to reach');
           return;
         }
-        const resources = [workspace, ...(typeof timer.results_to === 'string' && timer.results_to
-          && timer.results_to !== workspace ? [timer.results_to] : [])];
+        // Where it records runs and where it raises a failed run as an Inbox item are reached too.
+        const resources = [workspace];
+        for (const place of [timer.results_to, timer.inbox_to]) {
+          if (typeof place === 'string' && place && !resources.includes(place)) resources.push(place);
+        }
         credentialRequestPending.current = true;
         try {
           const approved = await confirmDialog.confirm({

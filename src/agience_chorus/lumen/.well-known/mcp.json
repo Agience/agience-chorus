@@ -39,6 +39,18 @@
       "description": "Disarm a Timer: forget its key; it does not fire again"
     },
     {
+      "name": "raise_item",
+      "description": "Raise an Inbox item: something that needs a person, with why, what it came from, and optionally an action approving it runs"
+    },
+    {
+      "name": "set_item_state",
+      "description": "Move an Inbox item to triaged, resolved, or back to new, recorded in its history"
+    },
+    {
+      "name": "approve_item",
+      "description": "Approve an Inbox item: run its action on the approver's credential, record the result, and resolve it"
+    },
+    {
       "name": "evaluate_output",
       "description": "Evaluate the quality and accuracy of generated output. Scores content against criteria like relevance, completeness, coherence, and factual accuracy",
       "status": "not_implemented"

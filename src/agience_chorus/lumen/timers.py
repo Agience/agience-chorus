@@ -5,7 +5,8 @@ A timer is a `vnd.agience.timer+json` card:
     context.timer = {
       "schedule": {"every_minutes": 15} | {"daily_at": "07:30"} | {"at": "2026-11-01T09:00:00Z"},
       "target":   {"artifact_id": "<id>", "operation": "invoke", "body": {...}},
-      "results_to": "<container id>"          # optional: each run is recorded there as an artifact
+      "results_to": "<container id>",         # optional: each run is recorded there as an artifact
+      "inbox_to": "<container id>"            # optional: a failed run is raised there as an Inbox item
     }
     context.timer_state = {"last_run", "last_status", "last_error", "runs"}   # written by the operator
 
@@ -247,6 +248,21 @@ def fire_due(store: Store, http: Http, mantle: str, crystal: str, now: datetime,
                 "context": json.dumps({"title": f"{ctx.get('title') or 'Timer'} — {now:%Y-%m-%d %H:%M} UTC",
                                        "timer_id": timer_id, "status": code}),
                 "content": json.dumps(result)[:RESULT_CHARS],
+            })
+        if failure is not None and spec.get("inbox_to"):
+            # A failed run needs its owner: it is raised as an Inbox item where the owner said, and
+            # approving it runs the target again, as the owner, once they have seen to the cause.
+            from agience_chorus.lumen import inbox as _inbox
+            title = ctx.get("title") or "Timer"
+            http.post(f"{mantle}/artifacts", key, {
+                "container_id": spec["inbox_to"], "content_type": _inbox.ITEM_TYPE,
+                "context": json.dumps(_inbox.new_context(
+                    f"{title} failed at {now:%Y-%m-%d %H:%M} UTC", failure,
+                    evidence=[timer_id, str(target.get("artifact_id") or "")],
+                    action={"artifact_id": target.get("artifact_id"), "operation": op,
+                            "body": target.get("body") or {}} if target.get("artifact_id") else None,
+                    source={"artifact_id": timer_id, "kind": "timer"}, by="key",
+                    at=now.isoformat())),
             })
         report[timer_id] = f"fired ({code})" if failure is None else f"fired ({code}), failed: {failure[:120]}"
     return report
