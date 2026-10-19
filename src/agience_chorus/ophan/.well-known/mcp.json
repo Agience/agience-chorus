@@ -77,6 +77,10 @@
   ],
   "config": {
     "env": {
+      "CRYSTAL_URI": {
+        "description": "Base URI of the Crystal dispatcher (the platform email operator is invoked there)",
+        "default": "http://localhost:8085"
+      },
       "LOG_LEVEL": {
         "description": "Logging level"
       },

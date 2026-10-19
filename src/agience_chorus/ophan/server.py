@@ -95,6 +95,10 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(), format="%(asct
 # Canonical param names: MANTLE_URI (backend) + ORIGIN_URI (identity).
 MANTLE_URI: str = os.getenv("MANTLE_URI", "http://localhost:8081").rstrip("/")
 ORIGIN_URI: str = os.getenv("ORIGIN_URI", "http://localhost:8080").rstrip("/")
+#: The gateway: an artifact's operation (`POST /artifacts/{id}/op/{name}`) is served by Crystal, not
+#: Mantle. 2026-10-19: the platform email was posted to Mantle, which serves no `op` route, so every
+#: receipt and usage warning answered 404 and was logged as a failed send.
+CRYSTAL_URI: str = os.getenv("CRYSTAL_URI", "http://localhost:8085").rstrip("/")
 OPHAN_CLIENT_ID: str = "agience-server-ophan"
 
 # The platform email operator artifact (provisioned by Mantle's platform_email
@@ -269,7 +273,7 @@ async def _send_account_email(person_id: str, subject: str, body_html: str) -> N
                 log.warning("platform email skipped: no system delegation obtained")
                 return
             resp = await client.post(
-                artifact_url(MANTLE_URI, op_id, "op", "invoke"),
+                artifact_url(CRYSTAL_URI, op_id, "op", "invoke"),
                 headers={"Authorization": f"Bearer {delegation}", "Content-Type": "application/json"},
                 json={"params": {"to": email, "subject": subject, "body_html": body_html}},
                 timeout=30,

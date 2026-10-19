@@ -95,6 +95,7 @@ async def test_send_account_email_acts_as_system_principal(monkeypatch):
 
     invoke = next(c for c in calls if "/op/invoke" in c[1])
     assert "op-123" in invoke[1]                                     # invoked the email operator
+    assert invoke[1].startswith(ophan.CRYSTAL_URI + "/"), "operations are served by Crystal, not Mantle"
     assert invoke[3]["Authorization"] == "Bearer sys-jwt"           # as the system principal
     assert invoke[2]["params"]["to"] == "jane@example.com"                # delivered to the customer
     assert invoke[2]["params"]["subject"] == "Hi"

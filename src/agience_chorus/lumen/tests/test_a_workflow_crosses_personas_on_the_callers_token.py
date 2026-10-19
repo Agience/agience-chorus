@@ -60,6 +60,10 @@ async def test_a_chain_from_a_delegation_alone_says_why_it_cannot_reach_another_
     ({"content": [{"type": "text", "text": "x"}], "isError": True}, True),
     ({"content": [{"type": "text", "text": "Workflow completed: 1 steps executed"}]}, False),
     ({"content": [{"type": "text", "text": json.dumps({"rows": []})}]}, False),
+    # A Transform's result carrying its tool's refusal, as Crystal returned it on staging.
+    ({"content": [{"type": "text", "text": json.dumps({"content": [{"type": "text", "text": "Unknown tool: x"}],
+                                                       "isError": True})}], "isError": False}, True),
+    ({"content": [{"type": "text", "text": json.dumps({"content": [{"type": "text", "text": "rows"}]})}]}, False),
 ])
 def test_a_result_carrying_an_error_is_a_failure(result, failed):
     assert (T.step_failure(result) is not None) is failed

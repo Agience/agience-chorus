@@ -180,6 +180,12 @@ def step_failure(result: Any) -> Optional[str]:
             return None
         if isinstance(payload, dict) and payload.get("error"):
             return str(payload["error"])[:300]
+        # A tool result carried as the text of another (a Transform passes its tool's result on
+        # whole): its own `isError` is the step's. 2026-10-19, on staging: a step naming a tool sage
+        # does not have answered "Unknown tool" inside a result marked `isError: false`, and the
+        # workflow and its timer recorded the run as a success.
+        if isinstance(payload, dict) and isinstance(payload.get("content"), list):
+            return step_failure(payload)
     return None
 
 
