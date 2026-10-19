@@ -111,7 +111,8 @@
       document.getElementById('operation').value = (t.target && t.target.operation) || 'invoke';
       document.getElementById('resultsTo').value = t.results_to || '';
       document.getElementById('lastRun').textContent = st.last_run || '—';
-      document.getElementById('lastStatus').textContent = st.last_status ? String(st.last_status) : '—';
+      document.getElementById('lastStatus').textContent = !st.last_status ? '—'
+        : st.last_ok === false ? `failed (${st.last_status}): ${st.last_error || ''}` : `ok (${st.last_status})`;
       document.getElementById('runs').textContent = String(st.runs || 0);
       const status = document.getElementById('status');
       status.textContent = armed() ? 'Armed' : 'Not armed';

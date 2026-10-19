@@ -11,6 +11,7 @@ Implemented paths:
 | Tool | Description |
 |---|---|
 | `search` | Lexical BM25 search across workspaces and collections |
+| `retrieve` | op.retrieve: up to k artifacts the caller may read, each with id, title, content and score, as JSON; Lumen grounds its answers on this |
 | `corpus_search` | Rank this node's corpus by what the question is about; returns only artifacts the caller may read |
 | `get_artifact` | Fetch a single artifact by ID |
 | `browse_collections` | List live collections visible to the caller |

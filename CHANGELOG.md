@@ -8,6 +8,7 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 ## [0.2.4] - 2026-10-17
 
 ### Changed
+- A workflow step, `chain_tasks` and Lumen's grounding call another persona with the caller's own token, not Lumen's delegation; every cross-persona step answered 401. A step whose result carries an error fails the workflow, and a timer records the run as failed (`timer_state.last_ok`); both were reported as successes.
 - Workflow tool steps and `chain_tasks` call a persona by name (or a person's MCP server by id) through Crystal's `/personas` routes. They posted to `/artifacts/<name>/op/invoke`, which names no artifact, and every step answered 404. An MCP server card's resources are read the same way; its three operations that named a removed Mantle importer are gone.
 - The Key card issues a key over the collections it names, read only or read and write, and can revoke it. It sent the retired `scopes` and `resource_filters`, which Mantle does not read, so every key made from a Key card reached nothing; and it had no way to revoke. An MCP client card's key is likewise a grant on the client's workspace.
 - Card viewers open: a type's view is read from the persona that serves it, and the view's tools are called on that persona, through Crystal's `/personas` routes. Every `vnd.agience.*` viewer (Key, Chat, Account and the rest) said its server was not running, because the app looked the persona up as an MCP-server artifact and none exists. The Tools and Resources panels and the sidebar list the personas with their tools and resources, beside any MCP-server artifacts.
@@ -42,6 +43,7 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 - The bundle check's control corrupts a copy of the tree instead of the shipped payloads, which other suites read while it runs.
 
 ### Added
+- Lumen's `synthesize` grounds on Sage's new `retrieve` tool (op.retrieve) through Crystal, under the asker's own grants. Its corpus leg was dark in every deployment: no host ever wired the retrieval reach.
 - Iris's `call_mcp_server` reaches an MCP server a person added: the card is read as the caller, only an HTTP endpoint is reached, through the egress guard (now with a guarded POST that follows no redirect), and the caller's credential is never sent; a server that needs one names a secret.
 - Timers: a Timer card (Lumen) runs an artifact's operation — a workflow, an operator — every N minutes, daily, or once, and records each run. The owner arms it from the card, which issues the grant key it acts on over the timer's workspace; disarming revokes the key. Lumen keeps armed keys sealed with the node's chorus key (`LUMEN_TIMERS_DIR`). `schedule_action` creates a Timer card instead of refusing.
 - Sage declares the `text/x-wordnet` type once: its describer (`offer_template`, `field_source`) and its `offer`, which names a synset's lemmas as its names so Mantle indexes them.

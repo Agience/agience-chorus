@@ -139,6 +139,22 @@ def _require_user_headers() -> dict[str, str]:
     return _auth.require_user_headers()
 
 
+def _require_caller_headers() -> dict[str, str]:
+    """Headers for a call to ANOTHER persona through Crystal: the caller's own token — a person's
+    access token, which that persona exchanges for a delegation of its own, or a grant key.
+
+    Lumen's delegation is addressed to Lumen and every other persona refuses it, so it is never
+    sent there (2026-10-18: every cross-persona workflow step answered 401 for that reason). Fails
+    closed when the caller sent a delegation, which cannot be passed on.
+    """
+    token = _auth.request_caller_token.get("")
+    if not token:
+        raise MissingDelegationError(
+            "this request carries no credential that another persona accepts (a delegation is "
+            "addressed to lumen alone); call with a person's token or a grant key")
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _delegation_token() -> str:
     """The raw verified delegation JWT for this request, or "" when absent."""
     return _auth.request_user_token.get("")
@@ -249,6 +265,33 @@ def _reason_over_input(input_text: str, findings: list[str]) -> tuple[Optional[s
     return fragment, read
 
 
+async def _retrieve_on_sage(query: str, findings: list[str]) -> list[dict]:
+    """op.retrieve on sage (`sage.server.retrieve`) through Crystal. Fail-soft: why it found nothing
+    is recorded in `findings`."""
+    try:
+        headers = _require_caller_headers()
+    except MissingDelegationError as exc:
+        findings.append(f"op.retrieve on sage skipped: {exc}")
+        return []
+    try:
+        async with httpx.AsyncClient() as client:
+            answer = await _call_server_tool(client, "sage", "retrieve", {"query": query, "k": 6},
+                                             headers=headers, timeout=30)
+    except Exception as exc:
+        findings.append(f"op.retrieve on sage failed ({type(exc).__name__})")
+        return []
+    text = ((answer or {}).get("content") or [{}])[0].get("text") or "{}"
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        findings.append("op.retrieve on sage answered something that is not JSON")
+        return []
+    if payload.get("error"):
+        findings.append(f"op.retrieve on sage refused: {payload['error']}")
+        return []
+    return [h for h in payload.get("evidence") or [] if isinstance(h, dict)]
+
+
 @mcp.tool(
     description=(
         "Synthesize an evidence-backed answer: retrieve→reason→respond. Grounds the "
@@ -320,12 +363,11 @@ async def synthesize(
     if token:
         reach_fn = _RETRIEVE_REACH
         if reach_fn is None:
-            # Dark: no reach wired, so the corpus leg cannot run. Reported, never papered over — and
-            # deliberately not a fallback to loading sage's module, a coupling §3.3 disallows.
-            hits = []
-            findings.append(
-                "op.retrieve is not reachable from this process (no retrieval reach wired); the corpus "
-                "grounding leg did not run and no evidence was invented")
+            # No reach wired by a host: op.retrieve is reached on sage through Crystal, as any
+            # persona reaches another, under the caller's own credential (2026-10-18: this leg was
+            # dark in every deployment, because no host ever set the reach). Not by loading sage's
+            # module, a coupling §3.3 disallows.
+            hits = await _retrieve_on_sage(input, findings)
         else:
             try:
                 hits = reach_fn(input, token)
@@ -512,7 +554,7 @@ async def _call_server_tool(client: httpx.AsyncClient, server: str, tool: str, a
     """
     resp = await client.post(
         f"{CRYSTAL_URI.rstrip('/')}/personas/{quote(str(server).strip(), safe='')}/tools/call",
-        headers=headers or _require_user_headers(),
+        headers=headers or _require_caller_headers(),
         json={"name": tool, "arguments": arguments or {}},
         timeout=timeout,
     )
@@ -539,7 +581,7 @@ async def _dispatch_child_transform(
     }
     resp = await client.post(
         artifact_url(CRYSTAL_URI, transform_id, "op", "invoke"),
-        headers=_require_user_headers(),
+        headers=_require_caller_headers(),
         json=body,
         timeout=300,  # pipeline steps can be long-running
     )
@@ -677,6 +719,11 @@ async def run_workflow(
                     result = await _dispatch_child_transform(
                         client, workspace_id, child_transform_id, child_params,
                     )
+                    failure = _timers.step_failure(result)
+                    if failure:
+                        # 2026-10-18: a step whose tool answered an error was recorded as completed,
+                        # and the workflow reported success over it.
+                        raise RuntimeError(failure)
                     results.append({"step": i, "name": step_name, "status": "completed", "result": result})
                 except httpx.HTTPStatusError as exc:
                     error_msg = f"Step {i} ({step_name}) failed: HTTP {exc.response.status_code}"
@@ -991,9 +1038,9 @@ async def chain_tasks(
         return json.dumps({"error": "steps must be a non-empty JSON array"})
 
     # The chain dispatches to caller-chosen servers/tools — the caller's own
-    # delegation only, never the persona's platform identity.
+    # credential only, never the persona's platform identity or its delegation.
     try:
-        headers = _require_user_headers()
+        headers = _require_caller_headers()
     except MissingDelegationError as exc:
         return json.dumps({"error": str(exc)})
 

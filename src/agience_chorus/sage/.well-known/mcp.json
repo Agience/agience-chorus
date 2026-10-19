@@ -15,6 +15,10 @@
       "description": "Lexical BM25 search across workspaces and collections"
     },
     {
+      "name": "retrieve",
+      "description": "op.retrieve: up to k artifacts the caller may read, each with id, title, content and score, as JSON; Lumen grounds its answers on this"
+    },
+    {
       "name": "corpus_search",
       "description": "Search this node's corpus and rank by what the question is about, not by term overlap. Returns only artifacts the caller may read."
     },

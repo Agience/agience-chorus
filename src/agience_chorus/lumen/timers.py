@@ -161,6 +161,27 @@ class Store:
 
 
 # ── firing ────────────────────────────────────────────────────────────────────────────────────
+def step_failure(result: Any) -> Optional[str]:
+    """Why an operation's result is a failure, or None. A tool result marked `isError`, or whose
+    text is a JSON object carrying `error` (how Lumen's transforms and workflows report one), is a
+    failure even when the gateway answered 200. 2026-10-18: a workflow whose step failed was
+    reported as completed, and a timer recorded the run as a success."""
+    if not isinstance(result, dict):
+        return None
+    blocks = result.get("content") or []
+    text = blocks[0].get("text", "") if blocks and isinstance(blocks[0], dict) else ""
+    if result.get("isError"):
+        return text[:300] or "the tool reported an error"
+    if text.lstrip().startswith("{"):
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            return None
+        if isinstance(payload, dict) and payload.get("error"):
+            return str(payload["error"])[:300]
+    return None
+
+
 @dataclass
 class Http:
     """The calls a firing makes, each with the timer's key as its bearer. Injected for tests."""
@@ -215,9 +236,9 @@ def fire_due(store: Store, http: Http, mantle: str, crystal: str, now: datetime,
         op = target.get("operation") or "invoke"
         code, result = http.post(f"{crystal}/artifacts/{target.get('artifact_id')}/op/{op}", key,
                                  target.get("body") or {})
-        ok = 200 <= code < 300
+        failure = step_failure(result) if 200 <= code < 300 else json.dumps(result)[:500]
         state = {**state, "last_run": now.isoformat(), "last_status": code, "runs": int(state.get("runs") or 0) + 1,
-                 "last_error": None if ok else json.dumps(result)[:500]}
+                 "last_ok": failure is None, "last_error": failure}
         http.patch(f"{mantle}/artifacts/{timer_id}", key,
                    {"context": json.dumps({**ctx, "timer_state": state})})
         if spec.get("results_to"):
@@ -227,5 +248,5 @@ def fire_due(store: Store, http: Http, mantle: str, crystal: str, now: datetime,
                                        "timer_id": timer_id, "status": code}),
                 "content": json.dumps(result)[:RESULT_CHARS],
             })
-        report[timer_id] = f"fired ({code})"
+        report[timer_id] = f"fired ({code})" if failure is None else f"fired ({code}), failed: {failure[:120]}"
     return report

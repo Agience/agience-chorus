@@ -31,10 +31,14 @@ submit_feedback = _lumen_server.submit_feedback
 
 @pytest.fixture
 def delegated():
+    """A request from a person: lumen's delegation (for the store) and the person's own token (for
+    a call to another persona, which exchanges it itself)."""
     tok = _lumen_server._auth.request_user_token.set("test-delegation-token")
+    ctok = _lumen_server._auth.request_caller_token.set("test-user-token")
     try:
         yield "test-delegation-token"
     finally:
+        _lumen_server._auth.request_caller_token.reset(ctok)
         _lumen_server._auth.request_user_token.reset(tok)
 
 
@@ -120,7 +124,7 @@ class TestChainTasks:
         url0, body0, hdrs0 = calls[0]
         assert url0.endswith("/personas/sage/tools/call")
         assert body0 == {"name": "search", "arguments": {"query": "alpha"}}
-        assert hdrs0["Authorization"] == "Bearer test-delegation-token"
+        assert hdrs0["Authorization"] == "Bearer test-user-token",             "another persona gets the caller's own token; lumen's delegation is addressed to lumen"
         # Second call: "$prev" resolved to the first step's full result.
         _, body1, _ = calls[1]
         assert body1["arguments"]["content"] == {"output": "result-1"}

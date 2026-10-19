@@ -122,3 +122,24 @@ def test_a_failed_run_is_recorded_with_its_answer(tmp_path):
     fake = FakeHttp(_ctx(), op_status=403)
     T.fire_due(_armed(tmp_path), fake.http(), "m", "c", NOW, unseal_fn=lambda s: "k")
     assert fake.ctx["timer_state"]["last_status"] == 403 and fake.ctx["timer_state"]["last_error"]
+
+
+def test_a_run_the_gateway_answered_200_for_but_whose_workflow_failed_is_recorded_as_failed(tmp_path):
+    """2026-10-18: a timer recorded a run as successful because Crystal answered 200, while the
+    workflow inside had failed."""
+    class Failing(FakeHttp):
+        def http(self):
+            h = super().http()
+            inner = h.post
+
+            def post(url, key, body):
+                if "/op/" in url:
+                    self.calls.append(("POST", url, key, body))
+                    return 200, {"content": [{"type": "text", "text": json.dumps({"error": "Step 0 failed: HTTP 401"})}]}
+                return inner(url, key, body)
+            return T.Http(get=h.get, post=post, patch=h.patch)
+
+    fake = Failing(_ctx())
+    report = T.fire_due(_armed(tmp_path), fake.http(), "m", "c", NOW, unseal_fn=lambda s: "k")
+    assert "failed" in report["t1"]
+    assert fake.ctx["timer_state"]["last_ok"] is False and "HTTP 401" in fake.ctx["timer_state"]["last_error"]

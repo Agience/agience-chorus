@@ -217,6 +217,26 @@ def _corpus():
 
 
 @mcp.tool(description=(
+    "op.retrieve: the evidence for a question — up to k artifacts the caller may read, each with "
+    "its id, title, content and score, as JSON. Lumen grounds its answers on this."))
+async def retrieve(query: str, k: int = 6) -> str:
+    """The retrieval organon (`retrieval.retrieve`) served as a tool, under the caller's delegation.
+
+    2026-10-18: Lumen's `synthesize` had no way to reach it — its retrieval hook was never wired —
+    so every answer said the corpus leg did not run. Lumen now calls this through Crystal.
+    """
+    import asyncio as _asyncio
+    from agience_chorus.sage import retrieval as _retrieval
+
+    token = _auth.request_user_token.get("")
+    if not token:
+        return json.dumps({"error": "no verified delegation on this request"})
+    k = max(1, min(int(k or _retrieval.RETRIEVAL_K), 20))
+    hits = await _asyncio.to_thread(_retrieval.retrieve, query, token, MANTLE_URI, k)
+    return json.dumps({"evidence": hits})
+
+
+@mcp.tool(description=(
     "Search this node's corpus and rank by what the question is about, not by term overlap. "
     "Returns only artifacts the caller may read."))
 async def corpus_search(query: str, limit: int = 10) -> str:

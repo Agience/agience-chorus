@@ -41,9 +41,11 @@ run_workflow = _lumen_server.run_workflow
 def delegated():
     """Set the verified-delegation ContextVar, as the auth middleware does on a real request."""
     tok = _lumen_server._auth.request_user_token.set("test-delegation-token")
+    ctok = _lumen_server._auth.request_caller_token.set("test-user-token")
     try:
         yield "test-delegation-token"
     finally:
+        _lumen_server._auth.request_caller_token.reset(ctok)
         _lumen_server._auth.request_user_token.reset(tok)
 
 
