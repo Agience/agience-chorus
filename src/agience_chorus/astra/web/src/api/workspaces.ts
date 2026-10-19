@@ -4,6 +4,7 @@ import type { RemoveResult } from '../utils/removal';
 import { get, getList, post, postList, patch, del } from './api';
 import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 import { subscribeEvents, type BusEvent } from './events';
+import { completeFromFeed } from './feedArtifact';
 import {
   WorkspaceResponse,
   WorkspaceCreate,
@@ -232,12 +233,12 @@ export function subscribeWorkspaceEvents(
       switch (evt.event) {
         case 'artifact.created': {
           const a = (payload as { artifact?: ArtifactResponse }).artifact;
-          if (a) handlers.onArtifactCreated?.(a);
+          if (a) void completeFromFeed(a).then((full) => handlers.onArtifactCreated?.(full));
           return;
         }
         case 'artifact.updated': {
           const a = (payload as { artifact?: ArtifactResponse }).artifact;
-          if (a) handlers.onArtifactUpdated?.(a);
+          if (a) void completeFromFeed(a).then((full) => handlers.onArtifactUpdated?.(full));
           return;
         }
         case 'artifact.deleted': {
@@ -248,8 +249,10 @@ export function subscribeWorkspaceEvents(
         case 'upload.complete': {
           const a = (payload as { artifact?: ArtifactResponse }).artifact;
           if (a) {
-            handlers.onUploadComplete?.(a);
-            handlers.onArtifactUpdated?.(a);
+            void completeFromFeed(a).then((full) => {
+              handlers.onUploadComplete?.(full);
+              handlers.onArtifactUpdated?.(full);
+            });
           }
           return;
         }
