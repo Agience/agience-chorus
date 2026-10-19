@@ -1257,11 +1257,14 @@ async def approve_item(item_id: str, note: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 async def _read_credential(client: httpx.AsyncClient, secret_id: str, headers: dict) -> str:
-    """A credential artifact's value, read on the caller's own grant (as Iris reads an
-    Authorizer's). Never returned to the caller."""
-    resp = await client.get(artifact_url(MANTLE_URI, secret_id), headers=headers, timeout=15)
+    """A credential's secret, released for use (`POST /artifacts/{id}/use`): Mantle hands it to
+    this persona acting for a caller who holds `invoke` on it, without the caller holding `read`.
+    Never returned to the caller."""
+    resp = await client.post(artifact_url(MANTLE_URI, secret_id, "use"), headers=headers, timeout=15)
     if resp.status_code != 200:
-        raise _connection.ConnectionError_("the card's key cannot be read on your grant")
+        raise _connection.ConnectionError_(
+            "the card's key cannot be used on your grant (it needs invoke on the key, through a "
+            "person's own sign-in; a grant key cannot spend another's key)")
     content = (resp.json() or {}).get("content")
     if isinstance(content, str):
         try:

@@ -34,7 +34,6 @@ def _card(**ctx):
 @pytest.mark.parametrize("ctx,why", [
     ({"provider": "google"}, "cannot be called"),
     ({"model": ""}, "no model"),
-    ({"credentials_ref": {"resolution": "platform_default"}}, "no platform model key"),
     ({"credentials_ref": {}}, "points at no key"),
     ({"endpoint": "https://collector.example.com/v1/messages"}, "not anthropic's own address"),
 ])
@@ -45,6 +44,12 @@ def test_a_card_that_cannot_be_called_says_why(ctx, why):
 
 def test_the_providers_own_endpoint_is_accepted():
     assert C.read_card(_card(endpoint="https://api.anthropic.com/v1/messages"))["provider"] == "anthropic"
+
+
+def test_a_platform_connection_is_an_ordinary_granted_card():
+    """No resolution mode beside grants: the platform's connection is a card and a key it granted."""
+    card = C.read_card(_card(credentials_ref={"secret_id": "sec-p", "resolution": "platform_secret"}))
+    assert card["secret_id"] == "sec-p"
 
 
 @pytest.mark.parametrize("messages,input,ok", [
@@ -111,6 +116,12 @@ class Store:
                 store.calls.append((url, headers))
                 doc = store.docs.get(url.rsplit("/", 1)[-1])
                 return MockResponse(doc or {}, 200 if doc else 404)
+
+            async def post(self, url, headers=None, **kw):
+                store.calls.append((url, headers))
+                assert url.endswith("/use"), url
+                doc = store.docs.get(url.rsplit("/", 2)[-2])
+                return MockResponse(doc or {}, 200 if doc else 403)
         return _C
 
 
@@ -140,17 +151,18 @@ async def test_invoking_the_card_sends_the_conversation_with_its_key_and_returns
     assert sent["url"] == C.PROVIDERS["anthropic"] and sent["headers"]["x-api-key"] == "sk-secret"
     assert sent["body"]["messages"] == [{"role": "user", "content": "2+2?"}]
     assert all(h["Authorization"] == "Bearer delegation-for-me" for _, h in store.calls), \
-        "the card and its key are read on the caller's own grant"
+        "the card and its key are reached on the caller's own grant"
+    assert store.calls[-1][0].endswith("/artifacts/sec-1/use"), "the key is released for use, not read"
     assert "sk-secret" not in json.dumps(out), "the key never returns to the caller"
 
 
 @pytest.mark.asyncio
-async def test_a_caller_who_cannot_read_the_key_is_refused_before_anything_is_sent(person):
+async def test_a_caller_who_cannot_use_the_key_is_refused_before_anything_is_sent(person):
     store = Store({"conn-1": _card()})
     with patch.object(L.httpx, "AsyncClient", store.client()), \
             patch.object(_egress, "post", side_effect=AssertionError("nothing is sent")):
         out = json.loads(await L.invoke_connection("conn-1", input="hi"))
-    assert "cannot be read on your grant" in out["error"]
+    assert "cannot be used on your grant" in out["error"]
 
 
 @pytest.mark.asyncio

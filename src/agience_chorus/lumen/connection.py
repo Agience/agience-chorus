@@ -5,8 +5,10 @@ The card (`vnd.agience.llm-connection+json`) names a provider, a model, and wher
 so the call, the model and who made it are on record; nothing in Lumen's answer path calls a model
 on its own.
 
-The key is read on the caller's own credential: whoever invokes the card must hold `read` on the
-credential, so a card shared without its key cannot spend it. The request goes out through the
+The key is a credential artifact. It is released for this one call through Mantle's `use` route,
+which answers a platform persona acting for someone who holds `invoke` on the key: a connection
+shared with a team, or the platform's own granted to everyone, is usable by them without its key
+being readable by them, and never returns to the caller. The request goes out through the
 shared egress guard, to the provider's own address only. A card's `endpoint` is editable by anyone
 who can edit the card, and the request carries the key, so an endpoint that is not the provider's
 is refused rather than followed.
@@ -71,12 +73,8 @@ def read_card(doc: dict) -> Dict[str, Any]:
     model = str(ctx.get("model") or "").strip()
     if not model:
         raise ConnectionError_("the card names no model")
+    # A platform connection is not a special case: it is a card and a key the platform granted.
     ref = ctx.get("credentials_ref") or {}
-    resolution = str(ref.get("resolution") or "user_secret")
-    if resolution not in ("user_secret", "workspace_secret"):
-        raise ConnectionError_(
-            f"credentials resolved as {resolution!r}: no platform model key is held on this node; "
-            "point the card at your own key (credentials_ref.secret_id)")
     secret_id = str(ref.get("secret_id") or "").strip()
     if not secret_id:
         raise ConnectionError_("the card points at no key (credentials_ref.secret_id)")
