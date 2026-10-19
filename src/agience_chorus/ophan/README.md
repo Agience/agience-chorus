@@ -126,7 +126,7 @@ encrypted secret, and never read from the environment.
 The server reads no `AGIENCE_API_KEY` or `AGIENCE_API_URI` — a grep for both in `server.py` returns
 nothing, and `.well-known/mcp.json` marks both "removed". Auth is a self-issued platform JWT signed
 with the chorus service identity (`chorus.private.pem`). The environment it actually reads is
-`MANTLE_URI`, `ORIGIN_URI`, `CRYSTAL_URI`, `MCP_HOST`/`MCP_PORT`/`MCP_TRANSPORT`, `LOG_LEVEL` and
+`MANTLE_URI`, `ORIGIN_URI`, `CHORUS_PUBLIC_URI`, `MCP_HOST`/`MCP_PORT`/`MCP_TRANSPORT`, `LOG_LEVEL` and
 `STRIPE_PRICE_ID_*`.
 
 **Stripe.** `STRIPE_SECRET_KEY` is not read anywhere; its only would-be consumers are the outbound

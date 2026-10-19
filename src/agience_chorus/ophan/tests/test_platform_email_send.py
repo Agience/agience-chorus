@@ -71,7 +71,7 @@ class _FakeClient:
         self.calls.append(("POST", url, json, headers))
         if "/internal/system-delegation" in url:
             return _FakeResp({"token": self._token, "subject_id": "sp", "scope": "platform.email.send"})
-        if "/op/invoke" in url:
+        if url.endswith("/iris/platform-mail"):
             return _FakeResp({"status": "sent"}, status=self._invoke_status)
         raise AssertionError(f"unexpected POST {url}")
 
@@ -81,50 +81,45 @@ async def _platform_headers():
 
 
 @pytest.mark.asyncio
-async def test_send_account_email_acts_as_system_principal(monkeypatch):
+async def test_send_account_email_asks_iris_as_a_platform_service(monkeypatch):
+    """2026-10-19: platform mail is Iris's operation. Ophan resolves the address and asks Iris on
+    the chorus host's platform identity, addressed to Iris; it obtains no delegation and never
+    holds the mail secrets."""
     calls: list = []
-    monkeypatch.setattr(ophan, "_platform_email_operator_id", lambda: "op-123")
     monkeypatch.setattr(ophan, "_origin_headers", _platform_headers)
+    monkeypatch.setattr(ophan._auth, "sign_self_jwt", lambda audience="mantle": f"svc-for-{audience}")
     monkeypatch.setattr(ophan.httpx, "AsyncClient", lambda *a, **k: _FakeClient(calls))
 
     await ophan._send_account_email("person-1", "Hi", "<p>x</p>")
 
     urls = [c[1] for c in calls]
     assert any("/internal/persons/person-1" in u for u in urls)      # recipient resolved
-    assert any("/internal/system-delegation" in u for u in urls)     # system delegation obtained
-
-    invoke = next(c for c in calls if "/op/invoke" in c[1])
-    assert "op-123" in invoke[1]                                     # invoked the email operator
-    assert invoke[1].startswith(ophan.CRYSTAL_URI + "/"), "operations are served by Crystal, not Mantle"
-    assert invoke[3]["Authorization"] == "Bearer sys-jwt"           # as the system principal
-    assert invoke[2]["params"]["to"] == "jane@example.com"                # delivered to the customer
-    assert invoke[2]["params"]["subject"] == "Hi"
+    assert not any("/internal/system-delegation" in u for u in urls), "Iris obtains its own"
+    send = next(c for c in calls if c[1].endswith("/iris/platform-mail"))
+    assert send[1] == f"{ophan.CHORUS_PUBLIC_URI}/iris/platform-mail"
+    assert send[3]["Authorization"] == "Bearer svc-for-agience-server-iris"
+    assert send[2] == {"to": "jane@example.com", "subject": "Hi", "body_html": "<p>x</p>"}
 
 
 @pytest.mark.asyncio
 async def test_send_account_email_skips_without_recipient(monkeypatch):
     calls: list = []
-    monkeypatch.setattr(ophan, "_platform_email_operator_id", lambda: "op-123")
     monkeypatch.setattr(ophan, "_origin_headers", _platform_headers)
     monkeypatch.setattr(ophan.httpx, "AsyncClient", lambda *a, **k: _FakeClient(calls, email=""))
 
     await ophan._send_account_email("person-1", "Hi", "<p>x</p>")
 
-    # No delegation requested and no operator invoke when there's no address.
-    assert not any("/internal/system-delegation" in c[1] for c in calls)
-    assert not any("/op/invoke" in c[1] for c in calls)
+    assert not any(c[1].endswith("/iris/platform-mail") for c in calls)
 
 
 @pytest.mark.asyncio
 async def test_send_account_email_is_best_effort(monkeypatch):
     """A failing send must not raise — the webhook/caller still succeeds."""
-    monkeypatch.setattr(ophan, "_platform_email_operator_id", lambda: "op-123")
     monkeypatch.setattr(ophan, "_origin_headers", _platform_headers)
     monkeypatch.setattr(
         ophan.httpx, "AsyncClient",
-        lambda *a, **k: _FakeClient([], invoke_status=500),
+        lambda *a, **k: _FakeClient([], invoke_status=502),
     )
-    # Must not raise despite the 500 on op/invoke.
     await ophan._send_account_email("person-1", "Hi", "<p>x</p>")
 
 

@@ -77,8 +77,8 @@
   ],
   "config": {
     "env": {
-      "CRYSTAL_URI": {
-        "description": "Base URI of the Crystal dispatcher (the platform email operator is invoked there)",
+      "CHORUS_PUBLIC_URI": {
+        "description": "The chorus host on loopback, where Iris serves platform mail",
         "default": "http://localhost:8085"
       },
       "LOG_LEVEL": {

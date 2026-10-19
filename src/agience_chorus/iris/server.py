@@ -153,15 +153,18 @@ register_types_manifest(mcp, "iris", __file__)
 # Tool: send_email
 # ---------------------------------------------------------------------------
 
-async def _fetch_secret_material(client: httpx.AsyncClient, secret_artifact_id: str, card_id: str) -> str:
+async def _fetch_secret_material(client: httpx.AsyncClient, secret_artifact_id: str, card_id: str,
+                                 headers: Optional[dict] = None) -> str:
     """A secret, released for `card_id` (the authorizer or MCP server card that names it) and
     opened here with Iris's own key: Mantle seals it to Iris and to that card only
     (`agience_chorus._secrets`). The caller needs `invoke` on the card and the secret, not `read`,
     and the secret never returns to them."""
-    return await _use_secret(client, MANTLE_URI, secret_artifact_id, card_id, _require_user_headers(), "iris")
+    return await _use_secret(client, MANTLE_URI, secret_artifact_id, card_id,
+                             headers or _require_user_headers(), "iris")
 
 
-async def _gmail_access_token(client: httpx.AsyncClient, config: dict, authorizer_id: str) -> str:
+async def _gmail_access_token(client: httpx.AsyncClient, config: dict, authorizer_id: str,
+                             headers: Optional[dict] = None) -> str:
     """Exchange an OAuth2 refresh token for a fresh access token (Gmail).
 
     Reads client_id + token_endpoint + scopes from the authorizer config and
@@ -173,8 +176,8 @@ async def _gmail_access_token(client: httpx.AsyncClient, config: dict, authorize
     token, and must only ever POST them to a known OAuth provider. Raises `EgressRefused`.
     """
     token_endpoint = _egress.require_token_endpoint(config.get("token_endpoint") or _GMAIL_TOKEN_URL)
-    client_secret = await _fetch_secret_material(client, config["client_secret_artifact_id"], authorizer_id)
-    refresh_token = await _fetch_secret_material(client, config["refresh_token_artifact_id"], authorizer_id)
+    client_secret = await _fetch_secret_material(client, config["client_secret_artifact_id"], authorizer_id, headers)
+    refresh_token = await _fetch_secret_material(client, config["refresh_token_artifact_id"], authorizer_id, headers)
     resp = await client.post(
         token_endpoint,
         data={
@@ -246,13 +249,24 @@ async def send_email(
             authorizers; reserved).
     """
     del workspace_id  # reserved; authorizer is resolved by id, not workspace
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": f"send_email refused: {exc}"})
+    return await _send_via_authorizer(to, subject, body_html,
+                                      (authorizer_artifact_id or IRIS_AUTHORIZER_ARTIFACT_ID).strip(), headers)
+
+
+async def _send_via_authorizer(to: str, subject: str, body_html: str, authorizer_id: str,
+                               headers: dict) -> str:
+    """Send through `authorizer_id` on `headers`' authority: the caller's delegation for
+    `send_email`, the platform system delegation Iris obtained as itself for platform mail."""
     recipients, refusal = _parse_recipients(to)
     if refusal:
         return json.dumps({"error": f"send_email refused: {refusal}"})
     if "\r" in subject or "\n" in subject:
         return json.dumps({"error": "send_email refused: the subject contains a line break"})
     to = ", ".join(recipients)
-    authorizer_id = (authorizer_artifact_id or IRIS_AUTHORIZER_ARTIFACT_ID).strip()
     if not authorizer_id:
         return json.dumps({
             "error": "No authorizer configured: pass authorizer_artifact_id or set IRIS_AUTHORIZER_ARTIFACT_ID"
@@ -262,10 +276,7 @@ async def send_email(
         async with httpx.AsyncClient(timeout=30) as client:
             # 1. Read the authorizer config (content holds the OAuth profile +
             #    references to its client-secret / refresh-token secret artifacts).
-            resp = await client.get(
-                artifact_url(MANTLE_URI, authorizer_id),
-                headers=_require_user_headers(),
-            )
+            resp = await client.get(artifact_url(MANTLE_URI, authorizer_id), headers=headers)
             resp.raise_for_status()
             authorizer = resp.json()
             raw_content = authorizer.get("content") or "{}"
@@ -279,7 +290,7 @@ async def send_email(
             # 2. Resolve credentials + mint an access token (server-side). Runs
             #    under the caller's delegation — for platform sends that's the
             #    operator, who holds read on the bound secrets.
-            access_token = await _gmail_access_token(client, config, authorizer_id)
+            access_token = await _gmail_access_token(client, config, authorizer_id, headers)
             sender_address = config.get("sender_address", "")
 
             # 3. Build the MIME message and send via Gmail.
@@ -308,6 +319,73 @@ async def send_email(
         return json.dumps({"error": f"send_email failed: {exc}"})
 
     return json.dumps({"status": "sent", "message_id": message_id, "to": to})
+
+
+# ---------------------------------------------------------------------------
+# Platform mail: Iris's own operation, for a platform service
+# ---------------------------------------------------------------------------
+
+#: The platform services that may have Iris send platform mail (receipts, usage warnings): the
+#: chorus host, whose Ophan triggers them from a payment webhook. Verified signatures only
+#: (`ServerAuth.verify_platform_service`); a person or a key is never one.
+_PLATFORM_MAIL_CALLERS = frozenset({"chorus"})
+
+
+def _platform_authorizer_id() -> str:
+    """The platform mail authorizer's id, derived as Mantle's provisioner derives it."""
+    import uuid as _uuid
+
+    from prism.trust.service_identity import get_instance_namespace
+
+    ns = get_instance_namespace()
+    return str(_uuid.uuid5(ns, "platform/platform-email-authorizer")) if ns else ""
+
+
+async def _platform_mail_delegation(client: httpx.AsyncClient) -> str:
+    """The platform system delegation for mail, obtained by Iris signing as itself, so Mantle
+    releases the authorizer's secrets to a persona that proved who it is."""
+    resp = await client.post(f"{_auth.origin_uri.rstrip('/')}/internal/system-delegation",
+                             headers={"Authorization": f"Bearer {_auth.sign_exchange_jwt()}"},
+                             json={"purpose": "platform-mail"}, timeout=15)
+    resp.raise_for_status()
+    return (resp.json() or {}).get("token", "")
+
+
+@mcp.custom_route("/platform-mail", methods=["POST"])
+async def platform_mail(request):
+    """Send a platform message (`to`, `subject`, `body_html`) through the platform's authorizer.
+
+    Only a platform service may ask (`_PLATFORM_MAIL_CALLERS`). Iris then acts as the platform's
+    system principal under a delegation it obtained as itself, reads the platform authorizer's
+    settings, and has its two secrets released sealed to its own key, in clear only for the send.
+    2026-10-19: platform mail ran as an operator invoked through Crystal on a token addressed to
+    Mantle, which Iris refused, so no receipt or usage warning was ever sent.
+    """
+    from starlette.responses import JSONResponse
+
+    caller = _auth.request_service_caller.get("")
+    if caller not in _PLATFORM_MAIL_CALLERS:
+        return JSONResponse({"error": "platform mail is sent for a platform service only"}, status_code=403)
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "the body is not JSON"}, status_code=400)
+    authorizer_id = _platform_authorizer_id()
+    if not authorizer_id:
+        return JSONResponse({"error": "no instance namespace; the platform authorizer cannot be named"},
+                            status_code=503)
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            delegation = await _platform_mail_delegation(client)
+    except httpx.HTTPError as exc:
+        return JSONResponse({"error": f"no platform mail delegation: {type(exc).__name__}"}, status_code=502)
+    if not delegation:
+        return JSONResponse({"error": "no platform mail delegation"}, status_code=502)
+    out = json.loads(await _send_via_authorizer(
+        str(body.get("to") or ""), str(body.get("subject") or ""), str(body.get("body_html") or ""),
+        authorizer_id, {"Authorization": f"Bearer {delegation}"}))
+    log.info("platform mail for %s: %s", caller, "sent" if out.get("status") == "sent" else out.get("error"))
+    return JSONResponse(out, status_code=200 if out.get("status") == "sent" else 502)
 
 
 # ---------------------------------------------------------------------------

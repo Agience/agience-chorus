@@ -95,17 +95,9 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(), format="%(asct
 # Canonical param names: MANTLE_URI (backend) + ORIGIN_URI (identity).
 MANTLE_URI: str = os.getenv("MANTLE_URI", "http://localhost:8081").rstrip("/")
 ORIGIN_URI: str = os.getenv("ORIGIN_URI", "http://localhost:8080").rstrip("/")
-#: The gateway: an artifact's operation (`POST /artifacts/{id}/op/{name}`) is served by Crystal, not
-#: Mantle. 2026-10-19: the platform email was posted to Mantle, which serves no `op` route, so every
-#: receipt and usage warning answered 404 and was logged as a failed send.
-CRYSTAL_URI: str = os.getenv("CRYSTAL_URI", "http://localhost:8085").rstrip("/")
+#: The chorus host on loopback, where Iris serves platform mail (`/iris/platform-mail`).
+CHORUS_PUBLIC_URI: str = os.getenv("CHORUS_PUBLIC_URI", "http://localhost:8085").rstrip("/")
 OPHAN_CLIENT_ID: str = "agience-server-ophan"
-
-# The platform email operator artifact (provisioned by Mantle's platform_email
-# from GMAIL_OAUTH_* env). Its id is derived deterministically from the shared
-# instance namespace — uuid5(instance_namespace, "platform/platform-email-sender")
-# — so Ophan can address it for op/invoke without a slug→id lookup.
-_PLATFORM_EMAIL_OPERATOR_DERIVATION = "platform/platform-email-sender"
 MCP_TRANSPORT: str = os.getenv("MCP_TRANSPORT", "streamable-http")
 MCP_HOST: str = os.getenv("MCP_HOST", "0.0.0.0")
 MCP_PORT: int = int(os.getenv("MCP_PORT", "8090"))
@@ -185,17 +177,6 @@ async def _origin_headers() -> dict[str, str]:
     return _auth.headers(audience="origin")
 
 
-def _platform_email_operator_id() -> str:
-    """Derive the platform email operator artifact id from the shared instance
-    namespace (matches Mantle's provisioner). Empty if the namespace is absent."""
-    import uuid as _uuid
-
-    from prism.trust.service_identity import get_instance_namespace
-
-    ns = get_instance_namespace()
-    return str(_uuid.uuid5(ns, _PLATFORM_EMAIL_OPERATOR_DERIVATION)) if ns else ""
-
-
 async def _obtain_system_delegation(client: httpx.AsyncClient, purpose: str = "platform-mail") -> str:
     """Exchange Ophan's platform identity for a delegation as the platform system
     principal (Origin gates the purpose→subject; Ophan cannot pick the subject)."""
@@ -251,32 +232,29 @@ def _usage_warning_html(overages: dict) -> str:
 
 
 async def _send_account_email(person_id: str, subject: str, body_html: str) -> None:
-    """Best-effort platform email to a person, sent AS the system principal.
+    """Best-effort platform email to a person, sent by Iris through the platform's authorizer.
 
-    Resolves the recipient's address, obtains a system delegation, and invokes the
-    platform email operator under it. Non-fatal: a send failure never breaks the
-    caller (e.g. a Stripe webhook must still succeed)."""
+    Resolves the recipient's address, then asks Iris (`/iris/platform-mail`) on the chorus host's
+    platform identity. Iris acts as the platform system principal under a delegation it obtains
+    as itself and has the mail secrets released sealed to its own key; Ophan never holds them.
+    Non-fatal: a send failure never breaks the caller (e.g. a Stripe webhook must still succeed).
+
+    2026-10-19: this invoked the platform email operator on Mantle (which serves no operations)
+    under a delegation addressed to Mantle, which Iris would have refused anyway; no receipt or
+    usage warning was ever sent."""
     if not person_id:
         return
     try:
-        op_id = _platform_email_operator_id()
-        if not op_id:
-            log.warning("platform email skipped: cannot resolve operator id (no instance namespace)")
-            return
         async with httpx.AsyncClient() as client:
             email = await _resolve_person_email(client, person_id)
             if not email:
                 log.warning("platform email skipped: no address for person %s", person_id)
                 return
-            delegation = await _obtain_system_delegation(client)
-            if not delegation:
-                log.warning("platform email skipped: no system delegation obtained")
-                return
             resp = await client.post(
-                artifact_url(CRYSTAL_URI, op_id, "op", "invoke"),
-                headers={"Authorization": f"Bearer {delegation}", "Content-Type": "application/json"},
-                json={"params": {"to": email, "subject": subject, "body_html": body_html}},
-                timeout=30,
+                f"{CHORUS_PUBLIC_URI}/iris/platform-mail",
+                headers={"Authorization": f"Bearer {_auth.sign_self_jwt(audience='agience-server-iris')}"},
+                json={"to": email, "subject": subject, "body_html": body_html},
+                timeout=60,
             )
             resp.raise_for_status()
             log.info("platform email sent to %s (person %s)", email, person_id)
