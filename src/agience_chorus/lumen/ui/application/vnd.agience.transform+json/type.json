@@ -4,7 +4,7 @@
   "inherits": [
     "application/json"
   ],
-  "description": "Agience Transform — a named, executable transformation step invokable via POST /artifacts/{id}/invoke. All Transform artifacts dispatch through lumen:execute_transform regardless of run.type. Lumen reads run.type, run.tool, run.server, run.prompt, etc. from the artifact context and handles execution. The artifact context run block carries execution parameters (tool name, server short-name, prompt, etc.) for lumen's use — not for the installer.",
+  "description": "Workflow — one step (a tool on any persona you can use) or several in order. Built in its card: start from a recipe, pick tools, fill in their inputs, run it, put it on a schedule. Lumen runs it (lumen:execute_transform); a Timer runs it on a schedule.",
   "context_schema": {
     "transform": {
       "type": "object",
@@ -277,7 +277,7 @@
     }
   },
   "ui": {
-    "label": "Transform",
+    "label": "Workflow",
     "icon": "zap",
     "color": "#8b5cf6",
     "badge_class": "bg-indigo-100 text-indigo-800",
