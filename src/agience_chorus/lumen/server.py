@@ -170,6 +170,7 @@ from mantle.clients.artifact_helpers import artifact_url, register_types_manifes
 from agience_chorus.lumen import timers as _timers
 from agience_chorus.lumen import inbox as _inbox
 from agience_chorus.lumen import connection as _connection
+from agience_chorus._secrets import SecretUnavailable as _SecretUnavailable, use_secret as _use_secret
 register_types_manifest(mcp, "lumen", __file__)
 
 
@@ -1256,26 +1257,6 @@ async def approve_item(item_id: str, note: str = "") -> str:
 # LLM connection: invoking the card calls the model it names
 # ---------------------------------------------------------------------------
 
-async def _read_credential(client: httpx.AsyncClient, secret_id: str, headers: dict) -> str:
-    """A credential's secret, released for use (`POST /artifacts/{id}/use`): Mantle hands it to
-    this persona acting for a caller who holds `invoke` on it, without the caller holding `read`.
-    Never returned to the caller."""
-    resp = await client.post(artifact_url(MANTLE_URI, secret_id, "use"), headers=headers, timeout=15)
-    if resp.status_code != 200:
-        raise _connection.ConnectionError_(
-            "the card's key cannot be used on your grant (it needs invoke on the key, through a "
-            "person's own sign-in; a grant key cannot spend another's key)")
-    content = (resp.json() or {}).get("content")
-    if isinstance(content, str):
-        try:
-            content = json.loads(content)
-        except (ValueError, TypeError):
-            return content.strip()
-    if isinstance(content, dict):
-        return str(content.get("material") or content.get("value") or "").strip()
-    return str(content or "").strip()
-
-
 @mcp.tool(
     description=(
         "Invoke an LLM connection card: send a conversation (`messages`, [{role, content}]) or one "
@@ -1298,9 +1279,9 @@ async def invoke_connection(connection_id: str, messages: Any = None, input: Opt
                 return json.dumps({"error": "no such connection, or you cannot read it"})
             card = _connection.read_card(resp.json())
             system, turns = _connection.messages_of(messages, input)
-            key = await _read_credential(client, card["secret_id"], headers)
+            key = await _use_secret(client, MANTLE_URI, card["secret_id"], connection_id, headers, "lumen")
         req = _connection.build(card, key, system, turns, max_tokens)
-    except _connection.ConnectionError_ as exc:
+    except (_connection.ConnectionError_, _SecretUnavailable) as exc:
         return json.dumps({"error": str(exc)})
     try:
         answer = await _asyncio.to_thread(_egress.post, req.url, req.body, headers=req.headers, timeout=30)

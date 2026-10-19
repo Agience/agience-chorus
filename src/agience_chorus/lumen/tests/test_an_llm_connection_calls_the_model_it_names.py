@@ -117,16 +117,32 @@ class Store:
                 doc = store.docs.get(url.rsplit("/", 1)[-1])
                 return MockResponse(doc or {}, 200 if doc else 404)
 
-            async def post(self, url, headers=None, **kw):
+            async def post(self, url, headers=None, json=None, **kw):
                 store.calls.append((url, headers))
                 assert url.endswith("/use"), url
-                doc = store.docs.get(url.rsplit("/", 2)[-2])
-                return MockResponse(doc or {}, 200 if doc else 403)
+                secret = url.rsplit("/", 2)[-2]
+                doc = store.docs.get(secret)
+                if not doc:
+                    return MockResponse({}, 403)
+                from prism.trust import sealing
+                content = doc["content"] if isinstance(doc["content"], str) else _json.dumps(doc["content"])
+                return MockResponse({"id": secret, "sealed": sealing.seal(
+                    content.encode(), LUMEN_KEY.public_key(), kid="lumen-1",
+                    context=f"{secret}|{(json or {}).get('for')}")})
         return _C
 
 
+from cryptography.hazmat.primitives.asymmetric import rsa as _rsa  # noqa: E402
+import json as _json  # noqa: E402
+
+LUMEN_KEY = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
 @pytest.fixture
-def person():
+def person(monkeypatch):
+    from prism.trust import service_identity
+    monkeypatch.setattr(service_identity, "load_persona_identity", lambda name: service_identity.ServiceIdentity(
+        name=name, kid=f"{name}-1", private_key=LUMEN_KEY) if name == "lumen" else None)
     tok = L._auth.request_user_token.set("delegation-for-me")
     try:
         yield
@@ -175,3 +191,15 @@ async def test_an_unreachable_provider_is_an_error_not_a_reply(person):
     with patch.object(L.httpx, "AsyncClient", store.client()), patch.object(_egress, "post", refused):
         out = json.loads(await L.invoke_connection("conn-1", input="hi"))
     assert "could not be reached" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_a_persona_holding_no_key_of_its_own_is_released_nothing(person, monkeypatch):
+    from prism.trust import service_identity
+    monkeypatch.setattr(service_identity, "load_persona_identity", lambda name: None)
+    store = Store({"conn-1": _card(), "sec-1": {"id": "sec-1", "content": "sk-plain"}})
+    with patch.object(L.httpx, "AsyncClient", store.client()), \
+            patch.object(_egress, "post", side_effect=AssertionError("nothing is sent")):
+        out = json.loads(await L.invoke_connection("conn-1", input="hi"))
+    assert "holds no key of its own" in out["error"]
+    assert not [u for u, _ in store.calls if u.endswith("/use")], "no release is even asked for"

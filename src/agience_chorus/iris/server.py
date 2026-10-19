@@ -70,6 +70,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from agience_chorus import _egress
+from agience_chorus._secrets import SecretUnavailable, use_secret as _use_secret
 
 log = logging.getLogger("agience-server-iris")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(), format="%(asctime)s %(levelname)s - %(name)s - %(message)s")
@@ -152,40 +153,15 @@ register_types_manifest(mcp, "iris", __file__)
 # Tool: send_email
 # ---------------------------------------------------------------------------
 
-async def _fetch_secret_material(client: httpx.AsyncClient, secret_artifact_id: str) -> str:
-    """Resolve a credential artifact's value with a plain artifact READ.
-
-    Grant-checked by Mantle against the caller's delegation: this only succeeds when the send runs
-    under an identity that holds `read` on the artifact (e.g. the platform operator). The credential
-    never returns to the original caller — only into this (trusted) persona process for the exchange
-    below.
-
-    Chorus holds Mantle's position here: an authorized reader fetches plaintext over TLS, and a
-    credential is an ordinary artifact carrying its value in `content`. A `read` is the whole fetch.
-    There is no op to call instead: the op surface lives in Crystal, so `MANTLE_URI` serves no
-    `/artifacts/{id}/op/fetch`, and Mantle has no `/secrets` surface for such an op to dispatch to.
-    """
-    resp = await client.get(
-        artifact_url(MANTLE_URI, secret_artifact_id),
-        headers=_require_user_headers(),
-        timeout=15,
-    )
-    resp.raise_for_status()
-    content = (resp.json() or {}).get("content")
-    #: Two shapes are in flight. Artifacts minted under the old two-store model wrap the value as
-    #: `{"material": ...}`; the credential type carries it directly. Read either, prefer neither.
-    if isinstance(content, str):
-        try:
-            parsed = json.loads(content)
-        except (ValueError, TypeError):
-            return content
-        content = parsed
-    if isinstance(content, dict):
-        return content.get("material") or content.get("value") or ""
-    return content or ""
+async def _fetch_secret_material(client: httpx.AsyncClient, secret_artifact_id: str, card_id: str) -> str:
+    """A secret, released for `card_id` (the authorizer or MCP server card that names it) and
+    opened here with Iris's own key: Mantle seals it to Iris and to that card only
+    (`agience_chorus._secrets`). The caller needs `invoke` on the card and the secret, not `read`,
+    and the secret never returns to them."""
+    return await _use_secret(client, MANTLE_URI, secret_artifact_id, card_id, _require_user_headers(), "iris")
 
 
-async def _gmail_access_token(client: httpx.AsyncClient, config: dict) -> str:
+async def _gmail_access_token(client: httpx.AsyncClient, config: dict, authorizer_id: str) -> str:
     """Exchange an OAuth2 refresh token for a fresh access token (Gmail).
 
     Reads client_id + token_endpoint + scopes from the authorizer config and
@@ -197,8 +173,8 @@ async def _gmail_access_token(client: httpx.AsyncClient, config: dict) -> str:
     token, and must only ever POST them to a known OAuth provider. Raises `EgressRefused`.
     """
     token_endpoint = _egress.require_token_endpoint(config.get("token_endpoint") or _GMAIL_TOKEN_URL)
-    client_secret = await _fetch_secret_material(client, config["client_secret_artifact_id"])
-    refresh_token = await _fetch_secret_material(client, config["refresh_token_artifact_id"])
+    client_secret = await _fetch_secret_material(client, config["client_secret_artifact_id"], authorizer_id)
+    refresh_token = await _fetch_secret_material(client, config["refresh_token_artifact_id"], authorizer_id)
     resp = await client.post(
         token_endpoint,
         data={
@@ -303,7 +279,7 @@ async def send_email(
             # 2. Resolve credentials + mint an access token (server-side). Runs
             #    under the caller's delegation — for platform sends that's the
             #    operator, who holds read on the bound secrets.
-            access_token = await _gmail_access_token(client, config)
+            access_token = await _gmail_access_token(client, config, authorizer_id)
             sender_address = config.get("sender_address", "")
 
             # 3. Build the MIME message and send via Gmail.
@@ -326,7 +302,7 @@ async def send_email(
     # MissingDelegationError is a PermissionError, so it is not caught by the tuple below — named
     # explicitly so the fail-closed refusal comes back in the same parseable shape as every other failure
     # here rather than as an unhandled exception.
-    except (MissingDelegationError, _egress.EgressRefused) as exc:
+    except (MissingDelegationError, _egress.EgressRefused, SecretUnavailable) as exc:
         return json.dumps({"error": f"send_email refused: {exc}"})
     except (KeyError, RuntimeError, json.JSONDecodeError) as exc:
         return json.dumps({"error": f"send_email failed: {exc}"})
@@ -1258,7 +1234,10 @@ async def call_mcp_server(server_artifact_id: str, method: str, params: Optional
         auth = None
         secret_id = (context.get("transport") or {}).get("secret_id")
         if secret_id:
-            auth = await _fetch_secret_material(client, secret_id)
+            try:
+                auth = await _fetch_secret_material(client, secret_id, server_artifact_id)
+            except SecretUnavailable as exc:
+                return json.dumps({"error": str(exc), "status": 403})
     try:
         endpoint = _server_endpoint(context)
         result = await asyncio.to_thread(_mcp_exchange, endpoint, method, params or {}, auth)
