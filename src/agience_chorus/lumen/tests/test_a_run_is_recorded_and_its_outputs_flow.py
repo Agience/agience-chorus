@@ -145,3 +145,67 @@ async def test_a_failed_step_is_on_the_run_card_with_its_error(run_world):
     assert record["status"] == "failed" and "mail refused" in record["error"]
     assert [s["status"] for s in record["steps"]] == ["completed", "failed"]
     assert "mail refused" in record["steps"][1]["error"]
+
+
+# ── a workflow scheduled before it ever ran ───────────────────────────────────────────────────
+# 2026-10-19: a timer's key creates nothing top-level, so a workflow scheduled before its first run
+# had its runs recorded in the workspace. The person scheduling it makes the Runs collection.
+
+class Scheduling:
+    def __init__(self, ctx):
+        self.docs = {"wf": {"id": "wf", "collection_id": "ws-1", "context": json.dumps(ctx)}}
+        self.created, self.patched = [], []
+
+    def client(self):
+        world = self
+
+        class _C:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, url, headers=None, **kw):
+                doc = world.docs.get(url.rsplit("/", 1)[-1])
+                return MockResponse(doc or {}, 200 if doc else 404)
+
+            async def post(self, url, headers=None, json=None, **kw):
+                world.created.append(json)
+                return MockResponse({"id": f"made-{len(world.created)}"}, 201)
+
+            async def patch(self, url, headers=None, json=None, **kw):
+                world.patched.append(json)
+                world.docs["wf"]["context"] = json["context"]
+                return MockResponse({}, 200)
+        return _C
+
+
+@pytest.mark.asyncio
+async def test_scheduling_a_workflow_makes_its_runs_and_the_timer_records_there(monkeypatch):
+    world = Scheduling({"title": "Morning check", "run": {"type": "workflow", "steps": []}})
+    monkeypatch.setattr(L.httpx, "AsyncClient", world.client())
+    monkeypatch.setattr(L, "_require_user_headers", lambda: {"Authorization": "Bearer d"})
+    out = json.loads(await L.schedule_action("ws-1", "wf", every_minutes=30, inbox_to="inbox-1"))
+    runs, timer = world.created
+    assert runs["name"] == "Runs — Morning check"
+    assert json.loads(world.docs["wf"]["context"])["runs_to"] == "made-1"
+    assert json.loads(timer["context"])["timer"]["results_to"] == "made-1"
+    assert out["timer_id"] == "made-2"
+
+    again = json.loads(await L.prepare_runs("wf"))
+    assert again == {"runs_to": "made-1"} and len(world.created) == 2, "made once"
+
+
+@pytest.mark.asyncio
+async def test_a_single_step_or_an_explicit_destination_makes_no_runs(monkeypatch):
+    world = Scheduling({"title": "One step", "run": {"type": "mcp-tool", "server": "sage", "tool": "x"}})
+    monkeypatch.setattr(L.httpx, "AsyncClient", world.client())
+    monkeypatch.setattr(L, "_require_user_headers", lambda: {"Authorization": "Bearer d"})
+    await L.schedule_action("ws-1", "wf", every_minutes=30)
+    (timer,) = world.created
+    assert "results_to" not in json.loads(timer["context"])["timer"]
+    assert "not a workflow" in json.loads(await L.prepare_runs("wf"))["error"]

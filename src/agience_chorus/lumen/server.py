@@ -517,6 +517,20 @@ async def _dispatch_child_transform(
 # Tool: run_workflow
 # ---------------------------------------------------------------------------
 
+async def _workflow_runs_to(client: httpx.AsyncClient, artifact_id: str, headers: dict) -> str:
+    """The Runs collection of `artifact_id` when it is a workflow, made if it has none; "" for
+    anything else (a single step, an operator, a card the caller cannot read)."""
+    resp = await client.get(artifact_url(MANTLE_URI, artifact_id), headers=headers)
+    if resp.status_code != 200:
+        return ""
+    doc = resp.json()
+    ctx = _timers._context(doc)
+    if (ctx.get("run") or {}).get("type") != "workflow":
+        return ""
+    runs_to = await _runs_container(client, artifact_id, ctx, "")
+    return runs_to
+
+
 async def _runs_container(client: httpx.AsyncClient, workflow_id: str, ctx: dict, workspace_id: str) -> str:
     """Where a workflow's Run cards go: its own Runs collection (`context.runs_to`), made on its first
     run, so the workspace does not fill with runs. A caller that cannot make one (a timer's key,
@@ -1116,19 +1130,24 @@ async def schedule_action(
         _timers.check_schedule(schedule)
     except _timers.ScheduleError as exc:
         return json.dumps({"error": str(exc)})
-    context = {
-        "title": title or "Timer",
-        "content_type": _timers.TIMER_TYPE,
-        "timer": {"schedule": schedule,
-                  "target": {"artifact_id": target_artifact_id, "operation": operation, "body": body or {}},
-                  **({"results_to": results_to} if results_to else {}),
-                  **({"inbox_to": inbox_to} if inbox_to else {})},
-    }
     try:
         headers = _require_user_headers()
     except MissingDelegationError as exc:
         return json.dumps({"error": str(exc)})
     async with httpx.AsyncClient(timeout=30) as client:
+        # A workflow records its runs in its own Runs collection. Made here, while a person is
+        # scheduling it: the timer's key creates nothing top-level, so its first run could not.
+        # The timer records there too, unless told otherwise, so its key reaches it.
+        if not results_to:
+            results_to = await _workflow_runs_to(client, target_artifact_id, headers) or None
+        context = {
+            "title": title or "Timer",
+            "content_type": _timers.TIMER_TYPE,
+            "timer": {"schedule": schedule,
+                      "target": {"artifact_id": target_artifact_id, "operation": operation, "body": body or {}},
+                      **({"results_to": results_to} if results_to else {}),
+                      **({"inbox_to": inbox_to} if inbox_to else {})},
+        }
         resp = await client.post(f"{MANTLE_URI}/artifacts", headers=headers, json={
             "container_id": workspace_id, "content_type": _timers.TIMER_TYPE,
             "context": json.dumps(context)})
@@ -1542,6 +1561,24 @@ async def add_workflow_step(workflow_id: str, server: str, tool: str, arguments:
         if patched.status_code >= 400:
             return json.dumps({"error": f"could not add the step ({patched.status_code})"})
     return json.dumps({"step_id": step_id, "run": ctx["run"]})
+
+
+@mcp.tool(
+    description=(
+        "Prepare a workflow's Runs collection, where each run is recorded as a Run card: made once, "
+        "by the person building the workflow, so a timer that runs it later can record there."
+    )
+)
+async def prepare_runs(workflow_id: str) -> str:
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=30) as client:
+        runs_to = await _workflow_runs_to(client, workflow_id, headers)
+    if not runs_to:
+        return json.dumps({"error": "not a workflow you can read, or its Runs collection could not be made"})
+    return json.dumps({"runs_to": runs_to})
 
 
 @mcp.resource("ui://lumen/vnd.agience.run.html")

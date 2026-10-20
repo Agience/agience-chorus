@@ -290,7 +290,11 @@ async function saveNow() {
   status('Saving…');
   try {
     if (kind === 'step') await save({ run: currentStepRun() });
-    else await save({ run: { type: 'workflow', steps: ((ctx.run && ctx.run.type === 'workflow') ? ctx.run.steps : []) || [] } });
+    else {
+      await save({ run: { type: 'workflow', steps: ((ctx.run && ctx.run.type === 'workflow') ? ctx.run.steps : []) || [] } });
+      // Its Runs collection, made now by the person building it, so a timer can record there later.
+      if (!catalog.runs_to) catalog.runs_to = (await tool('prepare_runs', { workflow_id: artifactId })).runs_to;
+    }
     status('Saved.'); render();
   } catch (e) { status(e.message, true); }
 }

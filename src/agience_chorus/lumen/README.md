@@ -26,6 +26,7 @@ Implemented (live):
 | `disarm_timer` | Disarm a Timer: forget its key; it does not fire again |
 | `reconcile` | Reconcile several accounts of one event: what all agree on, where they differ (with the accounts and evidence behind each version), what only one states; each difference raised for a person to settle |
 | `workflow_catalog` | What a workflow card's builder offers: the tools the caller can use, the steps in its workspace, and the caller's Inbox |
+| `prepare_runs` | Prepare a workflow's Runs collection, where each run is recorded as a Run card |
 | `add_workflow_step` | Add a step to a workflow card: a Transform calling a tool, made beside the workflow and appended to its steps |
 | `invoke_connection` | Invoke an LLM connection card: send a conversation to the model it names, with the key it points at, on the caller's grant to that key |
 | `raise_item` | Raise an Inbox item: something that needs a person, with why, what it came from, and optionally an action approving it runs |
