@@ -171,6 +171,7 @@ from agience_chorus.lumen import timers as _timers
 from agience_chorus.lumen import inbox as _inbox
 from agience_chorus.lumen import connection as _connection
 from agience_chorus.lumen import reconcile as _reconcile
+from agience_chorus.lumen import runs as _runs
 from agience_chorus._secrets import SecretUnavailable as _SecretUnavailable, use_secret as _use_secret
 register_types_manifest(mcp, "lumen", __file__)
 
@@ -516,6 +517,28 @@ async def _dispatch_child_transform(
 # Tool: run_workflow
 # ---------------------------------------------------------------------------
 
+async def _runs_container(client: httpx.AsyncClient, workflow_id: str, ctx: dict, workspace_id: str) -> str:
+    """Where a workflow's Run cards go: its own Runs collection (`context.runs_to`), made on its first
+    run, so the workspace does not fill with runs. A caller that cannot make one (a timer's key,
+    which creates nothing top-level) records into the workspace instead."""
+    if ctx.get("runs_to"):
+        return str(ctx["runs_to"])
+    try:
+        headers = _require_user_headers()
+        made = await client.post(f"{MANTLE_URI}/artifacts", headers=headers, json={
+            "content_type": "application/vnd.agience.collection+json",
+            "name": f"Runs — {ctx.get('title') or 'workflow'}"})
+        if made.status_code < 400:
+            runs_to = made.json().get("id")
+            ctx["runs_to"] = runs_to
+            await client.patch(artifact_url(MANTLE_URI, workflow_id), headers=headers,
+                               json={"context": json.dumps(ctx)})
+            return runs_to
+    except Exception:  # noqa: BLE001 — the run is recorded beside the workflow instead
+        log.warning("could not make a Runs collection for %s", workflow_id, exc_info=True)
+    return workspace_id
+
+
 @mcp.tool(
     description=(
         "Execute a multi-step workflow defined by a Transform artifact. "
@@ -583,13 +606,52 @@ async def run_workflow(
         if not steps:
             return "Workflow has no steps."
 
-        # 2. Execute steps
+        # 1b. The run's record: a Run card holding each step's status, output and error, which is
+        # also the state a step's `condition` and a `retry` read. A caller naming its own state
+        # artifact keeps it.
+        run_id = ""
+        run_record: Optional[dict] = None
+        if not state_artifact_id:
+            try:
+                runs_to = await _runs_container(client, workflow_artifact_id, ctx, workspace_id)
+                run_record = _runs.new_run(workflow_artifact_id, ctx.get("title") or "", steps)
+                made = await client.post(f"{MANTLE_URI}/artifacts", headers=_require_user_headers(), json={
+                    "container_id": runs_to, "content_type": _runs.RUN_TYPE,
+                    "context": json.dumps(run_record)})
+                if made.status_code < 400:
+                    run_id = state_artifact_id = made.json().get("id")
+                else:
+                    run_record = None
+            except Exception:  # noqa: BLE001 — a run with no record still runs
+                run_record = None
+                log.warning("could not record a run of %s", workflow_artifact_id, exc_info=True)
+
+        async def _record() -> None:
+            if run_record is None or not run_id:
+                return
+            try:
+                await _patch_artifact_context(client, workspace_id, run_id, {
+                    k: run_record[k] for k in ("status", "steps", "finished_at", "error") if k in run_record})
+            except Exception as exc:  # noqa: BLE001
+                log.warning("could not update run %s: %s", run_id, exc)
+
+        # 2. Execute steps. Each step's output is in reach of the steps after it
+        # (`$.previous`, `$.steps.<name>`; `runs.py`).
         results: list[dict[str, Any]] = []
         retry_count = 0
         retries_performed = 0
+        outputs: dict[str, Any] = {}
+        previous: dict[str, Any] = {}
+
+        async def _failed(index: int, error_msg: str) -> None:
+            nonlocal run_record
+            if run_record is not None:
+                run_record = _runs.finish(_runs.mark(run_record, index, "failed", error=error_msg), "failed", error_msg)
+                await _record()
 
         async def _execute_steps_from(start_index: int) -> str | None:
             """Execute steps starting from start_index. Returns error string or None."""
+            nonlocal run_record
             for i in range(start_index, len(steps)):
                 step = steps[i]
                 step_name = step.get("name", f"step_{i}")
@@ -625,16 +687,14 @@ async def run_workflow(
                     except Exception as exc:
                         log.warning("Failed to update state artifact step info: %s", exc)
 
-                # Build params for child dispatch
-                child_params = dict(extra)
-                step_mapping = step.get("input_mapping") or {}
-                for k, v in step_mapping.items():
-                    if isinstance(v, str) and v.startswith("$."):
-                        resolved = extra.get(v[2:])
-                        if resolved is not None:
-                            child_params[k] = resolved
-                    else:
-                        child_params[k] = v
+                if run_record is not None:
+                    run_record = _runs.mark(run_record, i, "running")
+                    await _record()
+
+                # Build params for child dispatch: the run's parameters, what the steps before
+                # returned, and this step's own mapping resolved against both.
+                scope = {**extra, "steps": dict(outputs), **({"previous": previous["v"]} if "v" in previous else {})}
+                child_params = {**scope, **_runs.resolve_mapping(step.get("input_mapping") or {}, scope)}
 
                 # Dispatch child transform
                 log.info("Workflow step %d (%s) � dispatching transform %s", i, step_name, child_transform_id)
@@ -648,6 +708,12 @@ async def run_workflow(
                         # and the workflow reported success over it.
                         raise RuntimeError(failure)
                     results.append({"step": i, "name": step_name, "status": "completed", "result": result})
+                    value = _runs.output_of(result)
+                    outputs[step_name] = value
+                    previous["v"] = value
+                    if run_record is not None:
+                        run_record = _runs.mark(run_record, i, "completed", output=value)
+                        await _record()
                 except httpx.HTTPStatusError as exc:
                     error_msg = f"Step {i} ({step_name}) failed: HTTP {exc.response.status_code}"
                     try:
@@ -665,10 +731,11 @@ async def run_workflow(
                             })
                         except Exception:
                             pass
+                    await _failed(i, error_msg)
                     # The state artifact keeps the human-readable string; the tool return is JSON
                     # (see the note at the top of run_workflow) — this is the branch that fires on a
                     # real step failure, the one a caller most needs to be able to parse.
-                    return json.dumps({"error": error_msg, "step": i, "name": step_name})
+                    return json.dumps({"error": error_msg, "step": i, "name": step_name, "run_id": run_id})
                 except Exception as exc:
                     error_msg = f"Step {i} ({step_name}) failed: {exc}"
                     results.append({"step": i, "name": step_name, "status": "error", "error": error_msg})
@@ -680,7 +747,8 @@ async def run_workflow(
                             })
                         except Exception:
                             pass
-                    return json.dumps({"error": error_msg, "step": i, "name": step_name})
+                    await _failed(i, error_msg)
+                    return json.dumps({"error": error_msg, "step": i, "name": step_name, "run_id": run_id})
 
             return None  # success
 
@@ -745,9 +813,14 @@ async def run_workflow(
             except Exception as exc:
                 log.warning("Failed to mark state as completed: %s", exc)
 
+        if run_record is not None:
+            run_record = _runs.finish(run_record, "completed")
+            await _record()
+
         completed = sum(1 for r in results if r.get("status") == "completed")
         skipped = sum(1 for r in results if r.get("status") == "skipped")
-        return f"Workflow completed: {completed} steps executed, {skipped} skipped, {retries_performed} retries."
+        recorded = f" Run: {run_id}." if run_id else ""
+        return f"Workflow completed: {completed} steps executed, {skipped} skipped, {retries_performed} retries.{recorded}"
 
 
 # ---------------------------------------------------------------------------
@@ -758,26 +831,8 @@ _MAX_TRANSFORM_DEPTH = 10
 
 
 def _resolve_input_mapping(mapping: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
-    """Resolve '$.field' and '$.field[N]' references in mapping against params."""
-    result: dict[str, Any] = {}
-    for key, value in mapping.items():
-        if isinstance(value, str) and value.startswith("$."):
-            path = value[2:]
-            if "[" in path:
-                field, rest = path.split("[", 1)
-                try:
-                    idx = int(rest.rstrip("]"))
-                except ValueError:
-                    idx = 0
-                raw = params.get(field)
-                resolved = raw[idx] if isinstance(raw, list) and len(raw) > idx else None
-            else:
-                resolved = params.get(path)
-            if resolved is not None:
-                result[key] = resolved
-        else:
-            result[key] = value
-    return result
+    """Resolve '$.path' references (`a.b[0].c`) in mapping against params (`runs.resolve_mapping`)."""
+    return _runs.resolve_mapping(mapping, params)
 
 
 @mcp.tool(
@@ -1421,6 +1476,21 @@ async def workflow_catalog(workflow_id: str) -> str:
                         ctx = _ctx_of(m)
                         steps.append({"id": m.get("root_id") or m.get("id"), "title": ctx.get("title") or "Step",
                                       "does": _step_summary(ctx)})
+        # The workflow's recent runs, newest first, from its Runs collection.
+        runs_to = str(_ctx_of(card.json()).get("runs_to") or "")
+        recent = []
+        if runs_to:
+            page = await client.get(artifact_url(MANTLE_URI, runs_to, "children"), headers=headers,
+                                    params={"limit": 200})
+            if page.status_code == 200:
+                body = page.json()
+                for m in (body.get("items", body) if isinstance(body, dict) else body) or []:
+                    if m.get("content_type") == _runs.RUN_TYPE:
+                        rc = _ctx_of(m)
+                        recent.append({"id": m.get("root_id") or m.get("id"), "title": rc.get("title"),
+                                       "status": rc.get("status"), "started_at": rc.get("started_at") or "",
+                                       "steps": rc.get("steps") or []})
+                recent.sort(key=lambda r: r["started_at"], reverse=True)
         inbox_id = ""
         me = _get_delegation_user_id()
         ws = await client.get(f"{MANTLE_URI}/artifacts/visible", headers=headers,
@@ -1431,7 +1501,8 @@ async def workflow_catalog(workflow_id: str) -> str:
                    if str(w.get("created_by")) == str(me)]
             own.sort(key=lambda w: str(w.get("created_time") or ""))
             inbox_id = own[0].get("id") if own else ""
-    return json.dumps({"workspace_id": workspace_id, "tools": tools, "steps": steps, "inbox_id": inbox_id})
+    return json.dumps({"workspace_id": workspace_id, "tools": tools, "steps": steps, "inbox_id": inbox_id,
+                       "runs_to": runs_to, "runs": recent[:5]})
 
 
 @mcp.tool(
@@ -1471,6 +1542,13 @@ async def add_workflow_step(workflow_id: str, server: str, tool: str, arguments:
         if patched.status_code >= 400:
             return json.dumps({"error": f"could not add the step ({patched.status_code})"})
     return json.dumps({"step_id": step_id, "run": ctx["run"]})
+
+
+@mcp.resource("ui://lumen/vnd.agience.run.html")
+async def run_viewer_html() -> str:
+    """Serve the viewer HTML for vnd.agience.run+json."""
+    view_path = pathlib.Path(__file__).parent / "ui" / "application" / "vnd.agience.run+json" / "view.html"
+    return view_path.read_text(encoding="utf-8")
 
 
 @mcp.resource("ui://lumen/vnd.agience.inbox-item.html")

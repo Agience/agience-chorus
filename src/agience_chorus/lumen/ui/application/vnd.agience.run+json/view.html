@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Run</title>
+<style>
+  body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 16px; font-size: 13px; color: #111827; }
+  .head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .title { font-weight: 600; font-size: 15px; }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+  .running { background: #dbeafe; color: #1e40af; } .completed { background: #dcfce7; color: #166534; }
+  .failed { background: #fee2e2; color: #991b1b; } .pending { background: #f3f4f6; color: #6b7280; }
+  .muted { color: #6b7280; font-size: 12px; }
+  .step { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; margin-top: 10px; }
+  .step .row { display: flex; gap: 8px; align-items: center; }
+  .num { width: 20px; height: 20px; border-radius: 999px; background: #eef2ff; color: #3730a3; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #f9fafb; border-radius: 6px; padding: 8px; margin: 8px 0 0; font-size: 12px; max-height: 240px; overflow: auto; }
+  .err { color: #b91c1c; }
+</style>
+</head>
+<body>
+  <div class="head"><span class="title" id="title">Run</span><span id="status" class="badge pending">…</span></div>
+  <div class="muted" id="when"></div>
+  <div class="err" id="error"></div>
+  <div id="steps"></div>
+<script>
+let _id = 0; const _pending = {};
+function rpc(method, params) { return new Promise((resolve, reject) => { const id = ++_id; _pending[id] = { resolve, reject };
+  parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*'); }); }
+window.addEventListener('message', (e) => {
+  const d = e.data; if (!d || d.jsonrpc !== '2.0') return;
+  if (d.id && _pending[d.id]) { const p = _pending[d.id]; delete _pending[d.id]; d.error ? p.reject(d.error) : p.resolve(d.result); return; }
+  if (d.method === 'ui/notifications/tool-result') show(d.params);
+});
+rpc('ui/initialize', { protocolVersion: '2026-01-26', clientInfo: { name: 'agience-viewer', version: '0.1.0' } })
+  .then(() => parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/initialized' }, '*'));
+
+function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+
+function show(params) {
+  let ctx = {};
+  for (const b of (params && params.content) || []) {
+    if (b.type !== 'text' || !b.text) continue;
+    try { const d = JSON.parse(b.text); ctx = typeof d.context === 'string' ? JSON.parse(d.context) : (d.context || {}); } catch { /* ignore */ }
+  }
+  document.getElementById('title').textContent = ctx.title || 'Run';
+  const st = document.getElementById('status'); st.textContent = ctx.status || 'pending'; st.className = 'badge ' + (ctx.status || 'pending');
+  document.getElementById('when').textContent = [ctx.started_at && `started ${ctx.started_at}`, ctx.finished_at && `finished ${ctx.finished_at}`].filter(Boolean).join(' · ');
+  document.getElementById('error').textContent = ctx.error || '';
+  document.getElementById('steps').replaceChildren(...(ctx.steps || []).map((s) => {
+    const box = el('div', 'step'); const row = el('div', 'row');
+    row.append(el('span', 'num', String((s.index ?? 0) + 1)), el('b', '', s.name || 'Step'), el('span', 'badge ' + (s.status || 'pending'), s.status || 'pending'));
+    box.append(row);
+    if (s.error) box.append(el('pre', 'err', s.error));
+    else if (s.output !== undefined) box.append(el('pre', '', s.output));
+    return box;
+  }));
+}
+</script>
+</body>
+</html>

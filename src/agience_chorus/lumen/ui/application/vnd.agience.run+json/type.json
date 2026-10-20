@@ -1,0 +1,45 @@
+{
+  "content_type": "application/vnd.agience.run+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Run — one run of a workflow: when it ran, its status, and each step's status, output and error. Lumen writes it as the workflow runs, into the workflow's Runs collection; a later step reads what an earlier one returned ($.previous, $.steps.<name>).",
+  "ui": {
+    "label": "Run",
+    "icon": "activity",
+    "color": "#4f46e5",
+    "badge_class": "bg-indigo-100 text-indigo-800",
+    "tile_class": "",
+    "modes": [
+      "floating"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": false,
+    "viewer": "run",
+    "resource_uri": "ui://lumen/vnd.agience.run.html",
+    "resource_server": "lumen"
+  },
+  "context_schema": {
+    "workflow_id": {
+      "type": "string",
+      "description": "The workflow this is a run of",
+      "mutable": false
+    },
+    "status": {
+      "type": "string",
+      "description": "running, completed or failed",
+      "mutable": false
+    },
+    "steps": {
+      "type": "array",
+      "description": "Each step: index, name, transform_id, status (pending, running, completed, failed), started_at, finished_at, output, error",
+      "mutable": false
+    }
+  }
+}

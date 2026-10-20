@@ -81,6 +81,11 @@
   </div>
   <pre id="result" class="hidden"></pre>
 
+  <div class="card hidden" id="runsCard">
+    <h2>Recent runs</h2>
+    <div id="runs"></div>
+  </div>
+
   <div class="card">
     <h2>Run it on a schedule</h2>
     <div class="row">
@@ -159,8 +164,9 @@ function fillToolSelect(sel, chosen) {
   sel.value = chosen || '';
 }
 
-// A form from the tool's own input schema: one field per argument, required ones marked.
-function argForm(host, t, values) {
+// A form from the tool's own input schema: one field per argument, required ones marked. With
+// `sources` (a workflow step), each argument can instead take what an earlier step returned.
+function argForm(host, t, values, sources) {
   host.replaceChildren();
   if (!t) return;
   const props = (t.input_schema && t.input_schema.properties) || {};
@@ -176,7 +182,19 @@ function argForm(host, t, values) {
     else { input = document.createElement('input'); input.type = (type === 'integer' || type === 'number') ? 'number' : 'text';
       input.value = values[name] !== undefined ? (values[name] === '$inbox' ? catalog.inbox_id || '' : values[name]) : ''; }
     input.dataset.arg = name; input.dataset.type = type;
-    host.appendChild(l); host.appendChild(input);
+    host.appendChild(l);
+    if (sources && sources.length) {
+      const row = document.createElement('div'); row.className = 'row';
+      const src = document.createElement('select'); src.dataset.srcFor = name; src.style.width = 'auto';
+      src.appendChild(new Option('a value I type', 'typed'));
+      for (const [label, value] of sources) src.appendChild(new Option(label, value));
+      const path = document.createElement('input'); path.dataset.pathFor = name; path.placeholder = 'field inside it (optional)';
+      path.className = 'grow hidden';
+      src.onchange = () => { const typed = src.value === 'typed';
+        input.classList.toggle('hidden', !typed); path.classList.toggle('hidden', typed); };
+      row.append(src, path); host.appendChild(row);
+    }
+    host.appendChild(input);
     if (spec && spec.description) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = spec.description; host.appendChild(h); }
   }
   if (!Object.keys(props).length) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = 'This tool takes no arguments.'; host.appendChild(h); }
@@ -184,7 +202,14 @@ function argForm(host, t, values) {
 
 function readArgs(host) {
   const out = {};
+  const fromSteps = {};
+  for (const sel of host.querySelectorAll('[data-src-for]')) {
+    if (sel.value === 'typed') continue;
+    const path = (host.querySelector(`[data-path-for="${sel.dataset.srcFor}"]`) || {}).value || '';
+    fromSteps[sel.dataset.srcFor] = `$.${sel.value}` + (path.trim() ? `.${path.trim()}` : '');
+  }
   for (const el of host.querySelectorAll('[data-arg]')) {
+    if (el.dataset.arg in fromSteps) { out[el.dataset.arg] = fromSteps[el.dataset.arg]; continue; }
     const t = el.dataset.type, v = t === 'boolean' ? el.checked : el.value.trim();
     if (v === '' || v === undefined) continue;
     if (t === 'integer' || t === 'number') out[el.dataset.arg] = Number(v);
@@ -194,7 +219,26 @@ function readArgs(host) {
   return out;
 }
 
+function renderRuns() {
+  const runs = catalog.runs || [];
+  $('runsCard').classList.toggle('hidden', !runs.length);
+  $('runs').replaceChildren(...runs.map((r) => {
+    const d = document.createElement('details');
+    const sm = document.createElement('summary');
+    sm.textContent = `${(r.started_at || '').slice(0, 16).replace('T', ' ')} — ${r.status || '?'}`;
+    sm.className = r.status === 'failed' ? 'err' : (r.status === 'completed' ? 'ok' : 'muted');
+    d.appendChild(sm);
+    for (const st of r.steps || []) {
+      const pre = document.createElement('pre');
+      pre.textContent = `${(st.index ?? 0) + 1}. ${st.name} — ${st.status}\n${st.error || st.output || ''}`;
+      d.appendChild(pre);
+    }
+    return d;
+  }));
+}
+
 function render() {
+  renderRuns();
   $('title').value = ctx.title || '';
   for (const b of $('kind').querySelectorAll('button')) b.classList.toggle('on', b.dataset.kind === kind);
   $('stepCard').classList.toggle('hidden', kind !== 'step');
@@ -271,7 +315,13 @@ $('kind').onclick = (e) => { const k = e.target.dataset && e.target.dataset.kind
   kind = k; if (k === 'workflow' && !(ctx.run && ctx.run.type === 'workflow')) ctx = { ...ctx, run: { type: 'workflow', steps: [] } };
   render(); };
 $('tool').onchange = () => { const t = findTool($('tool').value); $('toolHint').textContent = (t && t.description) || ''; argForm($('argForm'), t, {}); };
-$('newTool').onchange = () => { const t = findTool($('newTool').value); $('newToolHint').textContent = (t && t.description) || ''; argForm($('newArgForm'), t, {}); };
+function stepSources() {
+  const steps = (ctx.run && ctx.run.type === 'workflow' && ctx.run.steps) || [];
+  if (!steps.length) return [];
+  return [["the previous step's output", 'previous'],
+          ...steps.map((st) => [`the output of "${st.name}"`, `steps.${st.name}`])];
+}
+$('newTool').onchange = () => { const t = findTool($('newTool').value); $('newToolHint').textContent = (t && t.description) || ''; argForm($('newArgForm'), t, {}, stepSources()); };
 $('save').onclick = saveNow;
 
 $('addStep').onclick = async () => {
@@ -314,6 +364,7 @@ $('run').onclick = async () => {
     $('result').classList.remove('hidden');
     $('result').textContent = typeof out === 'string' ? out : JSON.stringify(out, null, 2);
     status('Done.');
+    tool('workflow_catalog', { workflow_id: artifactId }).then((c) => { catalog = c; renderRuns(); }).catch(() => {});
   } catch (e) { $('result').classList.remove('hidden'); $('result').textContent = e.message; status('It failed.', true); }
   finally { $('run').disabled = false; }
 };
@@ -326,6 +377,8 @@ $('schedule').onclick = async () => {
     const args = { workspace_id: catalog.workspace_id, target_artifact_id: artifactId, title: `${ctx.title || 'Workflow'} (schedule)` };
     args[every] = every === 'every_minutes' ? Number(when) : when;
     if ($('inbox').checked && catalog.inbox_id) args.inbox_to = catalog.inbox_id;
+    // The timer records each run where the workflow keeps its runs, so its key reaches them.
+    if (catalog.runs_to) args.results_to = catalog.runs_to;
     const out = await tool('schedule_action', args);
     $('scheduleHint').textContent = `Timer "${args.title}" is ready next to this card. Open it and press Arm.`;
     status(out.timer_id ? 'Timer created.' : '');
