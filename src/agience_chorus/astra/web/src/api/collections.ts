@@ -38,6 +38,12 @@ export function listCollections(action: string = 'read'): Promise<CollectionResp
   );
 }
 
+// Every artifact of one content type the caller can read: what a picker offers for an argument
+// that names an artifact of that type.
+export function listVisibleOfType(contentType: string): Promise<ArtifactResponse[]> {
+  return getList('/artifacts/visible', { params: { content_type: contentType } });
+}
+
 // get a single collection
 export function getCollection(id: string, _grantKey?: string): Promise<CollectionResponse> {
   return get(`/artifacts/${id}`);

@@ -54,6 +54,7 @@ from urllib.parse import quote
 import logging
 import os
 import pathlib
+import uuid
 from typing import Any, Optional
 
 import httpx
@@ -517,6 +518,21 @@ async def _dispatch_child_transform(
 # Tool: run_workflow
 # ---------------------------------------------------------------------------
 
+async def _workflow_links(client: httpx.AsyncClient, workflow_id: str) -> dict[str, str]:
+    """{relationship: linked id} for the workflow's typed links the caller may read."""
+    resp = await client.get(artifact_url(MANTLE_URI, workflow_id, "children"), headers=_require_user_headers(),
+                            params={"links": "*", "limit": 1000})
+    if resp.status_code != 200:
+        return {}
+    body = resp.json()
+    out: dict[str, str] = {}
+    for m in (body.get("items", body) if isinstance(body, dict) else body) or []:
+        rel = m.get("relationship")
+        if rel and rel not in out:
+            out[rel] = m.get("root_id") or m.get("id")
+    return out
+
+
 async def _workflow_runs_to(client: httpx.AsyncClient, artifact_id: str, headers: dict) -> str:
     """The Runs collection of `artifact_id` when it is a workflow, made if it has none; "" for
     anything else (a single step, an operator, a card the caller cannot read)."""
@@ -650,7 +666,11 @@ async def run_workflow(
                 log.warning("could not update run %s: %s", run_id, exc)
 
         # 2. Execute steps. Each step's output is in reach of the steps after it
-        # (`$.previous`, `$.steps.<name>`; `runs.py`).
+        # (`$.previous`, `$.steps.<name>`; `runs.py`), and its artifacts are the workflow's links.
+        links: dict[str, str] = {}
+        if any(isinstance(v, str) and v.startswith(_runs.LINK)
+               for st in steps for v in (st.get("arguments") or {}).values()):
+            links = await _workflow_links(client, workflow_artifact_id)
         results: list[dict[str, Any]] = []
         retry_count = 0
         retries_performed = 0
@@ -669,10 +689,11 @@ async def run_workflow(
             for i in range(start_index, len(steps)):
                 step = steps[i]
                 step_name = step.get("name", f"step_{i}")
-                child_transform_id = step.get("transform_id")
+                operator_id = step.get("operator_id")
+                child_transform_id = operator_id or step.get("transform_id")
 
                 if not child_transform_id:
-                    return json.dumps({"error": f"step {i} ({step_name}) is missing transform_id."})
+                    return json.dumps({"error": f"step {i} ({step_name}) names no operator."})
 
                 # Evaluate condition if present
                 condition = step.get("condition")
@@ -708,7 +729,19 @@ async def run_workflow(
                 # Build params for child dispatch: the run's parameters, what the steps before
                 # returned, and this step's own mapping resolved against both.
                 scope = {**extra, "steps": dict(outputs), **({"previous": previous["v"]} if "v" in previous else {})}
-                child_params = {**scope, **_runs.resolve_mapping(step.get("input_mapping") or {}, scope)}
+                if operator_id:
+                    # An operator takes exactly the arguments the step gives it: its links, then
+                    # what earlier steps returned.
+                    try:
+                        child_params = _runs.resolve_mapping(
+                            _runs.resolve_links(step.get("arguments") or {}, links), scope)
+                    except _runs.LinkMissing as exc:
+                        error_msg = f"Step {i} ({step_name}) failed: {exc}"
+                        results.append({"step": i, "name": step_name, "status": "error", "error": error_msg})
+                        await _failed(i, error_msg)
+                        return json.dumps({"error": error_msg, "step": i, "name": step_name, "run_id": run_id})
+                else:
+                    child_params = {**scope, **_runs.resolve_mapping(step.get("input_mapping") or {}, scope)}
 
                 # Dispatch child transform
                 log.info("Workflow step %d (%s) � dispatching transform %s", i, step_name, child_transform_id)
@@ -1189,6 +1222,34 @@ async def arm_timer(timer_id: str, key: str, key_id: str) -> str:
     return json.dumps({"timer_id": timer_id, "armed": True})
 
 
+@mcp.tool(
+    description=(
+        "What a Timer's key must reach to run what it runs: its workspace and target, where it records "
+        "runs and raises failures, and for a workflow each operator a step invokes and each artifact a "
+        "step links. The person arming it approves this list."
+    )
+)
+async def timer_reach(timer_id: str) -> str:
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=20) as client:
+        mine = await client.get(artifact_url(MANTLE_URI, timer_id), headers=headers)
+        if mine.status_code != 200 or mine.json().get("content_type") != _timers.TIMER_TYPE:
+            return json.dumps({"error": "no such timer, or you cannot read it"})
+        spec = _timers._context(mine.json()).get("timer") or {}
+        target = (spec.get("target") or {}).get("artifact_id")
+        workflow, links = None, {}
+        if target:
+            got = await client.get(artifact_url(MANTLE_URI, target), headers=headers)
+            if got.status_code == 200:
+                workflow = _timers._context(got.json())
+                if (workflow.get("run") or {}).get("type") == "workflow":
+                    links = await _workflow_links(client, target)
+    return json.dumps({"resources": _timers.reach(mine.json().get("collection_id") or "", spec, workflow, links)})
+
+
 @mcp.tool(description="Disarm a Timer: forget its key; it does not fire again. The caller must be able to read it.")
 async def disarm_timer(timer_id: str) -> str:
     store = _timer_store()
@@ -1449,89 +1510,97 @@ async def reconcile(collection_id: str, inbox_to: str = "", out_to: str = "") ->
 _TRANSFORM_TYPE = "application/vnd.agience.transform+json"
 
 
-def _step_summary(ctx: dict) -> str:
-    run = ctx.get("run") or {}
-    if run.get("type") == "mcp-tool":
-        return f"{run.get('server')}: {run.get('tool')}"
-    if run.get("type") == "workflow":
-        return f"workflow of {len(run.get('steps') or [])} steps"
-    return str(run.get("type") or "not set")
+_OPERATOR_TYPE = "application/vnd.agience.operator+json"
+
+
+def _items(resp) -> list:
+    if resp.status_code != 200:
+        return []
+    body = resp.json()
+    return (body.get("items", body) if isinstance(body, dict) else body) or []
 
 
 @mcp.tool(
     description=(
-        "What a workflow card's builder offers: every tool the caller can use, by persona, with its "
-        "inputs; the steps already in the card's workspace; the workspace; and the caller's Inbox."
+        "What a workflow card's builder offers: the operators the caller may invoke (the platform's, "
+        "their own, and ones shared with them), each with its inputs; the workflow's steps with "
+        "what each links; the workspace; the caller's Inbox; and the recent runs."
     )
 )
 async def workflow_catalog(workflow_id: str) -> str:
     try:
-        headers, caller = _require_user_headers(), _require_caller_headers()
+        headers = _require_user_headers()
     except MissingDelegationError as exc:
         return json.dumps({"error": str(exc)})
+    me = _get_delegation_user_id()
     async with httpx.AsyncClient(timeout=60) as client:
         card = await client.get(artifact_url(MANTLE_URI, workflow_id), headers=headers)
         if card.status_code != 200:
             return json.dumps({"error": "no such workflow, or you cannot read it"})
         workspace_id = card.json().get("collection_id") or ""
-        personas = await client.get(f"{CRYSTAL_URI}/personas", headers=caller)
-        tools = []
-        if personas.status_code == 200:
-            for p in (personas.json() or {}).get("items") or []:
-                if p.get("status") != "ok":
-                    continue
-                for t in p.get("tools") or []:
-                    tools.append({"server": p.get("server") or p.get("name"), "name": t.get("name"),
-                                  "description": (t.get("description") or "")[:300],
-                                  "input_schema": t.get("input_schema") or {}})
+        wf_ctx = _ctx_of(card.json())
+        # What the platform provides is named by the node, never by what an operator says of itself.
+        platform = {i["id"]: i.get("slug") or "" for i in _items(await client.get(
+            f"{MANTLE_URI}/artifacts/platform-operators", headers=headers)) if i.get("id")}
+        operators = []
+        for m in _items(await client.get(f"{MANTLE_URI}/artifacts/visible", headers=headers, params={
+                "content_type": _OPERATOR_TYPE, "action": "invoke", "limit": 500})):
+            oid = m.get("root_id") or m.get("id")
+            ctx = _ctx_of(m)
+            group = "platform" if oid in platform else ("mine" if str(m.get("created_by")) == str(me) else "shared")
+            operators.append({"id": oid, "slug": platform.get(oid, ""), "group": group,
+                              "title": ctx.get("title") or m.get("name") or "Operator",
+                              "description": (ctx.get("description") or m.get("description") or "")[:300],
+                              "input_schema": ctx.get("input_schema") or {}})
+        operators.sort(key=lambda o: ({"platform": 0, "mine": 1, "shared": 2}[o["group"]], o["title"].lower()))
+        # Each step's links, with the name a person knows them by.
+        named = {}
+        for m in _items(await client.get(artifact_url(MANTLE_URI, workflow_id, "children"), headers=headers,
+                                         params={"links": "*", "limit": 1000})):
+            if m.get("relationship"):
+                named[m["relationship"]] = {"id": m.get("root_id") or m.get("id"),
+                                            "title": _ctx_of(m).get("title") or m.get("name") or ""}
+        titles = {o["id"]: o["title"] for o in operators}
         steps = []
-        if workspace_id:
-            page = await client.get(artifact_url(MANTLE_URI, workspace_id, "children"), headers=headers,
-                                    params={"limit": 500})
-            if page.status_code == 200:
-                body = page.json()
-                for m in (body.get("items", body) if isinstance(body, dict) else body) or []:
-                    if m.get("content_type") == _TRANSFORM_TYPE:
-                        ctx = _ctx_of(m)
-                        steps.append({"id": m.get("root_id") or m.get("id"), "title": ctx.get("title") or "Step",
-                                      "does": _step_summary(ctx)})
+        for s in ((wf_ctx.get("run") or {}).get("steps") or []):
+            args = s.get("arguments") or {}
+            steps.append({"name": s.get("name") or "", "operator_id": s.get("operator_id") or "",
+                          "operator": titles.get(s.get("operator_id"), "") if s.get("operator_id") else "",
+                          "arguments": {k: v for k, v in args.items()
+                                        if not (isinstance(v, str) and v.startswith(_runs.LINK))},
+                          "links": {k: named.get(v[len(_runs.LINK):], {"id": "", "title": "(not readable)"})
+                                    for k, v in args.items() if isinstance(v, str) and v.startswith(_runs.LINK)},
+                          "legacy": not s.get("operator_id")})
         # The workflow's recent runs, newest first, from its Runs collection.
-        runs_to = str(_ctx_of(card.json()).get("runs_to") or "")
+        runs_to = str(wf_ctx.get("runs_to") or "")
         recent = []
         if runs_to:
-            page = await client.get(artifact_url(MANTLE_URI, runs_to, "children"), headers=headers,
-                                    params={"limit": 200})
-            if page.status_code == 200:
-                body = page.json()
-                for m in (body.get("items", body) if isinstance(body, dict) else body) or []:
-                    if m.get("content_type") == _runs.RUN_TYPE:
-                        rc = _ctx_of(m)
-                        recent.append({"id": m.get("root_id") or m.get("id"), "title": rc.get("title"),
-                                       "status": rc.get("status"), "started_at": rc.get("started_at") or "",
-                                       "steps": rc.get("steps") or []})
-                recent.sort(key=lambda r: r["started_at"], reverse=True)
-        inbox_id = ""
-        me = _get_delegation_user_id()
-        ws = await client.get(f"{MANTLE_URI}/artifacts/visible", headers=headers,
-                              params={"content_type": "application/vnd.agience.workspace+json", "limit": 500})
-        if ws.status_code == 200:
-            body = ws.json()
-            own = [w for w in (body.get("items", body) if isinstance(body, dict) else body) or []
-                   if str(w.get("created_by")) == str(me)]
-            own.sort(key=lambda w: str(w.get("created_time") or ""))
-            inbox_id = own[0].get("id") if own else ""
-    return json.dumps({"workspace_id": workspace_id, "tools": tools, "steps": steps, "inbox_id": inbox_id,
+            for m in _items(await client.get(artifact_url(MANTLE_URI, runs_to, "children"), headers=headers,
+                                             params={"limit": 200})):
+                if m.get("content_type") == _runs.RUN_TYPE:
+                    rc = _ctx_of(m)
+                    recent.append({"id": m.get("root_id") or m.get("id"), "title": rc.get("title"),
+                                   "status": rc.get("status"), "started_at": rc.get("started_at") or "",
+                                   "steps": rc.get("steps") or []})
+            recent.sort(key=lambda r: r["started_at"], reverse=True)
+        own = [w for w in _items(await client.get(f"{MANTLE_URI}/artifacts/visible", headers=headers, params={
+                   "content_type": "application/vnd.agience.workspace+json", "limit": 500}))
+               if str(w.get("created_by")) == str(me)]
+        own.sort(key=lambda w: str(w.get("created_time") or ""))
+        inbox_id = own[0].get("id") if own else ""
+    return json.dumps({"workspace_id": workspace_id, "operators": operators, "steps": steps, "inbox_id": inbox_id,
                        "runs_to": runs_to, "runs": recent[:5]})
 
 
 @mcp.tool(
     description=(
-        "Add a step to a workflow card: make a step (a Transform calling `tool` on `server` with "
-        "`arguments`) beside the workflow, and append it to the workflow's steps."
+        "Add a step to a workflow card: an operator the caller may invoke, with `arguments` (values, "
+        "or `$.previous` / `$.steps.<name>` for what an earlier step returned) and `links` (argument "
+        "-> artifact id), each kept as a typed link from the workflow rather than an id in a string."
     )
 )
-async def add_workflow_step(workflow_id: str, server: str, tool: str, arguments: Optional[dict] = None,
-                            name: str = "") -> str:
+async def add_workflow_step(workflow_id: str, operator_id: str, arguments: Optional[dict] = None,
+                            links: Optional[dict] = None, name: str = "") -> str:
     try:
         headers = _require_user_headers()
     except MissingDelegationError as exc:
@@ -1545,22 +1614,33 @@ async def add_workflow_step(workflow_id: str, server: str, tool: str, arguments:
         run = ctx.get("run") or {}
         if run.get("type") not in (None, "workflow"):
             return json.dumps({"error": "this card runs one step; make it a workflow first"})
-        title = name.strip() or f"{server}: {tool}"
-        step = await client.post(f"{MANTLE_URI}/artifacts", headers=headers, json={
-            "container_id": doc.get("collection_id"), "content_type": _TRANSFORM_TYPE,
-            "context": json.dumps({"title": title, "content_type": _TRANSFORM_TYPE,
-                                   "run": {"type": "mcp-tool", "server": server, "tool": tool,
-                                           "input_mapping": arguments or {}}})})
-        if step.status_code >= 400:
-            return json.dumps({"error": f"could not make the step ({step.status_code})"})
-        step_id = step.json().get("id")
-        steps = [*(run.get("steps") or []), {"name": title, "transform_id": step_id}]
+        op = await client.get(artifact_url(MANTLE_URI, operator_id), headers=headers)
+        if op.status_code != 200 or op.json().get("content_type") != _OPERATOR_TYPE:
+            return json.dumps({"error": "no such operator, or you cannot read it"})
+        may = await client.get(f"{MANTLE_URI}/grants/my-access", headers=headers,
+                               params={"resource_id": operator_id, "action": "invoke"})
+        if may.status_code != 200 or not may.json().get("allowed"):
+            return json.dumps({"error": "you may not invoke that operator"})
+        title = name.strip() or _ctx_of(op.json()).get("title") or "Step"
+        key = "s" + uuid.uuid4().hex[:8]
+        args = dict(arguments or {})
+        for arg, target in (links or {}).items():
+            if not target:
+                continue
+            rel = _runs.link_name(key, arg)
+            made = await client.post(f"{MANTLE_URI}/artifacts", headers=headers, json={
+                "container_id": workflow_id, "source_artifact_id": target, "relationship": rel})
+            if made.status_code >= 400:
+                return json.dumps({"error": f"could not link {arg} ({made.status_code}): you may not read it, "
+                                            f"or may not change this workflow"})
+            args[arg] = _runs.LINK + rel
+        steps = [*(run.get("steps") or []), {"name": title, "key": key, "operator_id": operator_id, "arguments": args}]
         ctx["run"] = {**run, "type": "workflow", "steps": steps}
         patched = await client.patch(artifact_url(MANTLE_URI, workflow_id), headers=headers,
                                      json={"context": json.dumps(ctx)})
         if patched.status_code >= 400:
             return json.dumps({"error": f"could not add the step ({patched.status_code})"})
-    return json.dumps({"step_id": step_id, "run": ctx["run"]})
+    return json.dumps({"key": key, "run": ctx["run"]})
 
 
 @mcp.tool(

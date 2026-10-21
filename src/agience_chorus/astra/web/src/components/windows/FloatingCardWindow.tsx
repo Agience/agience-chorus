@@ -551,11 +551,11 @@ export default function FloatingCardWindow(props: {
 		setBindingPickerOpen(true);
 	}, []);
 
-	const handlePickerSelect = useCallback((artifactId: string) => {
-		mcpAppRef.current?.sendPickerResult({ artifact_id: artifactId });
+	const handlePickerSelect = useCallback((artifactId: string, title?: string) => {
+		mcpAppRef.current?.sendPickerResult({ artifact_id: artifactId, role: bindingPickerParams?.role, title });
 		setBindingPickerOpen(false);
 		setBindingPickerParams(null);
-	}, []);
+	}, [bindingPickerParams]);
 
 	useEffect(() => {
 		if (!contentType?.resourceUri || !contentType?.resourceServer) {
@@ -879,6 +879,7 @@ export default function FloatingCardWindow(props: {
 							onClose={() => { setBindingPickerOpen(false); setBindingPickerParams(null); }}
 							onSelect={handlePickerSelect}
 							label={bindingPickerParams?.label}
+							contentTypes={bindingPickerParams?.content_types}
 						/>
 					</>
 				);

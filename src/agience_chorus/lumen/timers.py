@@ -33,7 +33,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 log = logging.getLogger("agience.lumen.timers")
 
@@ -159,6 +159,33 @@ class Store:
             if gone:
                 self._save(data)
             return gone
+
+
+# ── what its key must reach ───────────────────────────────────────────────────────────────────
+def reach(workspace: str, spec: Dict[str, Any], workflow: Optional[Dict[str, Any]] = None,
+          links: Optional[Dict[str, str]] = None) -> List[str]:
+    """Every resource a timer's key must reach, in order, once each: its workspace, its target,
+    where it records runs and raises failures, and for a workflow each operator a step invokes and
+    each artifact a step links. The owner approves this list, and Mantle clamps the key on each to
+    what the owner holds there, so a key over an operator carries read and invoke and no more."""
+    out: List[str] = []
+
+    def add(rid: Any) -> None:
+        if isinstance(rid, str) and rid and rid not in out:
+            out.append(rid)
+
+    add(workspace)
+    add((spec.get("target") or {}).get("artifact_id"))
+    add(spec.get("results_to"))
+    add(spec.get("inbox_to"))
+    run = (workflow or {}).get("run") or {}
+    if run.get("type") == "workflow":
+        for step in run.get("steps") or []:
+            add(step.get("operator_id"))
+            for value in (step.get("arguments") or {}).values():
+                if isinstance(value, str) and value.startswith("@link."):
+                    add((links or {}).get(value[len("@link."):]))
+    return out
 
 
 # ── firing ────────────────────────────────────────────────────────────────────────────────────

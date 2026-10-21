@@ -48,6 +48,8 @@ export interface PickerRequestParams {
   role: string;
   multi?: boolean;
   label?: string;
+  /** The content types the choice may be (an argument's `x-content-types`); collections when absent. */
+  content_types?: string[];
 }
 
 export interface CspDomains {
@@ -85,8 +87,15 @@ function recordedKeyIds(artifact: Artifact): string[] {
 // Component
 // ---------------------------------------------------------------------------
 
+export interface PickerResult {
+  artifact_id?: string;
+  /** The `role` of the request it answers, so a view with several pickers knows which one. */
+  role?: string;
+  title?: string;
+}
+
 export interface McpAppHostHandle {
-  sendPickerResult: (result: { artifact_id?: string }) => void;
+  sendPickerResult: (result: PickerResult) => void;
 }
 
 const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpAppHost({
@@ -118,7 +127,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
   // Expose sendPickerResult to parent via ref
   // (defined after sendNotification — hoisted within closure)
   useImperativeHandle(ref, () => ({
-    sendPickerResult(result: { artifact_id?: string }) {
+    sendPickerResult(result: PickerResult) {
       iframeRef.current?.contentWindow?.postMessage(
         { jsonrpc: '2.0', method: 'ui/notifications/picker-result', params: result },
         '*',
@@ -396,13 +405,25 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           sendError(req.id, -32000, 'This timer is in no workspace, so there is nothing for its key to reach');
           return;
         }
-        // Where it records runs and where it raises a failed run as an Inbox item are reached too.
+        // Where it records runs and where it raises a failed run as an Inbox item are reached too,
+        // and for a workflow each operator it invokes and each artifact it links (Lumen's
+        // `timer_reach`); Mantle clamps the key on each to what the person holds there.
         const resources = [workspace];
         for (const place of [timer.results_to, timer.inbox_to]) {
           if (typeof place === 'string' && place && !resources.includes(place)) resources.push(place);
         }
         credentialRequestPending.current = true;
         try {
+          try {
+            const answer = await proxyToolCall('timer_reach', { timer_id: artifact.id }, 'lumen');
+            const reach = JSON.parse(answer.content?.[0]?.text ?? '{}') as { resources?: unknown };
+            for (const place of Array.isArray(reach.resources) ? reach.resources : []) {
+              if (typeof place === 'string' && place && !resources.includes(place)) resources.push(place);
+            }
+          } catch {
+            // Lumen could not say: the key reaches the places named on the card, and a step that
+            // needs more is refused when it runs, by name.
+          }
           const approved = await confirmDialog.confirm({
             title: 'Arm this timer?',
             description: 'It will run on its schedule, reading, writing and running operations in the '

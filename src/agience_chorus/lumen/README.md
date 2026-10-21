@@ -23,11 +23,12 @@ Implemented (live):
 | `chain_tasks` | Chain multiple MCP tool calls sequentially, each through Crystal to a persona by name or a person's MCP server by id |
 | `schedule_action` | Create a Timer card that will run an artifact's operation on a schedule; it runs once its owner arms it from the card |
 | `arm_timer` | Arm a Timer: keep the key it acts on, sealed, and fire it on its schedule |
+| `timer_reach` | What a Timer's key must reach to run what it runs: for a workflow, each operator a step invokes and each artifact a step links |
 | `disarm_timer` | Disarm a Timer: forget its key; it does not fire again |
 | `reconcile` | Reconcile several accounts of one event: what all agree on, where they differ (with the accounts and evidence behind each version), what only one states; each difference raised for a person to settle |
-| `workflow_catalog` | What a workflow card's builder offers: the tools the caller can use, the steps in its workspace, and the caller's Inbox |
+| `workflow_catalog` | What a workflow card's builder offers: the operators the caller may invoke (the platform's, their own, ones shared with them), the workflow's steps with what each links, and the caller's Inbox |
 | `prepare_runs` | Prepare a workflow's Runs collection, where each run is recorded as a Run card |
-| `add_workflow_step` | Add a step to a workflow card: a Transform calling a tool, made beside the workflow and appended to its steps |
+| `add_workflow_step` | Add a step to a workflow card: an operator the caller may invoke, its artifacts kept as typed links from the workflow |
 | `invoke_connection` | Invoke an LLM connection card: send a conversation to the model it names, with the key it points at, on the caller's grant to that key |
 | `raise_item` | Raise an Inbox item: something that needs a person, with why, what it came from, and optionally an action approving it runs |
 | `set_item_state` | Move an Inbox item to triaged, resolved, or back to new, recorded in its history |

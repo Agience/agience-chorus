@@ -143,3 +143,23 @@ def test_a_run_the_gateway_answered_200_for_but_whose_workflow_failed_is_recorde
     report = T.fire_due(_armed(tmp_path), fake.http(), "m", "c", NOW, unseal_fn=lambda s: "k")
     assert "failed" in report["t1"]
     assert fake.ctx["timer_state"]["last_ok"] is False and "HTTP 401" in fake.ctx["timer_state"]["last_error"]
+
+
+# ── what its key must reach ───────────────────────────────────────────────────────────────────
+# 2026-10-21: a workflow's steps are operators, and its artifacts are links, in places other than the
+# timer's workspace; a key over the workspace alone was refused at the first step.
+
+def test_a_timers_key_reaches_each_operator_and_link_its_workflow_uses_once():
+    spec = {"target": {"artifact_id": "wf"}, "results_to": "runs-1", "inbox_to": "ws-1"}
+    workflow = {"run": {"type": "workflow", "steps": [
+        {"operator_id": "op-rec", "arguments": {"collection_id": "@link.s1.collection_id"}},
+        {"operator_id": "op-raise", "arguments": {"container_id": "@link.s2.container_id", "title": "x"}},
+        {"operator_id": "op-rec", "arguments": {"collection_id": "@link.s3.collection_id"}},
+    ]}}
+    links = {"s1.collection_id": "accounts-1", "s2.container_id": "inbox-1", "s3.collection_id": "accounts-1"}
+    assert T.reach("ws-1", spec, workflow, links) == ["ws-1", "wf", "runs-1", "op-rec", "accounts-1", "op-raise", "inbox-1"]
+
+
+def test_a_timer_on_anything_but_a_workflow_reaches_only_what_its_card_names():
+    spec = {"target": {"artifact_id": "op-1"}, "results_to": "log-1"}
+    assert T.reach("ws-1", spec, {"operator": {"server": "lumen"}}) == ["ws-1", "op-1", "log-1"]

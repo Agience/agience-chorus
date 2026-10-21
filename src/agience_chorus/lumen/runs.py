@@ -16,6 +16,11 @@ An output is the step's answer as the tool gave it: a JSON value when its text i
 otherwise. Paths walk objects by key and lists by `[N]`; a path that leads nowhere leaves the
 argument out, so the tool sees it missing rather than wrong.
 
+A step is an operator (`{"name", "key", "operator_id", "arguments"}`), invoked through its grant.
+An argument naming an artifact is a typed link from the workflow (`@link.<key>.<argument>`), so
+what the workflow works on is in the graph, not typed into a string; the runner reads the link as
+the person running it, and a link they cannot read is not there.
+
 Pure: no I/O.
 """
 from __future__ import annotations
@@ -66,6 +71,31 @@ def resolve_mapping(mapping: Dict[str, Any], scope: Dict[str, Any]) -> Dict[str,
     return out
 
 
+LINK = "@link."
+
+
+class LinkMissing(ValueError):
+    """A step names a link the workflow does not have, or one the runner may not read."""
+
+
+def link_name(key: str, argument: str) -> str:
+    return f"{key}.{argument}"
+
+
+def resolve_links(mapping: Dict[str, Any], links: Dict[str, str]) -> Dict[str, Any]:
+    """`mapping` with each `@link.<name>` value replaced by the id the workflow links by that name."""
+    out: Dict[str, Any] = {}
+    for key, value in (mapping or {}).items():
+        if isinstance(value, str) and value.startswith(LINK):
+            name = value[len(LINK):]
+            if name not in links:
+                raise LinkMissing(f"argument '{key}': the workflow has no link '{name}' you may read")
+            out[key] = links[name]
+        else:
+            out[key] = value
+    return out
+
+
 def output_of(result: Any) -> Any:
     """A step's answer, out of the MCP result that carries it (once more when a Transform passes
     its tool's result on whole): a JSON value when the text is JSON, the text otherwise."""
@@ -100,7 +130,9 @@ def new_run(workflow_id: str, workflow_title: str, steps: List[dict], at: Option
         "workflow_id": workflow_id,
         "status": "running",
         "started_at": at,
-        "steps": [{"index": i, "name": s.get("name") or f"step_{i}", "transform_id": s.get("transform_id"),
+        "steps": [{"index": i, "name": s.get("name") or f"step_{i}",
+                   **({"operator_id": s["operator_id"]} if s.get("operator_id")
+                      else {"transform_id": s.get("transform_id")}),
                    "status": "pending"} for i, s in enumerate(steps)],
     }
 

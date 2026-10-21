@@ -21,13 +21,12 @@
   button.primary { background: #4f46e5; border-color: #4f46e5; color: #fff; }
   button.small { padding: 2px 8px; font-size: 12px; }
   button:disabled { opacity: .5; cursor: default; }
-  .seg { display: inline-flex; border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; }
-  .seg button { border: 0; border-radius: 0; }
-  .seg button.on { background: #eef2ff; color: #3730a3; font-weight: 600; }
-  .step { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid #f3f4f6; }
+  .step { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px solid #f3f4f6; }
   .step:first-child { border-top: 0; }
-  .num { width: 22px; height: 22px; border-radius: 999px; background: #eef2ff; color: #3730a3; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+  .num { width: 22px; height: 22px; border-radius: 999px; background: #eef2ff; color: #3730a3; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; }
   .muted { color: #6b7280; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; background: #f3f4f6; margin: 2px 4px 0 0; font-size: 12px; }
+  .picked { padding: 6px 8px; border: 1px dashed #d1d5db; border-radius: 6px; }
   .recipes { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
   .recipe { text-align: left; padding: 10px; border-radius: 8px; }
   .recipe b { display: block; margin-bottom: 2px; }
@@ -39,10 +38,13 @@
 <body>
   <div class="row" style="margin-bottom:12px">
     <input id="title" class="grow" placeholder="Name this workflow" style="font-size:15px;font-weight:600" />
-    <div class="seg" id="kind">
-      <button data-kind="step" class="on">One step</button>
-      <button data-kind="workflow">Several steps</button>
-    </div>
+  </div>
+
+  <div class="card hidden" id="legacyCard">
+    <h2>This card runs a tool directly</h2>
+    <div class="hint">A workflow now runs operators: each one granted, so what it may do is decided by
+      who may invoke it. Rebuild it as steps to run it again.</div>
+    <div class="row" style="margin-top:8px"><button id="toWorkflow">Rebuild as steps</button></div>
   </div>
 
   <div class="card" id="recipesCard">
@@ -50,27 +52,17 @@
     <div class="recipes" id="recipes"></div>
   </div>
 
-  <div class="card" id="stepCard">
-    <h2>What it does</h2>
-    <label for="tool">Tool</label>
-    <select id="tool"></select>
-    <div class="hint" id="toolHint"></div>
-    <div id="argForm"></div>
-  </div>
-
-  <div class="card hidden" id="flowCard">
+  <div class="card" id="flowCard">
     <h2>Steps, in order</h2>
     <div id="steps"><div class="muted">No steps yet.</div></div>
     <div style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px">
-      <label for="newTool">Add a step</label>
-      <select id="newTool"></select>
-      <div class="hint" id="newToolHint"></div>
+      <label for="newOp">Add a step</label>
+      <select id="newOp"></select>
+      <div class="hint" id="newOpHint"></div>
       <div id="newArgForm"></div>
       <label for="newName">Step name</label>
       <input id="newName" placeholder="e.g. Reconcile the accounts" />
-      <div class="row" style="margin-top:8px"><button id="addStep">Add step</button>
-        <span class="muted">or reuse</span>
-        <select id="existing" class="grow"></select><button id="reuse" class="small">Use</button></div>
+      <div class="row" style="margin-top:8px"><button id="addStep">Add step</button></div>
     </div>
   </div>
 
@@ -111,6 +103,7 @@ window.addEventListener('message', (e) => {
   if (d.id && _pending[d.id]) { const p = _pending[d.id]; delete _pending[d.id];
     d.error ? p.reject(new Error(d.error.message || 'failed')) : p.resolve(d.result); return; }
   if (d.method === 'ui/notifications/tool-result') onCard(d.params);
+  if (d.method === 'ui/notifications/picker-result') onPicked(d.params || {});
 });
 rpc('ui/initialize', { protocolVersion: '2026-01-26', clientInfo: { name: 'agience-viewer', version: '0.1.0' } })
   .then(() => parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/initialized' }, '*'));
@@ -124,17 +117,19 @@ async function tool(name, args) {
 }
 
 const $ = (id) => document.getElementById(id);
-let artifactId = null, ctx = {}, catalog = { tools: [], steps: [], inbox_id: '' }, kind = 'step';
+let artifactId = null, ctx = {}, catalog = { operators: [], steps: [], inbox_id: '' };
+// The artifacts chosen for the step being added: argument -> { id, title }.
+let picks = {};
 
-// What a person most often starts from. Each fills the form; nothing runs until they press Run.
+// What a person most often starts from: the platform's own operators. Each fills the step form;
+// nothing runs until they press Run. `$inbox` is the person's Inbox.
 const RECIPES = [
-  { title: 'Reconcile accounts', blurb: 'Compare several write-ups of one event; agreements, conflicts, and an Inbox item per conflict.',
-    server: 'lumen', tool: 'reconcile', args: { inbox_to: '$inbox' } },
-  { title: 'Answer from my notes', blurb: 'A question answered with cited extracts from what you can read.',
-    server: 'lumen', tool: 'synthesize', args: {} },
-  { title: 'List my collections', blurb: 'A quick check that a step runs.', server: 'sage', tool: 'browse_collections', args: { limit: 10 } },
-  { title: 'Raise an Inbox item', blurb: 'Put something in front of a person, with why.',
-    server: 'lumen', tool: 'raise_item', args: { container_id: '$inbox' } },
+  { slug: 'op-reconcile-accounts', blurb: 'Compare several write-ups of one event; agreements, conflicts, and an Inbox item per conflict.',
+    links: { inbox_to: '$inbox' } },
+  { slug: 'op-answer-from-my-notes', blurb: 'A question answered with cited extracts from what you can read.' },
+  { slug: 'op-list-my-collections', blurb: 'A quick check that a step runs.', args: { limit: 10 } },
+  { slug: 'op-raise-inbox-item', blurb: 'Put something in front of a person, with why.', links: { container_id: '$inbox' } },
+  { slug: 'op-ask-a-model', blurb: 'A question to a model you have a connection to.' },
 ];
 
 function onCard(params) {
@@ -143,61 +138,92 @@ function onCard(params) {
     try { const d = JSON.parse(b.text); artifactId = d.artifact_id || artifactId;
       ctx = typeof d.context === 'string' ? JSON.parse(d.context) : (d.context || {}); } catch { /* ignore */ }
   }
-  kind = (ctx.run && ctx.run.type === 'workflow') ? 'workflow' : 'step';
   render();
-  tool('workflow_catalog', { workflow_id: artifactId }).then((c) => { catalog = c; render(); })
+  refresh();
+}
+
+function refresh() {
+  return tool('workflow_catalog', { workflow_id: artifactId }).then((c) => { catalog = c; render(); })
     .catch((e) => status(e.message, true));
 }
 
-function toolKey(t) { return `${t.server}:${t.name}`; }
-function findTool(key) { return catalog.tools.find((t) => toolKey(t) === key); }
+const GROUPS = [['platform', 'Platform'], ['mine', 'Mine'], ['shared', 'Shared with me']];
+function findOp(id) { return (catalog.operators || []).find((o) => o.id === id); }
 
-function fillToolSelect(sel, chosen) {
-  sel.replaceChildren(new Option('Choose a tool…', ''));
-  const groups = {};
-  for (const t of catalog.tools) (groups[t.server] = groups[t.server] || []).push(t);
-  for (const server of Object.keys(groups).sort()) {
-    const g = document.createElement('optgroup'); g.label = server;
-    for (const t of groups[server]) g.appendChild(new Option(t.name, toolKey(t)));
+function fillOpSelect(sel, chosen) {
+  sel.replaceChildren(new Option('Choose an operator…', ''));
+  for (const [group, label] of GROUPS) {
+    const ops = (catalog.operators || []).filter((o) => o.group === group);
+    if (!ops.length) continue;
+    const g = document.createElement('optgroup'); g.label = label;
+    for (const o of ops) g.appendChild(new Option(o.title, o.id));
     sel.appendChild(g);
   }
   sel.value = chosen || '';
 }
 
-// A form from the tool's own input schema: one field per argument, required ones marked. With
-// `sources` (a workflow step), each argument can instead take what an earlier step returned.
-function argForm(host, t, values, sources) {
+const isArtifact = (spec) => spec && spec.format === 'artifact-id';
+
+// "a value I type" / "an artifact I choose", or what an earlier step returned (and a field in it).
+function sourceRow(host, name, sources, own, ownLabel) {
+  const row = document.createElement('div'); row.className = 'row';
+  const src = document.createElement('select'); src.dataset.srcFor = name; src.style.width = 'auto';
+  src.appendChild(new Option(ownLabel, 'typed'));
+  for (const [label, value] of sources) src.appendChild(new Option(label, value));
+  const path = document.createElement('input'); path.dataset.pathFor = name; path.placeholder = 'field inside it (optional)';
+  path.className = 'grow hidden';
+  src.onchange = () => { const typed = src.value === 'typed';
+    own.classList.toggle('hidden', !typed); path.classList.toggle('hidden', typed); };
+  row.append(src, path); host.appendChild(row);
+}
+
+// A form from the operator's input schema: one field per argument, required ones marked. An argument
+// naming an artifact is chosen with the app's picker and kept as a link from the workflow; any other
+// can instead take what an earlier step returned.
+function argForm(host, op, values, sources) {
   host.replaceChildren();
-  if (!t) return;
-  const props = (t.input_schema && t.input_schema.properties) || {};
-  const required = new Set((t.input_schema && t.input_schema.required) || []);
+  if (!op) return;
+  const props = (op.input_schema && op.input_schema.properties) || {};
+  const required = new Set((op.input_schema && op.input_schema.required) || []);
   for (const [name, spec] of Object.entries(props)) {
     const l = document.createElement('label');
     l.textContent = name + (required.has(name) ? ' *' : '');
-    const type = (spec && spec.type) || (spec && spec.anyOf && (spec.anyOf.find((x) => x.type !== 'null') || {}).type) || 'string';
-    let input;
-    if (type === 'boolean') { input = document.createElement('input'); input.type = 'checkbox'; input.checked = !!values[name]; }
-    else if (type === 'object' || type === 'array') { input = document.createElement('textarea');
-      input.value = values[name] !== undefined ? JSON.stringify(values[name], null, 1) : ''; input.placeholder = type === 'array' ? '[ ]' : '{ }'; }
-    else { input = document.createElement('input'); input.type = (type === 'integer' || type === 'number') ? 'number' : 'text';
-      input.value = values[name] !== undefined ? (values[name] === '$inbox' ? catalog.inbox_id || '' : values[name]) : ''; }
-    input.dataset.arg = name; input.dataset.type = type;
     host.appendChild(l);
-    if (sources && sources.length) {
+    if (isArtifact(spec)) {
       const row = document.createElement('div'); row.className = 'row';
-      const src = document.createElement('select'); src.dataset.srcFor = name; src.style.width = 'auto';
-      src.appendChild(new Option('a value I type', 'typed'));
-      for (const [label, value] of sources) src.appendChild(new Option(label, value));
-      const path = document.createElement('input'); path.dataset.pathFor = name; path.placeholder = 'field inside it (optional)';
-      path.className = 'grow hidden';
-      src.onchange = () => { const typed = src.value === 'typed';
-        input.classList.toggle('hidden', !typed); path.classList.toggle('hidden', typed); };
-      row.append(src, path); host.appendChild(row);
+      const shown = document.createElement('span'); shown.className = 'grow picked'; shown.dataset.pickFor = name;
+      const p = picks[name];
+      shown.textContent = p ? (p.title || p.id) : 'nothing chosen';
+      const choose = document.createElement('button'); choose.className = 'small'; choose.textContent = 'Choose…';
+      choose.onclick = () => parent.postMessage({ jsonrpc: '2.0', method: 'ui/open-picker', params: {
+        role: name, label: (spec.description || name), content_types: spec['x-content-types'] || [] } }, '*');
+      const clear = document.createElement('button'); clear.className = 'small'; clear.textContent = 'Clear';
+      clear.onclick = () => { delete picks[name]; shown.textContent = 'nothing chosen'; };
+      row.append(shown, choose, clear);
+      if (sources && sources.length) sourceRow(host, name, sources, row, 'an artifact I choose');
+      host.appendChild(row);
+    } else {
+      const type = (spec && spec.type) || (spec && spec.anyOf && (spec.anyOf.find((x) => x.type !== 'null') || {}).type) || 'string';
+      let input;
+      if (type === 'boolean') { input = document.createElement('input'); input.type = 'checkbox'; input.checked = !!values[name]; }
+      else if (type === 'object' || type === 'array') { input = document.createElement('textarea');
+        input.value = values[name] !== undefined ? JSON.stringify(values[name], null, 1) : ''; input.placeholder = type === 'array' ? '[ ]' : '{ }'; }
+      else { input = document.createElement('input'); input.type = (type === 'integer' || type === 'number') ? 'number' : 'text';
+        input.value = values[name] !== undefined ? values[name] : ''; }
+      input.dataset.arg = name; input.dataset.type = type;
+      if (sources && sources.length) sourceRow(host, name, sources, input, 'a value I type');
+      host.appendChild(input);
     }
-    host.appendChild(input);
-    if (spec && spec.description) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = spec.description; host.appendChild(h); }
+    if (spec && spec.description && !isArtifact(spec)) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = spec.description; host.appendChild(h); }
   }
-  if (!Object.keys(props).length) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = 'This tool takes no arguments.'; host.appendChild(h); }
+  if (!Object.keys(props).length) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = 'This operator takes no arguments.'; host.appendChild(h); }
+}
+
+function onPicked(r) {
+  if (!r.artifact_id || !r.role) return;
+  picks[r.role] = { id: r.artifact_id, title: r.title || r.artifact_id };
+  const shown = document.querySelector(`[data-pick-for="${CSS.escape(r.role)}"]`);
+  if (shown) shown.textContent = picks[r.role].title;
 }
 
 function readArgs(host) {
@@ -216,6 +242,7 @@ function readArgs(host) {
     else if (t === 'object' || t === 'array') out[el.dataset.arg] = JSON.parse(v);
     else out[el.dataset.arg] = v;
   }
+  for (const [name, ref] of Object.entries(fromSteps)) if (!(name in out)) out[name] = ref;
   return out;
 }
 
@@ -237,40 +264,42 @@ function renderRuns() {
   }));
 }
 
+const isWorkflow = () => !ctx.run || ctx.run.type === 'workflow';
+
 function render() {
   renderRuns();
   $('title').value = ctx.title || '';
-  for (const b of $('kind').querySelectorAll('button')) b.classList.toggle('on', b.dataset.kind === kind);
-  $('stepCard').classList.toggle('hidden', kind !== 'step');
-  $('flowCard').classList.toggle('hidden', kind !== 'workflow');
-  $('recipesCard').classList.toggle('hidden', Boolean(ctx.run && (ctx.run.tool || (ctx.run.steps || []).length)));
+  const legacy = !isWorkflow();
+  $('legacyCard').classList.toggle('hidden', !legacy);
+  $('flowCard').classList.toggle('hidden', legacy);
+  const steps = (!legacy && ctx.run && ctx.run.steps) || [];
+  $('recipesCard').classList.toggle('hidden', legacy || steps.length > 0);
 
-  $('recipes').replaceChildren(...RECIPES.map((r) => { const b = document.createElement('button'); b.className = 'recipe';
-    b.innerHTML = '<b></b><span class="muted"></span>'; b.querySelector('b').textContent = r.title;
-    b.querySelector('span').textContent = r.blurb; b.onclick = () => useRecipe(r); return b; }));
+  const ops = catalog.operators || [];
+  $('recipes').replaceChildren(...RECIPES.map((r) => ({ r, op: ops.find((o) => o.slug === r.slug) }))
+    .filter((x) => x.op).map(({ r, op }) => { const b = document.createElement('button'); b.className = 'recipe';
+      b.innerHTML = '<b></b><span class="muted"></span>'; b.querySelector('b').textContent = op.title;
+      b.querySelector('span').textContent = r.blurb; b.onclick = () => useRecipe(r, op); return b; }));
 
-  const run = ctx.run || {};
-  const chosen = run.type === 'mcp-tool' ? `${run.server}:${run.tool}` : '';
-  fillToolSelect($('tool'), chosen);
-  const t = findTool(chosen); $('toolHint').textContent = (t && t.description) || '';
-  argForm($('argForm'), t, run.input_mapping || {});
-
-  fillToolSelect($('newTool'), $('newTool').value);
-  const steps = run.type === 'workflow' ? (run.steps || []) : [];
-  const names = Object.fromEntries((catalog.steps || []).map((s) => [s.id, s]));
+  const chosen = $('newOp').value;
+  fillOpSelect($('newOp'), chosen);
+  const described = catalog.steps || [];
   $('steps').replaceChildren(...(steps.length ? steps.map((s, i) => {
     const row = document.createElement('div'); row.className = 'step';
-    const known = names[s.transform_id];
-    row.innerHTML = `<span class="num">${i + 1}</span><span class="grow"><b></b><div class="muted"></div></span>`;
-    row.querySelector('b').textContent = s.name || (known && known.title) || s.transform_id;
-    row.querySelector('.muted').textContent = known ? known.does : s.transform_id;
+    const known = described[i] || {};
+    row.innerHTML = `<span class="num">${i + 1}</span><span class="grow"><b></b><div class="muted"></div><div class="links"></div></span>`;
+    row.querySelector('b').textContent = s.name || known.operator || 'Step';
+    row.querySelector('.muted').textContent = s.operator_id ? (known.operator || 'an operator you can no longer invoke')
+      : 'a tool run directly — remove it and add an operator';
+    for (const [arg, link] of Object.entries(known.links || {})) {
+      const c = document.createElement('span'); c.className = 'chip'; c.textContent = `${arg}: ${link.title || link.id}`;
+      row.querySelector('.links').appendChild(c);
+    }
     for (const [label, fn] of [['↑', () => move(i, -1)], ['↓', () => move(i, 1)], ['Remove', () => removeStep(i)]]) {
       const b = document.createElement('button'); b.className = 'small'; b.textContent = label; b.onclick = fn; row.appendChild(b);
     }
     return row;
-  }) : [Object.assign(document.createElement('div'), { className: 'muted', textContent: 'No steps yet. Add one below.' })]));
-  $('existing').replaceChildren(new Option('an existing step…', ''),
-    ...(catalog.steps || []).filter((s) => s.id !== artifactId).map((s) => new Option(s.title, s.id)));
+  }) : [Object.assign(document.createElement('div'), { className: 'muted', textContent: 'No steps yet. Start from a recipe, or add one below.' })]));
 }
 
 function status(text, bad) { $('status').textContent = text || ''; $('status').className = bad ? 'err' : 'muted'; }
@@ -280,71 +309,72 @@ async function save(next) {
   await rpc('tools/call', { name: 'update_artifact', arguments: { id: artifactId, patch: { context: JSON.stringify(ctx) } } });
 }
 
-function currentStepRun() {
-  const t = findTool($('tool').value);
-  if (!t) throw new Error('Choose a tool first.');
-  return { type: 'mcp-tool', server: t.server, tool: t.name, input_mapping: readArgs($('argForm')) };
-}
+const currentSteps = () => (isWorkflow() && ctx.run && ctx.run.steps) || [];
 
 async function saveNow() {
   status('Saving…');
   try {
-    if (kind === 'step') await save({ run: currentStepRun() });
-    else {
-      await save({ run: { type: 'workflow', steps: ((ctx.run && ctx.run.type === 'workflow') ? ctx.run.steps : []) || [] } });
-      // Its Runs collection, made now by the person building it, so a timer can record there later.
-      if (!catalog.runs_to) catalog.runs_to = (await tool('prepare_runs', { workflow_id: artifactId })).runs_to;
-    }
+    await save({ run: { ...(ctx.run || {}), type: 'workflow', steps: currentSteps() } });
+    // Its Runs collection, made now by the person building it, so a timer can record there later.
+    if (!catalog.runs_to) catalog.runs_to = (await tool('prepare_runs', { workflow_id: artifactId })).runs_to;
     status('Saved.'); render();
   } catch (e) { status(e.message, true); }
 }
 
-function useRecipe(r) {
-  kind = 'step';
-  const t = catalog.tools.find((x) => x.server === r.server && x.name === r.tool);
-  if (!t) { status(`${r.server}: ${r.tool} is not available to you.`, true); return; }
-  ctx = { ...ctx, title: ctx.title || r.title, run: { type: 'mcp-tool', server: r.server, tool: r.tool, input_mapping: r.args } };
-  render(); status('Fill in the fields, then Save and Run now.');
-}
-
-async function move(i, d) {
-  const steps = [...(ctx.run.steps || [])]; const j = i + d; if (j < 0 || j >= steps.length) return;
-  [steps[i], steps[j]] = [steps[j], steps[i]]; await save({ run: { type: 'workflow', steps } }); render();
-}
-async function removeStep(i) {
-  const steps = [...(ctx.run.steps || [])]; steps.splice(i, 1); await save({ run: { type: 'workflow', steps } }); render();
-}
-
-$('kind').onclick = (e) => { const k = e.target.dataset && e.target.dataset.kind; if (!k) return;
-  kind = k; if (k === 'workflow' && !(ctx.run && ctx.run.type === 'workflow')) ctx = { ...ctx, run: { type: 'workflow', steps: [] } };
-  render(); };
-$('tool').onchange = () => { const t = findTool($('tool').value); $('toolHint').textContent = (t && t.description) || ''; argForm($('argForm'), t, {}); };
 function stepSources() {
-  const steps = (ctx.run && ctx.run.type === 'workflow' && ctx.run.steps) || [];
+  const steps = currentSteps();
   if (!steps.length) return [];
   return [["the previous step's output", 'previous'],
           ...steps.map((st) => [`the output of "${st.name}"`, `steps.${st.name}`])];
 }
-$('newTool').onchange = () => { const t = findTool($('newTool').value); $('newToolHint').textContent = (t && t.description) || ''; argForm($('newArgForm'), t, {}, stepSources()); };
+
+function showNewOp(values) {
+  const op = findOp($('newOp').value);
+  $('newOpHint').textContent = (op && op.description) || '';
+  argForm($('newArgForm'), op, values || {}, stepSources());
+}
+
+function useRecipe(r, op) {
+  picks = {};
+  for (const [arg, v] of Object.entries(r.links || {})) {
+    if (v === '$inbox' && catalog.inbox_id) picks[arg] = { id: catalog.inbox_id, title: 'Inbox' };
+  }
+  $('newOp').value = op.id; showNewOp(r.args || {});
+  if (!$('title').value.trim()) $('title').value = op.title;
+  $('newName').value = op.title;
+  status('Fill in the fields, then Add step.');
+}
+
+async function move(i, d) {
+  const steps = [...currentSteps()]; const j = i + d; if (j < 0 || j >= steps.length) return;
+  [steps[i], steps[j]] = [steps[j], steps[i]]; await save({ run: { ...ctx.run, type: 'workflow', steps } }); refresh();
+}
+async function removeStep(i) {
+  const steps = [...currentSteps()]; steps.splice(i, 1); await save({ run: { ...ctx.run, type: 'workflow', steps } }); refresh();
+}
+
+$('toWorkflow').onclick = async () => { await save({ run: { type: 'workflow', steps: [] } }); render(); refresh(); };
+$('newOp').onchange = () => { picks = {}; showNewOp({}); };
 $('save').onclick = saveNow;
 
 $('addStep').onclick = async () => {
-  const t = findTool($('newTool').value); if (!t) { status('Choose the step\'s tool.', true); return; }
+  const op = findOp($('newOp').value); if (!op) { status('Choose the step\'s operator.', true); return; }
+  const props = (op.input_schema && op.input_schema.properties) || {};
+  const args = readArgs($('newArgForm'));
+  const missing = ((op.input_schema && op.input_schema.required) || [])
+    .filter((n) => isArtifact(props[n]) && !picks[n] && !(n in args));
+  if (missing.length) { status(`Choose ${missing.join(', ')} first.`, true); return; }
   status('Adding…');
   try {
     if (!$('title').value.trim()) $('title').value = 'Workflow';
-    await save({ run: { type: 'workflow', steps: ((ctx.run && ctx.run.steps) || []) } });
-    const out = await tool('add_workflow_step', { workflow_id: artifactId, server: t.server, tool: t.name,
-      arguments: readArgs($('newArgForm')), name: $('newName').value.trim() });
-    ctx = { ...ctx, run: out.run }; catalog = await tool('workflow_catalog', { workflow_id: artifactId });
-    $('newName').value = ''; status('Step added.'); render();
+    await save({ run: { ...(ctx.run || {}), type: 'workflow', steps: currentSteps() } });
+    const links = Object.fromEntries(Object.entries(picks).filter(([k]) => !(k in args)).map(([k, v]) => [k, v.id]));
+    const out = await tool('add_workflow_step', { workflow_id: artifactId, operator_id: op.id,
+      arguments: args, links, name: $('newName').value.trim() });
+    ctx = { ...ctx, run: out.run }; picks = {};
+    $('newName').value = ''; $('newOp').value = ''; showNewOp({});
+    await refresh(); status('Step added.');
   } catch (e) { status(e.message, true); }
-};
-$('reuse').onclick = async () => {
-  const id = $('existing').value; if (!id) return;
-  const s = (catalog.steps || []).find((x) => x.id === id);
-  const steps = [...((ctx.run && ctx.run.steps) || []), { name: s ? s.title : '', transform_id: id }];
-  await save({ run: { type: 'workflow', steps } }); status('Step added.'); render();
 };
 
 // A step's answer arrives as the tool's MCP result (text in `content`, `isError` on failure),
@@ -361,6 +391,7 @@ function unwrap(o) {
 }
 
 $('run').onclick = async () => {
+  if (!currentSteps().length) { status('Add a step first.', true); return; }
   await saveNow(); if ($('status').className === 'err') return;
   status('Running…'); $('run').disabled = true;
   try {

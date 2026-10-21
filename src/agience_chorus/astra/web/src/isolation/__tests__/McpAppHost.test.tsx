@@ -592,6 +592,23 @@ describe('McpAppHost', () => {
       expect(createAPIKeyMock).toHaveBeenCalledWith('Timer: Digest', 'collaborator', ['ws-1', 'log-1', 'inbox-1']);
     });
 
+    it("arm_timer's key reaches the operators and links of the workflow it runs, as Lumen names them", async () => {
+      createAPIKeyMock.mockResolvedValue({ id: 'k9', key: 'agk_timer_secret' });
+      proxyToolCallMock.mockImplementation(async (name: string) => ({ content: [{ type: 'text', text:
+        name === 'timer_reach' ? '{"resources": ["ws-1", "wf-1", "log-1", "op-rec", "accounts-1"]}' : '{"armed": true}' }] }));
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ id: 't1', collection_id: 'ws-1', context: TIMER })} html="" />,
+        [true],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 36, method: 'tools/call',
+                           params: { name: 'arm_timer', arguments: { timer_id: 't1' } } });
+      await waitFor(() => expect(responseFor(posted, 36)).toBeDefined());
+      expect(proxyToolCallMock).toHaveBeenCalledWith('timer_reach', { timer_id: 't1' }, 'lumen');
+      expect(createAPIKeyMock).toHaveBeenCalledWith('Timer: Digest', 'collaborator',
+        ['ws-1', 'log-1', 'wf-1', 'op-rec', 'accounts-1']);
+    });
+
     it('a timer Lumen will not arm leaves no key behind', async () => {
       createAPIKeyMock.mockResolvedValue({ id: 'k9', key: 'agk_timer_secret' });
       proxyToolCallMock.mockResolvedValue({ content: [{ type: 'text', text: '{"error": "no timers here"}' }] });

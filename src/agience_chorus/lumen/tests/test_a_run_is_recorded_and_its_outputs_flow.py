@@ -100,7 +100,7 @@ def run_world(monkeypatch):
             world.dispatched.append((tid, params))
             if tid == "t2" and world.fail_second:
                 return {"content": [{"type": "text", "text": json.dumps({"error": "mail refused"})}]}
-            text = json.dumps({"reconciliation_id": "r-1", "conflicts": 1}) if tid == "t1" else "raised"
+            text = json.dumps({"reconciliation_id": "r-1", "conflicts": 1}) if tid in ("t1", "op-rec") else "raised"
             return {"content": [{"type": "text", "text": text}]}
 
         monkeypatch.setattr(L, "_get_artifact", get_artifact)
@@ -145,6 +145,60 @@ async def test_a_failed_step_is_on_the_run_card_with_its_error(run_world):
     assert record["status"] == "failed" and "mail refused" in record["error"]
     assert [s["status"] for s in record["steps"]] == ["completed", "failed"]
     assert "mail refused" in record["steps"][1]["error"]
+
+
+# ── operator steps ────────────────────────────────────────────────────────────────────────────
+# 2026-10-21: a step is an operator, invoked through its grant, and the artifacts it works on are the
+# workflow's typed links, read as the person running it.
+OPERATED = {"id": "wf", "collection_id": "ws-1", "context": json.dumps({
+    "title": "Morning check", "runs_to": "runs-1", "run": {"type": "workflow", "steps": [
+        {"name": "Reconcile", "key": "s1", "operator_id": "op-rec",
+         "arguments": {"collection_id": "@link.s1.collection_id"}},
+        {"name": "Tell me", "key": "s2", "operator_id": "op-raise",
+         "arguments": {"container_id": "@link.s2.container_id", "title": "Conflicts",
+                       "source_id": "$.previous.reconciliation_id"}},
+    ]}})}
+
+
+@pytest.mark.asyncio
+async def test_an_operator_step_takes_its_links_and_only_its_own_arguments(run_world, monkeypatch):
+    world = World()
+    run_world(world)
+
+    async def get_artifact(client, ws, aid):
+        return OPERATED if aid == "wf" else {"id": aid, "context": json.dumps(world.runs.get(aid, {}))}
+
+    async def links(client, wf):
+        assert wf == "wf"
+        return {"s1.collection_id": "accounts-1", "s2.container_id": "inbox-1"}
+
+    monkeypatch.setattr(L, "_get_artifact", get_artifact)
+    monkeypatch.setattr(L, "_workflow_links", links)
+    out = await L.run_workflow("wf", workspace_id="ws-1", params=json.dumps({"extra": 1}))
+    assert out.startswith("Workflow completed: 2 steps executed")
+    (op1, first), (op2, second) = world.dispatched
+    assert (op1, first) == ("op-rec", {"collection_id": "accounts-1"})
+    assert (op2, second) == ("op-raise", {"container_id": "inbox-1", "title": "Conflicts", "source_id": "r-1"})
+    assert [s.get("operator_id") for s in world.runs["made-1"]["steps"]] == ["op-rec", "op-raise"]
+
+
+@pytest.mark.asyncio
+async def test_a_link_the_runner_cannot_read_fails_the_step_by_name(run_world, monkeypatch):
+    world = World()
+    run_world(world)
+
+    async def get_artifact(client, ws, aid):
+        return OPERATED if aid == "wf" else {"id": aid, "context": json.dumps(world.runs.get(aid, {}))}
+
+    async def links(client, wf):
+        return {"s1.collection_id": "accounts-1"}
+
+    monkeypatch.setattr(L, "_get_artifact", get_artifact)
+    monkeypatch.setattr(L, "_workflow_links", links)
+    out = json.loads(await L.run_workflow("wf", workspace_id="ws-1"))
+    assert "s2.container_id" in out["error"] and out["step"] == 1
+    assert [t for t, _ in world.dispatched] == ["op-rec"], "the step that cannot be given its link does not run"
+    assert world.runs["made-1"]["steps"][1]["status"] == "failed"
 
 
 # ── a workflow scheduled before it ever ran ───────────────────────────────────────────────────

@@ -47,6 +47,9 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 - A new card closed untouched is still deleted for good, not moved to Trash.
 - A new card is discarded on close only when the server still holds it empty under its default title, and an edited card is never a new card again. A card edited just before its window closed was deleted from a stale local copy.
 - The bundle check's control corrupts a copy of the tree instead of the shipped payloads, which other suites read while it runs.
+- A workflow is built from operators, not tools: the builder offers the operators the person may invoke, grouped as the platform's, their own and ones shared with them; each step names its operator and is invoked through its grant. An argument naming an artifact is chosen with the app's picker and kept as a typed link from the workflow (`@link.<key>.<argument>`), shown on the step by the linked artifact's name; it can instead take what an earlier step returned. The recipes are the platform's own operators. A card that ran a tool directly offers to be rebuilt as steps.
+- The app's picker offers the content types an argument accepts (collections when it names none), and answers with the role it was opened for and the chosen artifact's name.
+- Arming a timer asks Lumen what its key must reach (`timer_reach`): its workspace and target, where it records and raises, and each operator and linked artifact of the workflow it runs. The person approves that list.
 
 ### Added
 - Lumen's `synthesize` grounds on Sage's new `retrieve` tool (op.retrieve) through Crystal, under the asker's own grants. Its corpus leg was dark in every deployment: no host ever wired the retrieval reach.

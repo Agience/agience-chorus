@@ -35,6 +35,10 @@
       "description": "Arm a Timer: keep the key it acts on, sealed, and fire it on its schedule"
     },
     {
+      "name": "timer_reach",
+      "description": "What a Timer's key must reach to run what it runs: for a workflow, each operator a step invokes and each artifact a step links"
+    },
+    {
       "name": "disarm_timer",
       "description": "Disarm a Timer: forget its key; it does not fire again"
     },
@@ -44,7 +48,7 @@
     },
     {
       "name": "workflow_catalog",
-      "description": "What a workflow card's builder offers: the tools the caller can use, the steps in its workspace, and the caller's Inbox"
+      "description": "What a workflow card's builder offers: the operators the caller may invoke (the platform's, their own, ones shared with them), the workflow's steps with what each links, and the caller's Inbox"
     },
     {
       "name": "prepare_runs",
@@ -52,7 +56,7 @@
     },
     {
       "name": "add_workflow_step",
-      "description": "Add a step to a workflow card: a Transform calling a tool, made beside the workflow and appended to its steps"
+      "description": "Add a step to a workflow card: an operator the caller may invoke, its artifacts kept as typed links from the workflow"
     },
     {
       "name": "invoke_connection",
