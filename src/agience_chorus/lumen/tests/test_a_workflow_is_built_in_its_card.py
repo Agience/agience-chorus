@@ -154,3 +154,22 @@ async def test_a_single_step_card_is_not_silently_turned_into_a_workflow(person)
         out = json.loads(await L.add_workflow_step("wf", "op-plat"))
     assert "make it a workflow first" in out["error"]
     assert not [c for c in world.calls if c[0] in ("POST", "PATCH")]
+
+
+@pytest.mark.asyncio
+async def test_removing_a_step_removes_its_links_and_keeps_the_others(person):
+    world = World(run={"type": "workflow", "steps": [
+        {"name": "A", "key": "sa", "operator_id": "op-plat", "arguments": {"collection_id": "@link.sa.collection_id"}},
+        {"name": "B", "key": "sb", "operator_id": "op-plat", "arguments": {}}]})
+    deleted = []
+
+    async def delete(self, url, headers=None, **kw):
+        deleted.append(url)
+        return MockResponse({"removed": 1}, 200)
+
+    C = world.client()
+    C.delete = delete
+    with patch.object(L.httpx, "AsyncClient", C):
+        out = json.loads(await L.remove_workflow_step("wf", 0))
+    assert [s["name"] for s in json.loads(world.docs["wf"]["context"])["run"]["steps"]] == ["B"]
+    assert deleted and deleted[0].endswith("/artifacts/wf/links/sa") and out["links_removed"] == 1

@@ -51,6 +51,10 @@
       "description": "What a workflow card's builder offers: the operators the caller may invoke (the platform's, their own, ones shared with them), the workflow's steps with what each links, and the caller's Inbox"
     },
     {
+      "name": "remove_workflow_step",
+      "description": "Remove a step from a workflow card, with the links it kept to the artifacts it works on; the artifacts are untouched"
+    },
+    {
       "name": "prepare_runs",
       "description": "Prepare a workflow's Runs collection, where each run is recorded as a Run card"
     },

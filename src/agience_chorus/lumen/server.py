@@ -1645,6 +1645,43 @@ async def add_workflow_step(workflow_id: str, operator_id: str, arguments: Optio
 
 @mcp.tool(
     description=(
+        "Remove step `index` (from 0) from a workflow card, with the links it kept to the artifacts "
+        "it works on. The artifacts themselves are untouched."
+    )
+)
+async def remove_workflow_step(workflow_id: str, index: int) -> str:
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=30) as client:
+        card = await client.get(artifact_url(MANTLE_URI, workflow_id), headers=headers)
+        if card.status_code != 200:
+            return json.dumps({"error": "no such workflow, or you cannot read it"})
+        ctx = _ctx_of(card.json())
+        run = ctx.get("run") or {}
+        steps = list(run.get("steps") or [])
+        if run.get("type") != "workflow" or not 0 <= index < len(steps):
+            return json.dumps({"error": f"this workflow has no step {index + 1}"})
+        step = steps.pop(index)
+        ctx["run"] = {**run, "steps": steps}
+        patched = await client.patch(artifact_url(MANTLE_URI, workflow_id), headers=headers,
+                                     json={"context": json.dumps(ctx)})
+        if patched.status_code >= 400:
+            return json.dumps({"error": f"could not remove the step ({patched.status_code})"})
+        removed = 0
+        if step.get("key"):
+            gone = await client.delete(artifact_url(MANTLE_URI, workflow_id, "links", str(step["key"])),
+                                       headers=headers)
+            if gone.status_code < 400:
+                removed = int(gone.json().get("removed") or 0)
+            else:
+                log.warning("step removed but its links stay (%s): %s", gone.status_code, workflow_id)
+    return json.dumps({"run": ctx["run"], "links_removed": removed})
+
+
+@mcp.tool(
+    description=(
         "Prepare a workflow's Runs collection, where each run is recorded as a Run card: made once, "
         "by the person building the workflow, so a timer that runs it later can record there."
     )

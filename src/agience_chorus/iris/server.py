@@ -1210,6 +1210,8 @@ async def server_startup() -> None:
 _RELAYED_METHODS = frozenset({"tools/list", "tools/call", "resources/list", "resources/read",
                               "prompts/list", "prompts/get"})
 _MCP_SERVER_TYPE = "application/vnd.agience.mcp-server+json"
+#: What runs the server, so it needs `invoke` on its card; the rest only reads what it offers.
+_INVOKING_METHODS = frozenset({"tools/call", "prompts/get"})
 
 
 def _mcp_rpc_result(resp: "_egress.Response") -> dict:
@@ -1308,6 +1310,13 @@ async def call_mcp_server(server_artifact_id: str, method: str, params: Optional
         card = resp.json()
         if card.get("content_type") != _MCP_SERVER_TYPE:
             return json.dumps({"error": f"artifact {server_artifact_id} is not an MCP server", "status": 400})
+        # Reading a server's card shows what it offers; running it is `invoke`. 2026-10-21: a card
+        # shared to be seen also let its reader call every tool on the server.
+        if method in _INVOKING_METHODS:
+            may = await client.get(f"{MANTLE_URI}/grants/my-access", headers=headers,
+                                   params={"resource_id": server_artifact_id, "action": "invoke"})
+            if may.status_code != 200 or not may.json().get("allowed"):
+                return json.dumps({"error": "you may read this MCP server but not run it (invoke)", "status": 403})
         context = _as_dict(card.get("context"))
         auth = None
         secret_id = (context.get("transport") or {}).get("secret_id")

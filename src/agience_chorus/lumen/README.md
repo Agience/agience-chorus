@@ -29,6 +29,7 @@ Implemented (live):
 | `workflow_catalog` | What a workflow card's builder offers: the operators the caller may invoke (the platform's, their own, ones shared with them), the workflow's steps with what each links, and the caller's Inbox |
 | `prepare_runs` | Prepare a workflow's Runs collection, where each run is recorded as a Run card |
 | `add_workflow_step` | Add a step to a workflow card: an operator the caller may invoke, its artifacts kept as typed links from the workflow |
+| `remove_workflow_step` | Remove a step from a workflow card, with the links it kept to the artifacts it works on; the artifacts are untouched |
 | `invoke_connection` | Invoke an LLM connection card: send a conversation to the model it names, with the key it points at, on the caller's grant to that key |
 | `raise_item` | Raise an Inbox item: something that needs a person, with why, what it came from, and optionally an action approving it runs |
 | `set_item_state` | Move an Inbox item to triaged, resolved, or back to new, recorded in its history |

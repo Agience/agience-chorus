@@ -349,8 +349,11 @@ async function move(i, d) {
   const steps = [...currentSteps()]; const j = i + d; if (j < 0 || j >= steps.length) return;
   [steps[i], steps[j]] = [steps[j], steps[i]]; await save({ run: { ...ctx.run, type: 'workflow', steps } }); refresh();
 }
+// Removing a step removes the links it kept, too; the artifacts they named are untouched.
 async function removeStep(i) {
-  const steps = [...currentSteps()]; steps.splice(i, 1); await save({ run: { ...ctx.run, type: 'workflow', steps } }); refresh();
+  try { const out = await tool('remove_workflow_step', { workflow_id: artifactId, index: i });
+    ctx = { ...ctx, run: out.run }; await refresh(); status('Step removed.'); }
+  catch (e) { status(e.message, true); }
 }
 
 $('toWorkflow').onclick = async () => { await save({ run: { type: 'workflow', steps: [] } }); render(); refresh(); };

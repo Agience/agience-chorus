@@ -72,3 +72,64 @@ def test_the_callers_credential_is_not_sent_and_a_named_secret_is(monkeypatch):
     sent.clear()
     server._mcp_exchange("https://mcp.example.com/mcp", "tools/list", {}, "server-secret")
     assert all(h["Authorization"] == "Bearer server-secret" for h in sent)
+
+
+# ── reading a server is not running it ────────────────────────────────────────────────────────
+# 2026-10-21: a server card shared to be seen also let its reader call every tool on the server.
+
+class _Resp:
+    def __init__(self, body, status=200):
+        self._b, self.status_code = body, status
+
+    def json(self):
+        return self._b
+
+    def raise_for_status(self):
+        pass
+
+
+def _world(monkeypatch, may_invoke):
+    asked, reached = [], []
+
+    class _C:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, headers=None, params=None, **k):
+            asked.append(url)
+            if url.endswith("/grants/my-access"):
+                assert params == {"resource_id": "srv-1", "action": "invoke"}
+                return _Resp({"allowed": may_invoke})
+            return _Resp({"id": "srv-1", "content_type": "application/vnd.agience.mcp-server+json",
+                          "context": json.dumps({"url": "https://tools.example.com/mcp", "transport": {"type": "http"}})})
+
+    monkeypatch.setattr(server.httpx, "AsyncClient", _C)
+    monkeypatch.setattr(server, "_require_user_headers", lambda: {"Authorization": "Bearer d"})
+    monkeypatch.setattr(server, "_mcp_exchange", lambda endpoint, method, params, auth: reached.append(method) or {"ok": 1})
+    return asked, reached
+
+
+@pytest.mark.parametrize("method", ["tools/call", "prompts/get"])
+def test_running_a_persons_server_needs_invoke_on_its_card(monkeypatch, method):
+    _, reached = _world(monkeypatch, may_invoke=False)
+    out = json.loads(asyncio.run(server.call_mcp_server("srv-1", method, {"name": "x"})))
+    assert out["status"] == 403 and "invoke" in out["error"] and reached == []
+
+
+def test_seeing_what_a_server_offers_needs_only_read(monkeypatch):
+    asked, reached = _world(monkeypatch, may_invoke=False)
+    out = json.loads(asyncio.run(server.call_mcp_server("srv-1", "tools/list")))
+    assert out == {"result": {"ok": 1}} and reached == ["tools/list"]
+    assert not any(u.endswith("/grants/my-access") for u in asked)
+
+
+def test_a_caller_who_may_invoke_runs_it(monkeypatch):
+    _, reached = _world(monkeypatch, may_invoke=True)
+    out = json.loads(asyncio.run(server.call_mcp_server("srv-1", "tools/call", {"name": "x"})))
+    assert out == {"result": {"ok": 1}} and reached == ["tools/call"]
