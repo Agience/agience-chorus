@@ -29,7 +29,6 @@ import {
   getCollectionArtifactContentUrl,
   addArtifactToCollection,
   removeArtifactFromCollection,
-  listCollectionCommits,
   getCollectionArtifactsBatchGlobal,
 } from '../collections';
 
@@ -163,15 +162,6 @@ describe('api/collections', () => {
     del.mockResolvedValueOnce(undefined);
     await removeArtifactFromCollection('c1', 'r1');
     expect(del).toHaveBeenCalledWith('/artifacts/c1/children/r1');
-  });
-
-  it('listCollectionCommits calls GET /artifacts/:id/commits', async () => {
-    get.mockResolvedValueOnce([
-      { id: 'cm1', message: 'Commit', confirmation: 'human_affirmed', changeset_type: 'manual' },
-    ]);
-    const res = await listCollectionCommits('c1');
-    expect(get).toHaveBeenCalledWith('/artifacts/c1/commits');
-    expect(res[0].id).toBe('cm1');
   });
 
   // Batch fetch

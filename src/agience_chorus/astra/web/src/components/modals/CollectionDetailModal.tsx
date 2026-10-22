@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { CollectionResponse, Grant, CollectionCommitResponse } from '../../api/types';
+import { CollectionResponse, Grant } from '../../api/types';
 import { useAuth } from '../../hooks/useAuth';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import {
@@ -28,12 +28,10 @@ import {
   updateCollection,
   deleteCollection,
   listGrants,
-  listCollectionCommits,
   createGrant,
   updateGrant,
   deleteGrant,
 } from '../../api/collections';
-import { formatProvenanceLabel } from '@/utils/provenance';
 
 interface NewCollectionInput {
   name: string;
@@ -60,7 +58,6 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
   const [grantName, setGrantName] = useState('');
   const [showGrantDeleteConfirm, setShowGrantDeleteConfirm] = useState(false);
   const [grantToDelete, setGrantToDelete] = useState<Grant | null>(null);
-  const [commits, setCommits] = useState<CollectionCommitResponse[]>([]);
   const [visibleGrantKeys, setVisibleGrantKeys] = useState<Record<string, boolean>>({});
   const [read, setRead] = useState(true);
   const [write, setWrite] = useState(true);
@@ -84,19 +81,13 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
       }
 
       if (collectionToUse) {
-        const [grantsData, commitData] = await Promise.all([
-          listGrants(collectionToUse),
-          listCollectionCommits(collectionToUse),
-        ]);
-        setGrants(grantsData);
-        setCommits(commitData);
+        setGrants(await listGrants(collectionToUse));
         const selected = data.find(c => c.id === collectionToUse);
         if (selected) {
           setEditCollection({ name: selected.name, description: selected.description || '' });
         }
       } else {
         setGrants([]);
-        setCommits([]);
         setEditCollection({ name: '', description: '' });
       }
     } catch (err) {
@@ -395,49 +386,6 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                               <TableRow>
                                 <TableCell colSpan={4} className="text-center py-8 text-gray-500">
                                   No grants created yet.
-                                </TableCell>
-                              </TableRow>
-                            )}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
-
-                    {/* Commit History */}
-                    <div className="mt-10 w-full bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                      <div className="p-4 border-b bg-gray-50">
-                        <h2 className="font-semibold text-gray-900">Commit History</h2>
-                      </div>
-                      <div className="rounded-md border">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Time</TableHead>
-                              <TableHead>Message</TableHead>
-                              <TableHead>Actor</TableHead>
-                              <TableHead>Provenance</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {commits.length > 0 ? (
-                              commits.map((commit) => {
-                                const actor = commit.presenter_id || commit.author_id;
-                                const provenance = `${formatProvenanceLabel(commit.confirmation)} / ${formatProvenanceLabel(commit.changeset_type)}`;
-                                return (
-                                  <TableRow key={commit.id}>
-                                    <TableCell className="text-xs text-gray-600 whitespace-nowrap">
-                                      {commit.timestamp ? new Date(commit.timestamp).toLocaleString() : 'Unknown'}
-                                    </TableCell>
-                                    <TableCell className="font-medium">{commit.message || 'No message'}</TableCell>
-                                    <TableCell className="text-xs text-gray-700">{actor}</TableCell>
-                                    <TableCell className="text-xs text-gray-700">{provenance}</TableCell>
-                                  </TableRow>
-                                );
-                              })
-                            ) : (
-                              <TableRow>
-                                <TableCell colSpan={4} className="text-center py-8 text-gray-500">
-                                  No commits recorded yet.
                                 </TableCell>
                               </TableRow>
                             )}

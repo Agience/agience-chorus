@@ -57,6 +57,7 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 - A workspace has an Upload button beside New card: files chosen there arrive as a drop would bring them, so a phone, which cannot drag, can add a photo (its picker offers the camera). The "More" button beside it, which did nothing, is gone.
 - Three controls that led nowhere are gone: "Send to AI Agent" on a multi-card selection (an alert saying it was coming), Settings' empty General tab, and the admin page's empty Integrations tab.
 - The share dialog offers the `contributor` role: adds, and changes nothing of others.
+- History and the collection dialog no longer show commits, which are not part of the model: each change is a new version of the same root. History shows the access record; the dialog, the collection's sharing.
 
 ### Added
 - Lumen's `synthesize` grounds on Sage's new `retrieve` tool (op.retrieve) through Crystal, under the asker's own grants. Its corpus leg was dark in every deployment: no host ever wired the retrieval reach.

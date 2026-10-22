@@ -7,7 +7,6 @@ import { subscribeEvents, type BusEvent } from './events';
 import { completeFromFeed } from './feedArtifact';
 import {
   CollectionResponse,
-  CollectionCommitResponse,
   CollectionCreate,
   CollectionUpdate,
   GrantResponse,
@@ -49,9 +48,6 @@ export function getCollection(id: string, _grantKey?: string): Promise<Collectio
   return get(`/artifacts/${id}`);
 }
 
-export function listCollectionCommits(collectionId: string): Promise<CollectionCommitResponse[]> {
-  return get(`/artifacts/${collectionId}/commits`);
-}
 
 // create a new collection
 export function createCollection(

@@ -37,7 +37,7 @@ function MainLayout() {
   // Settings modal state, driven from HeaderBar. There is no 'llm-keys' section: the platform
   // runs model-free, so there is nothing for an LLM Keys settings panel to hold.
   const [settingsInitialSection, setSettingsInitialSection] = useState<
-    'profile' | 'general' | 'billing' | 'demo-data' | undefined
+    'profile' | 'billing' | 'demo-data' | undefined
   >(undefined);
   const [settingsScopedCollectionId, setSettingsScopedCollectionId] = useState<
     string | undefined

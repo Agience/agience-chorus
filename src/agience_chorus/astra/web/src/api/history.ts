@@ -25,23 +25,3 @@ export function getAccessLog(artifactId: string, limit = 100): Promise<AccessLog
   return get(`/artifacts/${encodeURIComponent(artifactId)}/access-log?limit=${limit}`);
 }
 
-/** One change to what a workspace or collection holds: the ids it added and removed. */
-export interface ContainerCommit {
-  id: string;
-  message?: string | null;
-  author_id?: string | null;
-  created_time?: string | null;
-  adds: string[];
-  removes: string[];
-}
-
-export interface CommitPage {
-  items: ContainerCommit[];
-  total: number | null;
-  has_more: boolean;
-}
-
-/** Newest first. Needs `read` on the card; a card that holds nothing has no commits. */
-export function getCommits(artifactId: string, limit = 50): Promise<CommitPage> {
-  return get(`/artifacts/${encodeURIComponent(artifactId)}/commits?limit=${limit}`);
-}
