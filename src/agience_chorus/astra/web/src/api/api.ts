@@ -199,7 +199,7 @@ export async function get<T>(
 /**
  * A LIST endpoint's rows.
  *
- * `/artifacts/visible`, `/children`, `/batch`, `/commits` and `/access-log` return
+ * `/artifacts/visible`, `/children`, `/batch` and `/access-log` return
  * `{ items, total, has_more }` since 2026-08-25 (P-6/P-7). The bare array is still accepted so a
  * browser pointed at an older node keeps working, and so does a mixed fleet mid-rollout.
  *
