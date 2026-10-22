@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { FiPlus, FiMoreVertical, FiSave, FiX } from 'react-icons/fi';
+import { FiPlus, FiSave, FiUpload, FiX } from 'react-icons/fi';
 import { FolderOpen } from 'lucide-react';
 import type { ActiveSource } from '../../types/workspace';
 import { CollectionResponse } from '../../api/types';
@@ -24,6 +24,8 @@ type BrowserHeaderProps = {
   sortMode?: 'relevance' | 'recency';
   onSortChange?: (mode: 'relevance' | 'recency') => void;
   onNewArtifact?: () => void;
+  /** Files chosen with the Upload button, as a drop onto the workspace would bring them. */
+  onUploadFiles?: (files: File[]) => void;
   onCreateWorkspace?: () => void;
   onDropWorkspace?: (draggedIds: string[]) => void;
   onRenameWorkspace?: (id: string, name: string) => void;
@@ -33,6 +35,7 @@ export default function BrowserHeader({
   activeSource,
   isShowingSearchResults = false,
   onNewArtifact,
+  onUploadFiles,
   onCreateWorkspace,
   onDropWorkspace,
   onRenameWorkspace,
@@ -45,6 +48,7 @@ export default function BrowserHeader({
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const editInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load collections list once
   useEffect(() => {
@@ -242,6 +246,33 @@ export default function BrowserHeader({
             </button>
           )}
 
+          {/* Upload: the same as dropping files on the workspace, for whoever cannot drag (a phone,
+              a keyboard). On a phone the picker offers the camera. */}
+          {!isShowingSearchResults && hasActiveWorkspace && onUploadFiles && (
+            <>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="h-10 px-3 inline-flex items-center gap-1.5 rounded border border-gray-300 text-sm font-medium hover:bg-accent"
+                title="Upload files to this workspace"
+              >
+                <FiUpload size={16} />
+                Upload
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                data-testid="upload-input"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = '';
+                  if (files.length) onUploadFiles(files);
+                }}
+              />
+            </>
+          )}
+
           {/* Save current collection view as View */}
           {canSaveView && (
             <button
@@ -253,10 +284,6 @@ export default function BrowserHeader({
             </button>
           )}
 
-          {/* Overflow-menu button (unwired) */}
-          <button className="h-10 w-10 inline-flex items-center justify-center rounded hover:bg-accent" title="More">
-            <FiMoreVertical size={16} />
-          </button>
         </div>
       </div>
 

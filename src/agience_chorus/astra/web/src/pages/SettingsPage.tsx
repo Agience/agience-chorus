@@ -569,7 +569,6 @@ export default function SettingsPage() {
             <TabsTrigger value="search">Search</TabsTrigger>
             <TabsTrigger value="storage">Storage</TabsTrigger>
             <TabsTrigger value="branding">Branding</TabsTrigger>
-            <TabsTrigger value="integrations">Integrations</TabsTrigger>
           </TabsList>
           <TabsContent value="users" className="mt-4"><UsersTab /></TabsContent>
           <TabsContent value="authentication" className="mt-4">
@@ -586,9 +585,6 @@ export default function SettingsPage() {
           </TabsContent>
           <TabsContent value="branding" className="mt-4">
             <BrandingTab values={values} onChange={handleChange} loaded={loaded} />
-          </TabsContent>
-          <TabsContent value="integrations" className="mt-4">
-            <p className="text-sm text-muted-foreground">Manage platform MCP servers and authorizers. Coming soon.</p>
           </TabsContent>
         </Tabs>
       </div>

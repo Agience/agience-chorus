@@ -18,7 +18,7 @@ import { useUpgradePrompt } from '@/hooks/useUpgradePrompt';
 import { getArtifact } from '@/api/artifacts';
 
 // No 'llm-keys' section: the platform does not expose model selection to the user.
-type SettingsSection = 'profile' | 'general' | 'billing' | 'demo-data';
+type SettingsSection = 'profile' | 'billing' | 'demo-data';
 
 type ArtifactOpenOptions = {
   startInEditMode?: boolean;

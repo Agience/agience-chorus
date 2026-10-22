@@ -1,6 +1,6 @@
 // "Preview Pane" – right-hand panel for inline artifact editing/preview (distinct from Artifact Preview tiles).
 import { useMemo, useState } from 'react';
-import { FileText, Tag, FolderInput, Trash2, Archive, Send } from 'lucide-react';
+import { FileText, Tag, FolderInput, Trash2, Archive } from 'lucide-react';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { CardEditor } from './CardEditor';
 import { CollectionPicker } from '../modals/CollectionPicker';
@@ -191,9 +191,6 @@ function MultiSelectSummary({ count, onClose }: { count: number; onClose?: () =>
     }
   };
 
-  const handleSendToAI = () => {
-    alert('Send to AI agent feature coming soon!');
-  };
 
   const handleBulkDelete = async () => {
     const confirmed = await dangerConfirm.confirm({
@@ -290,13 +287,6 @@ function MultiSelectSummary({ count, onClose }: { count: number; onClose?: () =>
         >
           <Tag className="w-4 h-4" />
           Add Tags
-        </button>
-        <button
-          onClick={handleSendToAI}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-purple-600 bg-purple-50 rounded hover:bg-purple-100 transition-colors"
-        >
-          <Send className="w-4 h-4" />
-          Send to AI Agent
         </button>
         <button
           onClick={handleBulkArchive}

@@ -238,3 +238,31 @@ describe('header row layout locks', () => {
     expect(closeButton).toBeDefined();
   });
 });
+
+describe('uploading without dragging', () => {
+  // 2026-10-22: files reached a workspace only by drag and drop, so a phone could add none; and a
+  // "More" button beside New card did nothing when pressed.
+  it('hands the chosen files on as a drop would, and keeps no dead button', () => {
+    mockWorkspaces = [{ id: 'ws-1', name: 'Inbox' }];
+    mockActiveWorkspace = { id: 'ws-1', name: 'Inbox' };
+    const onUploadFiles = vi.fn();
+    render(
+      <BrowserHeader
+        activeSource={{ type: 'workspace', id: 'ws-1' } as never}
+        onToggleFilters={() => {}}
+        filtersOpen={false}
+        hasActiveFilter={false}
+        activeFilter="all"
+        viewMode="grid"
+        onViewModeChange={() => {}}
+        onNewArtifact={() => {}}
+        onUploadFiles={onUploadFiles}
+      />,
+    );
+    const label = new File(['jpeg'], 'label.jpg', { type: 'image/jpeg' });
+    expect(screen.getByTitle('Upload files to this workspace')).toBeDefined();
+    fireEvent.change(screen.getByTestId('upload-input'), { target: { files: [label] } });
+    expect(onUploadFiles).toHaveBeenCalledWith([label]);
+    expect(screen.queryByTitle('More')).toBeNull();
+  });
+});

@@ -54,6 +54,9 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 - Running a tool or prompt on an MCP server a person added (Iris's `call_mcp_server`, `tools/call` and `prompts/get`) needs `invoke` on the server's card; seeing what it offers needs `read`. A card shared to be seen also let its reader run every tool on the server.
 - Removing a step from a workflow (Lumen's `remove_workflow_step`, the builder's Remove) removes the links it kept to the artifacts it works on; the artifacts are untouched.
 - A card's History names each reader by the name its owner gave the grant that reaches them, on the card or on a container it is in (an invitation's name is kept when it is claimed), instead of "Someone else" and an id. Only the owner reads the access log and lists grants, so nobody learns a name they did not give.
+- A workspace has an Upload button beside New card: files chosen there arrive as a drop would bring them, so a phone, which cannot drag, can add a photo (its picker offers the camera). The "More" button beside it, which did nothing, is gone.
+- Three controls that led nowhere are gone: "Send to AI Agent" on a multi-card selection (an alert saying it was coming), Settings' empty General tab, and the admin page's empty Integrations tab.
+- The share dialog offers the `contributor` role: adds, and changes nothing of others.
 
 ### Added
 - Lumen's `synthesize` grounds on Sage's new `retrieve` tool (op.retrieve) through Crystal, under the asker's own grants. Its corpus leg was dark in every deployment: no host ever wired the retrieval reach.

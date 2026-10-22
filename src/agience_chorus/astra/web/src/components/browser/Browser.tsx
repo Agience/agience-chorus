@@ -1656,6 +1656,7 @@ export default function Browser({
         sortMode={searchSortMode}
         onSortChange={onSearchSortChange}
         onNewArtifact={handleOpenTypePicker}
+        onUploadFiles={workspaceId ? ((files) => uploadFilesAt(files, latestArtifactsRef.current.length)) : undefined}
         onCreateWorkspace={handleCreateWorkspace}
         onDropWorkspace={handleDropWorkspace}
         onRenameWorkspace={handleRenameWorkspace}

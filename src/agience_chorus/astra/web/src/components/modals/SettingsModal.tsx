@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FiX, FiDatabase, FiLoader, FiUser, FiSettings as FiSettingsIcon, FiKey, FiCreditCard, FiLink, FiMinusCircle } from 'react-icons/fi';
+import { FiX, FiDatabase, FiLoader, FiUser, FiKey, FiCreditCard, FiLink, FiMinusCircle } from 'react-icons/fi';
 import { FcGoogle } from 'react-icons/fc';
 import { toast } from 'sonner';
 import { loadDemoData } from '../../api/agent';
@@ -23,7 +23,7 @@ interface SettingsModalProps {
   onArtifactCreated?: (artifact: Artifact, options?: ArtifactOpenOptions) => void;
 }
 
-type SettingsSection = 'profile' | 'general' | 'billing' | 'demo-data';
+type SettingsSection = 'profile' | 'billing' | 'demo-data';
 
 interface SettingsSectionConfig {
   id: SettingsSection;
@@ -33,7 +33,6 @@ interface SettingsSectionConfig {
 
 const SETTINGS_SECTIONS: SettingsSectionConfig[] = [
   { id: 'profile', label: 'Profile', icon: FiUser },
-  { id: 'general', label: 'General', icon: FiSettingsIcon },
   { id: 'billing', label: 'Billing', icon: FiCreditCard },
   { id: 'demo-data', label: 'Demo Data', icon: FiDatabase },
 ];
@@ -133,7 +132,6 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
           {/* Content Panel - Fixed size, scrollable content */}
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-6">
-              {activeSection === 'general' && <GeneralSettings />}
               {activeSection === 'demo-data' && (
                 <DemoDataSettings
                   isGenerating={isGenerating}
@@ -158,23 +156,6 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
             </div>
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-// General Settings Section
-function GeneralSettings() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">General Settings</h3>
-        <p className="text-sm text-gray-600">
-          General application preferences and configurations.
-        </p>
-      </div>
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center text-gray-500">
-        Coming soon...
       </div>
     </div>
   );

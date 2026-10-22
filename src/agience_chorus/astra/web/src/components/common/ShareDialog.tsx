@@ -18,6 +18,7 @@ interface ShareDialogProps {
 
 const ROLES = [
   { value: 'viewer', label: 'Viewer' },
+  { value: 'contributor', label: 'Contributor (adds, changes nothing of others)' },
   { value: 'editor', label: 'Editor' },
   { value: 'collaborator', label: 'Collaborator' },
   { value: 'admin', label: 'Admin' },
@@ -26,6 +27,7 @@ const ROLES = [
 // Role -> CRUDEASIO bit bundle. Must match backend Grant.ROLE_PRESETS.
 const ROLE_BITS: Record<string, Record<string, boolean>> = {
   viewer: { can_read: true },
+  contributor: { can_create: true, can_read: true },
   editor: { can_create: true, can_read: true, can_update: true, can_delete: true },
   collaborator: {
     can_create: true,
