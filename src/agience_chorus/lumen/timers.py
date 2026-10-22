@@ -163,11 +163,15 @@ class Store:
 
 # ── what its key must reach ───────────────────────────────────────────────────────────────────
 def reach(workspace: str, spec: Dict[str, Any], workflow: Optional[Dict[str, Any]] = None,
-          links: Optional[Dict[str, str]] = None) -> List[str]:
+          links: Optional[Dict[str, str]] = None, tools: Optional[List[tuple]] = None,
+          platform: Optional[Dict[tuple, str]] = None) -> List[str]:
     """Every resource a timer's key must reach, in order, once each: its workspace, its target,
     where it records runs and raises failures, and for a workflow each operator a step invokes and
-    each artifact a step links. The owner approves this list, and Mantle clamps the key on each to
-    what the owner holds there, so a key over an operator carries read and invoke and no more."""
+    each artifact a step links. A card made before steps were operators calls persona tools
+    directly (`tools`, as (server, tool)); each one the platform offers as an operator (`platform`)
+    needs that operator, so it is reached too. The owner approves this list, and Mantle clamps the
+    key on each to what the owner holds there, so a key over an operator carries read and invoke and
+    no more."""
     out: List[str] = []
 
     def add(rid: Any) -> None:
@@ -185,6 +189,8 @@ def reach(workspace: str, spec: Dict[str, Any], workflow: Optional[Dict[str, Any
             for value in (step.get("arguments") or {}).values():
                 if isinstance(value, str) and value.startswith("@link."):
                     add((links or {}).get(value[len("@link."):]))
+    for pair in tools or []:
+        add((platform or {}).get(tuple(pair)))
     return out
 
 

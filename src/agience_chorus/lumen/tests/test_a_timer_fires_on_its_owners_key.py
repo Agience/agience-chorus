@@ -163,3 +163,12 @@ def test_a_timers_key_reaches_each_operator_and_link_its_workflow_uses_once():
 def test_a_timer_on_anything_but_a_workflow_reaches_only_what_its_card_names():
     spec = {"target": {"artifact_id": "op-1"}, "results_to": "log-1"}
     assert T.reach("ws-1", spec, {"operator": {"server": "lumen"}}) == ["ws-1", "op-1", "log-1"]
+
+
+def test_a_card_that_calls_a_tool_directly_reaches_the_operator_that_offers_it():
+    """A card made before steps were operators calls persona tools directly; the platform's gate
+    asks the key for the operator behind each one, so the key reaches it."""
+    platform = {("sage", "browse_collections"): "op-list", ("lumen", "reconcile"): "op-rec"}
+    got = T.reach("ws-1", {"target": {"artifact_id": "wf"}}, {"run": {"type": "workflow", "steps": []}},
+                  tools=[("sage", "browse_collections"), ("lumen", "workflow_catalog")], platform=platform)
+    assert got == ["ws-1", "wf", "op-list"], "a tool no operator offers adds nothing"

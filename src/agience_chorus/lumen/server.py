@@ -1240,14 +1240,37 @@ async def timer_reach(timer_id: str) -> str:
             return json.dumps({"error": "no such timer, or you cannot read it"})
         spec = _timers._context(mine.json()).get("timer") or {}
         target = (spec.get("target") or {}).get("artifact_id")
-        workflow, links = None, {}
+        workflow, links, tools = None, {}, []
         if target:
             got = await client.get(artifact_url(MANTLE_URI, target), headers=headers)
             if got.status_code == 200:
                 workflow = _timers._context(got.json())
-                if (workflow.get("run") or {}).get("type") == "workflow":
+                run = workflow.get("run") or {}
+                if run.get("type") == "workflow":
                     links = await _workflow_links(client, target)
-    return json.dumps({"resources": _timers.reach(mine.json().get("collection_id") or "", spec, workflow, links)})
+                    # A step made before steps were operators names a Transform calling a tool.
+                    for step in run.get("steps") or []:
+                        if step.get("transform_id") and not step.get("operator_id"):
+                            got = await client.get(artifact_url(MANTLE_URI, step["transform_id"]), headers=headers)
+                            if got.status_code == 200:
+                                tools += _raw_tool(_timers._context(got.json()))
+                tools += _raw_tool(workflow)
+        platform = {}
+        if tools:
+            offered = await client.get(f"{MANTLE_URI}/artifacts/platform-operators", headers=headers)
+            if offered.status_code == 200:
+                platform = {(i.get("server"), i.get("tool")): i.get("id")
+                            for i in (offered.json() or {}).get("items") or []}
+    return json.dumps({"resources": _timers.reach(mine.json().get("collection_id") or "", spec, workflow, links,
+                                                  tools, platform)})
+
+
+def _raw_tool(ctx: dict) -> list:
+    """[(server, tool)] a card calls directly (`run.type: mcp-tool`), or []."""
+    run = (ctx or {}).get("run") or {}
+    if run.get("type") == "mcp-tool" and run.get("server") and run.get("tool"):
+        return [(str(run["server"]), str(run["tool"]))]
+    return []
 
 
 @mcp.tool(description="Disarm a Timer: forget its key; it does not fire again. The caller must be able to read it.")
