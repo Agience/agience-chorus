@@ -7,6 +7,10 @@ vi.mock('@/api/history', () => ({
   getAccessLog: (...args: unknown[]) => getAccessLogMock(...args),
   getCommits: (...args: unknown[]) => getCommitsMock(...args),
 }));
+const listGrantsMock = vi.fn();
+vi.mock('@/api/collections', () => ({
+  listGrants: (...args: unknown[]) => listGrantsMock(...args),
+}));
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({ user: { id: 'me-1' } }),
 }));
@@ -23,6 +27,29 @@ describe('HistoryPanel — who reached a card, and how', () => {
     getAccessLogMock.mockReset();
     getCommitsMock.mockReset();
     getCommitsMock.mockResolvedValue(NO_COMMITS);
+    listGrantsMock.mockReset();
+    listGrantsMock.mockResolvedValue([]);
+  });
+
+  it('names a reader by the name the owner gave the grant that reaches them, on the card or its record', async () => {
+    getAccessLogMock.mockResolvedValue({
+      artifact_id: 'card-1', total: null, has_more: false,
+      items: [
+        { principal_id: 'nurse-123456', action: 'read', result: 'denied', ts: '2026-10-22T09:00:00+00:00', ctx: { via: 'user' } },
+        { principal_id: 'doc-7654321', action: 'read', result: 'allowed', ts: '2026-10-22T09:01:00+00:00', ctx: { via: 'user' } },
+        { principal_id: 'gone-0000000', action: 'read', result: 'allowed', ts: '2026-10-22T09:02:00+00:00', ctx: { via: 'user' } },
+      ],
+    });
+    listGrantsMock.mockImplementation(async (id: string) => (id === 'record-1'
+      ? [{ grantee_id: 'doc-7654321', name: 'Dr. Patel', state: 'active' },
+         { grantee_id: 'gone-0000000', name: 'Locum, ended', state: 'revoked' }]
+      : [{ grantee_id: 'nurse-123456', name: 'Nurse: care plan', state: 'active' }]));
+    render(<HistoryPanel artifact={{ ...(CARD as object), container_ids: ['record-1'] } as never} />);
+    await waitFor(() => expect(screen.getByText('Dr. Patel (doc-7654)')).toBeTruthy());
+    expect(screen.getByText('Nurse: care plan (nurse-12)')).toBeTruthy();
+    expect(screen.getByText('Someone else (gone-000)')).toBeTruthy();
+    expect(listGrantsMock).toHaveBeenCalledWith('card-1');
+    expect(listGrantsMock).toHaveBeenCalledWith('record-1');
   });
 
   it("names the owner, a key and an acting persona, and marks a denial", async () => {
