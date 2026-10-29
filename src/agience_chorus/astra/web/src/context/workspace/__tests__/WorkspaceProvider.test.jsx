@@ -715,3 +715,33 @@ describe('WorkspaceProvider', () => {
     });
   });
 });
+
+// 2026-10-29, on staging: a right-click on one of three selected artifacts collapsed the selection to
+// it, and the menu's Delete moved only that one to Trash.
+describe('A right-click', () => {
+  function Selecting() {
+    const w = useWorkspace();
+    const at = (id, init) => w.selectArtifact(id, { shiftKey: false, metaKey: false, ctrlKey: false, button: 0, ...init });
+    return (
+      <div>
+        <div data-testid="selected">{w.selectedArtifactIds.join(',')}</div>
+        <button onClick={() => { at('a'); }}>a</button>
+        <button onClick={() => at('b', { ctrlKey: true })}>ctrl-b</button>
+        <button onClick={() => at('b', { button: 2 })}>right-b</button>
+        <button onClick={() => at('c', { button: 2 })}>right-c</button>
+      </div>
+    );
+  }
+
+  it('on a selected artifact keeps the whole selection, and on another selects it alone', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceProvider><Selecting /></WorkspaceProvider>);
+    await user.click(screen.getByText('a'));
+    await user.click(screen.getByText('ctrl-b'));
+    expect(screen.getByTestId('selected')).toHaveTextContent('a,b');
+    await user.click(screen.getByText('right-b'));
+    expect(screen.getByTestId('selected')).toHaveTextContent('a,b');
+    await user.click(screen.getByText('right-c'));
+    expect(screen.getByTestId('selected')).toHaveTextContent(/^c$/);
+  });
+});

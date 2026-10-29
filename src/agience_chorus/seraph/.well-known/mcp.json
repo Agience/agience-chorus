@@ -20,10 +20,6 @@
       "status": "not_implemented"
     },
     {
-      "name": "provide_aws_credentials",
-      "description": "Decrypt and return AWS credentials for a credential artifact"
-    },
-    {
       "name": "audit_access",
       "description": "Query the access audit log for a resource"
     },

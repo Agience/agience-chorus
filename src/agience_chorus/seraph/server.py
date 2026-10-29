@@ -21,7 +21,6 @@ Seraph has two distinct roles:
 Tools
 -----
   complete_authorizer_bearer — Store a bearer credential against an authorizer
-  provide_aws_credentials    — Resolve stored AWS credentials
   resolve_llm_credentials   — Raises: no-models rule
   audit_access              — Query the access audit log
   check_permissions         — Check access grants
@@ -53,8 +52,8 @@ Auth
   Persona signs its own platform JWTs via _auth.sign_self_jwt() — no token
   exchange with Origin, no PLATFORM_INTERNAL_SECRET.
 
-  `_fetch_and_decrypt_secret` performs a live `GET /artifacts/{id}` and is reached from two
-  registered tools — `complete_authorizer_bearer` and `provide_aws_credentials`.
+  `_fetch_and_decrypt_secret` performs a live `GET /artifacts/{id}`. No tool returns what it
+  decrypts: a secret is used where the call it authorises is made, and is never handed back.
 
   MANTLE_URI ⬩ Base URI of the Mantle backend
   ORIGIN_URI ⬩ Base URI of the identity authority (issuance). Reached over the
@@ -750,66 +749,6 @@ async def resolve_llm_credentials(
         "resolve_llm_credentials: no-models rule; this platform resolves no "
         "model API keys."
     )
-
-
-# ---------------------------------------------------------------------------
-# AWS credential decryption
-# ---------------------------------------------------------------------------
-
-@mcp.tool(description="Decrypt and return AWS credentials for a credential artifact")
-async def provide_aws_credentials(
-    credential_artifact_id: str,
-    workspace_id: str,
-) -> str:
-    """Fetch an AWS credentials artifact, decrypt the secret access key, and return both credentials.
-
-    The credential artifact is a plain application/json artifact whose context
-    stores aws_access_key_id and a reference (secret_id) to the encrypted
-    aws_secret_access_key held as a Seraph-managed secret.
-
-    Args:
-        credential_artifact_id: Artifact ID of the application/json credential artifact.
-        workspace_id: Workspace containing the credential artifact.
-    """
-    # 1. Fetch the credential artifact to get context fields.
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            artifact_url(MANTLE_URI, credential_artifact_id),
-            # Fails closed on a caller-supplied credential artifact id. This tool resolves AWS
-            # credentials; under the platform JWT a caller naming any credential artifact would have
-            # it fetched under platform authority — the worst possible place for a fallback.
-            headers=_require_user_headers(),
-        )
-    if resp.status_code != 200:
-        return _json.dumps({"error": f"Failed to fetch credential artifact: {resp.status_code}"})
-
-    artifact = resp.json()
-    ctx = artifact.get("context", {})
-    if isinstance(ctx, str):
-        try:
-            ctx = _json.loads(ctx)
-        except Exception:
-            return _json.dumps({"error": "Invalid credential artifact context"})
-
-    aws_access_key_id = ctx.get("aws_access_key_id")
-    secret_id = ctx.get("secret_id")
-    aws_region = ctx.get("aws_region", "us-east-1")
-
-    if not aws_access_key_id or not secret_id:
-        return _json.dumps({"error": "Credential artifact missing aws_access_key_id or secret_id"})
-
-    # 2. Decrypt the secret access key using the stored delegation context or
-    # the server's own platform credentials.
-    aws_secret_access_key = await _fetch_and_decrypt_secret(secret_id=secret_id)
-    if not aws_secret_access_key:
-        return _json.dumps({"error": "AWS secret access key not found or could not be decrypted"})
-
-    # 3. Return credentials (transient � not stored or logged).
-    return _json.dumps({
-        "aws_access_key_id": aws_access_key_id,
-        "aws_secret_access_key": aws_secret_access_key,
-        "aws_region": aws_region,
-    })
 
 
 # ---------------------------------------------------------------------------

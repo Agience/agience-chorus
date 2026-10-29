@@ -17,12 +17,16 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 - A change refused on an artifact or workspace on screen says "You can view this but not change it." instead of the store's "not found". Other failures keep the server's reason.
 
 ### Fixed
+- A right-click on an artifact that is one of several selected collapsed the selection to it, so the menu acted on that artifact alone. It keeps the selection; on an artifact outside it, it selects that one alone.
 - An artifact created in a workspace, typed into and closed was deleted a second later when its last edit had not reached the server yet. It is now deleted only when no edit was sent before the delay ends.
-- Artifact windows covered the Settings modal, dialogs and menus. They now sit in one layer beneath every overlay.
+- Artifact windows covered the Settings modal, dialogs and menus. They now sit in one layer beneath every overlay, and Settings renders into the page body, as the other dialogs do, rather than inside the header's own stacking context.
 - A workspace created as an artifact, or a renamed workspace or collection, appears in tabs, Ctrl+K, Open as tab and the pickers without a reload.
 - An artifact restored elsewhere appears in the open workspace without a reload.
 - Restoring one of several archived search results removed the others from the results too.
 - A change to an archived or trashed artifact arriving from the change feed was read back through `GET /artifacts/{id}`, which answers 404 for it; it is no longer read.
+
+### Removed
+- Seraph's `provide_aws_credentials`, which returned a decrypted AWS secret access key to its caller. A credential is decrypted only inside the operator that makes the call it authorises. Nothing in the platform called the tool.
 
 ## [0.2.5] - 2026-10-28
 

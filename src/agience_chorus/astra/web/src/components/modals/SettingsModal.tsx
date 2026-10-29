@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { FiX, FiLoader, FiUser, FiKey, FiCreditCard, FiLink, FiMinusCircle } from 'react-icons/fi';
 import { FcGoogle } from 'react-icons/fc';
 import { toast } from 'sonner';
@@ -46,7 +47,10 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
   }, [initialSection]);
   if (!isOpen) return null;
 
-  return (
+  // Rendered into <body>, as the app's other dialogs are: the header that holds this modal is its own
+  // stacking context (z-20), so inside it z-50 sat beneath the artifact windows' layer (z-40).
+  // 2026-10-29, measured on staging: an open artifact window covered Settings.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 h-[80vh] overflow-hidden flex flex-col">
         {/* Header */}
@@ -101,7 +105,8 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

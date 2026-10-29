@@ -12,7 +12,7 @@
     "stream.agents": "string[] — agent artifact IDs (in the same workspace) to dispatch when a session ends",
     "stream.sessions": "string[] — session artifact IDs created by this source, most recent last",
     "stream.auto_transcribe": "boolean — when true, automatically transcribe completed stream sessions via Lumen",
-    "stream.credential_artifact_id": "string — ID of an application/json credential artifact (aws_access_key_id / aws_secret_access_key / aws_region) managed by Seraph",
+    "stream.credential_artifact_id": "string — ID of an application/json credential artifact (aws_access_key_id / aws_secret_access_key / aws_region), decrypted only inside the operator that makes the AWS call",
     "stream.server_url": "string — RTMP ingest URL for this platform instance (set automatically on first key rotation)",
     "stream.language_code": "string — AWS Transcribe language code (default: en-US)"
   },

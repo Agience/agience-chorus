@@ -30,7 +30,6 @@ Implemented (live):
 | Tool | Description |
 |---|---|
 | `complete_authorizer_bearer` | Complete a bearer-token-only authorization code exchange (no refresh token) |
-| `provide_aws_credentials` | Decrypt and return AWS credentials for a credential artifact |
 | `audit_access` | Query the access audit log for a resource |
 | `check_permissions` | Check what a person or API key can access |
 | `grant_access` | Grant access to a collection for a person or team |
@@ -48,8 +47,7 @@ Declared placeholders (registered, raise `NotImplementedError`):
 | `list_policies` | List active governance policies |
 | `check_compliance` | Check compliance of a resource or workflow against governance rules |
 
-`provide_aws_credentials` returns a decrypted AWS secret access key, gated on
-`_require_user_headers()`. `resolve_llm_credentials` raises — this platform hands out no model API
+No tool returns a decrypted secret: a secret is used where the call it authorises is made. `resolve_llm_credentials` raises — this platform hands out no model API
 keys (no-models rule, universal and including BYOK).
 
 `verify_token` returns only `valid` and `token_class`, never the claims. A token carrying

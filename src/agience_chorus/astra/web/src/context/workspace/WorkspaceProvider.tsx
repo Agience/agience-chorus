@@ -634,6 +634,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const isShift = event.shiftKey;
       const isMeta = event.metaKey || event.ctrlKey;
 
+      // A right-click opens the artifact's menu on the selection it belongs to, and selects it alone
+      // when it belongs to none. 2026-10-29, on staging: the right-click collapsed three selected
+      // artifacts to one, and the menu's Delete moved only that one to Trash.
+      if (event.button === 2) {
+        setSelectedArtifactIds(prev => (prev.includes(id) ? prev : [id]));
+        if (!isShift) setAnchorId(id);
+        return;
+      }
+
       setSelectedArtifactIds(prev => {
         if (isShift && anchorId) {
           const ids = artifacts.map(c => String(c.id));
