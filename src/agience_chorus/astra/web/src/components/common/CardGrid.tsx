@@ -60,6 +60,9 @@ interface CardGridProps {
   deleteEnabled?: boolean;
   onAddToWorkspace?: (artifact: Artifact) => void;
   onAssignCollections?: (artifact: Artifact) => void;
+  /** A menu action on a card: the host takes it for the selection the card is in and answers true,
+   * or answers false and the card acts alone. */
+  onSelectionAction?: (actionId: string, artifact: Artifact) => boolean;
   onOrder?: (orderedIds: string[]) => void;
   onEditArtifactOpen?: () => void;
   onEditArtifactClose?: () => void;
@@ -97,6 +100,7 @@ export default function CardGrid({
   deleteEnabled = false,
   onAddToWorkspace,
   onAssignCollections,
+  onSelectionAction,
   onOrder,
   onFileDrop,
   onEditArtifactOpen,
@@ -806,6 +810,7 @@ export default function CardGrid({
                   }}
                   onAddToWorkspace={onAddToWorkspace}
                   onAssignCollections={onAssignCollections}
+                  onSelectionAction={onSelectionAction}
                   dragData={payload}
                 />
               </div>

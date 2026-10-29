@@ -756,24 +756,51 @@ export default function Browser({
     return added;
   }, []);
 
+  // The picker opens showing what the artifacts are already in: a collection is checked when every
+  // one of them is in it, as the card window's Change shows one artifact's. Checking adds them all;
+  // unchecking one that was checked takes them all out. 2026-10-29, a tester: Assign to Collections
+  // from the toolbar or menu opened with nothing checked for an artifact already in a collection.
+  const assignCards = useMemo(() => {
+    const ids = assignIds ?? selectedArtifactIds;
+    const all = [...artifacts, ...sourceArtifacts];
+    return ids.map(id => all.find(c => String(c.id) === id)).filter((c): c is Artifact => Boolean(c));
+  }, [assignIds, selectedArtifactIds, artifacts, sourceArtifacts]);
+  const heldByAll = useMemo(() => {
+    if (!assignCards.length) return [];
+    const [first, ...rest] = assignCards.map(c => new Set((c.committed_collection_ids ?? []).map(String)));
+    return [...first].filter(id => rest.every(s => s.has(id)));
+  }, [assignCards]);
+
   const handleBulkSelectCollections = useCallback(async (collectionIds: string[]) => {
     const ids = assignIds ?? selectedArtifactIds;
-    for (const collectionId of collectionIds) {
-      await addArtifactsToCollectionWithFeedback(collectionId, ids);
+    const chosen = new Set(collectionIds.map(String));
+    const removed = heldByAll.filter(id => !chosen.has(id));
+    for (const collectionId of chosen) {
+      const outside = ids.filter(id => !assignCards.find(c => String(c.id) === id)?.committed_collection_ids?.map(String).includes(collectionId));
+      if (outside.length) await addArtifactsToCollectionWithFeedback(collectionId, outside);
     }
-    // The card's collection indicator reads `committed_collection_ids`; add the new memberships
+    for (const collectionId of removed) {
+      for (const card of assignCards) {
+        try {
+          await removeArtifactFromCollection(collectionId, String(card.root_id ?? card.id));
+        } catch {
+          toast.error('Could not remove from this collection');
+        }
+      }
+    }
+    // The card's collection indicator reads `committed_collection_ids`; show the new memberships
     // now rather than at the next refresh.
-    for (const id of ids) {
-      const card = [...artifacts, ...sourceArtifacts].find(c => String(c.id) === id);
-      if (!card) continue;
-      const memberships = Array.from(new Set([...(card.committed_collection_ids ?? []), ...collectionIds]));
+    for (const card of assignCards) {
+      const id = String(card.id);
+      const memberships = Array.from(new Set([...(card.committed_collection_ids ?? []).map(String), ...chosen]))
+        .filter(c => !removed.includes(c));
       patchArtifactLocally({ id: card.id, committed_collection_ids: memberships });
       setSourceArtifacts(prev => prev.map(c => (String(c.id) === id ? { ...c, committed_collection_ids: memberships } : c)));
     }
     setShowBulkCollectionPicker(false);
     if (!assignIds) unselectAllArtifacts();
     setAssignIds(null);
-  }, [assignIds, artifacts, sourceArtifacts, selectedArtifactIds, unselectAllArtifacts, addArtifactsToCollectionWithFeedback, patchArtifactLocally]);
+  }, [assignIds, assignCards, heldByAll, selectedArtifactIds, unselectAllArtifacts, addArtifactsToCollectionWithFeedback, patchArtifactLocally]);
 
   const handleBulkAddTags = useCallback(async () => {
     setShowBulkTagDialog(true);
@@ -867,6 +894,29 @@ export default function Browser({
     if (trashed.length) announceTrashed(trashed, `${trashed.length} ${noun(trashed.length).toLowerCase()}`);
     unselectAllArtifacts();
   }, [dangerConfirm, bulkSelectedArtifacts, deleteArtifact, announceTrashed, unselectAllArtifacts, undockWorkspaceIfNeeded, user?.id]);
+
+  // A menu opened on a card inside a selection of several acts on the whole selection, as the
+  // toolbar does; on any other card, on that card alone. 2026-10-29, a tester: with three cards
+  // selected, Trash from one card's menu moved only that card, and nothing said so.
+  const handleSelectionAction = useCallback((actionId: string, artifact: Artifact): boolean => {
+    if (selectedArtifactIds.length < 2 || !selectedArtifactIds.includes(String(artifact.id))) return false;
+    switch (actionId) {
+      case 'delete': void handleBulkDelete(); return true;
+      case 'remove': void handleBulkDrop(); return true;
+      case 'archive': void handleBulkArchive(); return true;
+      case 'assign-collections': handleBulkMove(); return true;
+      case 'restore':
+        void (async () => {
+          for (const a of bulkSelectedArtifacts.filter(c => c.state === 'archived')) {
+            await updateArtifact({ id: String(a.id), state: 'live' });
+          }
+          reloadArchived();
+          unselectAllArtifacts();
+        })();
+        return true;
+      default: return false;
+    }
+  }, [selectedArtifactIds, bulkSelectedArtifacts, handleBulkDelete, handleBulkDrop, handleBulkArchive, handleBulkMove, updateArtifact, reloadArchived, unselectAllArtifacts]);
 
   // Entire-workspace dropzone state
   const [, setDragDepth] = useState(0);
@@ -1593,6 +1643,7 @@ export default function Browser({
 
             onRemove={handleBrowserRemove}
             deleteEnabled
+            onSelectionAction={handleSelectionAction}
             onAddToWorkspace={(artifact: Artifact) => {
               addExistingArtifact(artifact);
             }}
@@ -1628,6 +1679,7 @@ export default function Browser({
           }}
           onRemove={handleBrowserRemove}
           deleteEnabled
+          onSelectionAction={handleSelectionAction}
           onArchive={async (artifact: Artifact) => {
             if (!artifact.id || !updateArtifact) return;
             undockWorkspaceIfNeeded(artifact);
@@ -1658,7 +1710,7 @@ export default function Browser({
         />
       </div>
     );
-  }, [activeSource, namedSource, containerName, addExistingArtifact, artifactCountsByOwnerId, handleBrowserRemove, handleResolvedDrop, reloadArchived, isShowingSearchResults, openAssignFor, onArtifactSelect, onOpenArtifact, orderArtifacts, selectArtifact, selectedArtifactIds, undockWorkspaceIfNeeded, updateArtifact, uploadFilesAt, viewMode, workspaceId]);
+  }, [activeSource, namedSource, containerName, addExistingArtifact, artifactCountsByOwnerId, handleBrowserRemove, handleResolvedDrop, handleSelectionAction, reloadArchived, isShowingSearchResults, openAssignFor, onArtifactSelect, onOpenArtifact, orderArtifacts, selectArtifact, selectedArtifactIds, undockWorkspaceIfNeeded, updateArtifact, uploadFilesAt, viewMode, workspaceId]);
 
   return (
     <div className="h-full flex flex-col">
@@ -1823,6 +1875,7 @@ export default function Browser({
         open={showBulkCollectionPicker}
         onClose={() => { setShowBulkCollectionPicker(false); setAssignIds(null); }}
         onSelect={handleBulkSelectCollections}
+        selectedCollectionIds={heldByAll}
         multiple={true}
         title={(() => {
           const n = (assignIds ?? selectedArtifactIds).length;

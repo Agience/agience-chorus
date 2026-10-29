@@ -51,6 +51,11 @@ export function markNewCard(id: string, defaultTitle: string): void {
   newCards.set(String(id), defaultTitle);
 }
 
+/** The default title `id` was created with, if it is still a new card. */
+export function newCardTitle(id: string): string | undefined {
+  return newCards.get(String(id));
+}
+
 /** The default title `id` was created with, if it is a new card; it is no longer one after this. */
 export function takeNewCard(id: string): string | undefined {
   const title = newCards.get(String(id));

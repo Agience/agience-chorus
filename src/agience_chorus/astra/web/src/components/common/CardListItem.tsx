@@ -23,6 +23,9 @@ interface CardListItemProps {
   onRestore?: () => void;
   onAddToWorkspace?: () => void;
   onAssignCollections?: () => void;
+  /** A menu action on this card: the host takes it for the selection the card is in and answers true,
+   * or answers false and the card acts alone. */
+  onSelectionAction?: (actionId: string) => boolean;
   draggable?: boolean;
   selectable?: boolean;
   isSelected?: boolean;
@@ -69,6 +72,7 @@ export const CardListItem = ({
   onRestore,
   onAddToWorkspace,
   onAssignCollections,
+  onSelectionAction,
   draggable = true,
   selectable = false,
   isSelected = false,
@@ -165,6 +169,7 @@ export const CardListItem = ({
 
   // Map CardContextItems action IDs to prop callbacks
   const handleAction = (actionId: CardActionId | string) => {
+    if (onSelectionAction?.(actionId)) return;
     switch (actionId) {
       case 'open':
         if (onOpen) { onOpen(); } else { onEdit?.(); }

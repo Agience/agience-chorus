@@ -19,11 +19,13 @@ import { toast } from 'sonner';
 import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
 import { midKey, afterKey } from '../../utils/fractional-index';
 import { extractInformation } from '../../api/agent';
-import { errorDetail } from '../../utils/errorDetail';
+import { errorDetail, refusedWriteDetail } from '../../utils/errorDetail';
 import { announceRemoval } from '../../utils/removal';
 import { addArtifactToCollection } from '../../api/collections';
 import { trashArtifact, untrashArtifact } from '../../api/artifacts';
 import { takeNewCard } from '../../utils/untitled';
+import { normalizeArtifactState } from '../../utils/artifactState';
+import { COLLECTION_CONTENT_TYPE, WORKSPACE_CONTENT_TYPE } from '../../utils/content-type';
 import { OPEN_TRASH_EVENT, TRASH_RETENTION_DAYS, announceArtifactChange } from '../../constants/strings';
 
 type UpdateArtifactPayload = {
@@ -99,6 +101,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { activeWorkspace } = useWorkspaces();
 
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const artifactsRef = useRef<Artifact[]>([]);
+  artifactsRef.current = artifacts;
   // Artifacts currently shown in center panel (workspace, collection, or search results)
   const [displayedArtifacts, setDisplayedArtifacts] = useState<Artifact[]>([]);
   // Opened from outside the active list. 2026-10-23, a tester: a note whose only home is a
@@ -164,6 +168,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setArtifacts(prev => withArtifact(prev, artifact as Artifact));
       },
       onArtifactUpdated: (artifact) => {
+        // A member this list does not hold that is live again (restored elsewhere) is read in, at
+        // its place. 2026-10-29, a tester: a card restored with the Inbox open appeared only
+        // after a refresh.
+        const held = artifactsRef.current.some(c => String(c.id) === String(artifact.id));
+        if (!held && normalizeArtifactState(artifact.state) === 'live') {
+          void refreshArtifacts(workspaceId);
+          return;
+        }
         setArtifacts(prev =>
           prev.map(c =>
             String(c.id) === String(artifact.id)
@@ -272,12 +284,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
         // At its position, unless its "created" event already put it in the store.
         setArtifacts(prev => withArtifact(prev, created, insertIndex));
+        // A new workspace or collection joins the lists of them (tabs, Ctrl+K, pickers).
+        const createdType = created.content_type ?? safeParseArtifactContext(created.context).content_type;
+        if (createdType === WORKSPACE_CONTENT_TYPE || createdType === COLLECTION_CONTENT_TYPE) {
+          announceArtifactChange({ ...created, id: String(created.id) });
+        }
 
         return created;
       } catch (err) {
         console.error('Failed to create artifact', err);
         toast.error('Could not create card', {
-          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+          description: refusedWriteDetail(err, err instanceof Error ? err.message : 'Unknown error'),
         });
         return null;
       }
@@ -352,7 +369,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.error('Failed to update artifact', err);
         toast.error(archiving ? 'Could not archive the card' : 'Could not save the card', {
-          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+          description: current
+            ? refusedWriteDetail(err, err instanceof Error ? err.message : 'Unknown error')
+            : errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
         });
         try {
           await refreshArtifacts(activeWorkspace.id);

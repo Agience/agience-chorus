@@ -58,6 +58,9 @@ interface CardGridItemProps {
   onRestore?: (artifact: Artifact) => void;
   onAddToWorkspace?: (artifact: Artifact) => void;
   onAssignCollections?: (artifact: Artifact) => void;
+  /** A menu action on a card: the host takes it for the selection the card is in and answers true,
+   * or answers false and the card acts alone. */
+  onSelectionAction?: (actionId: string, artifact: Artifact) => boolean;
 
   draggable?: boolean;
   selectable?: boolean;
@@ -141,6 +144,7 @@ export const CardGridItem = ({
   onRestore,
   onAddToWorkspace,
   onAssignCollections,
+  onSelectionAction,
   draggable = false,
   selectable = false,
   isSelected = false,
@@ -452,6 +456,7 @@ export const CardGridItem = ({
 
   // Map CardContextItems action IDs to prop callbacks
   const handleAction = (actionId: CardActionId | string, actionArtifact: Artifact) => {
+    if (onSelectionAction?.(actionId, actionArtifact)) return;
     switch (actionId) {
       case 'open':
         if (onOpen) { onOpen(actionArtifact); } else { onEdit?.(actionArtifact); }

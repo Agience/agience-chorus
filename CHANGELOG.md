@@ -5,6 +5,25 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-29
+
+### Added
+- The `Release` workflow (`.github/workflows/publish.yml`) also runs on pushes to `release/**` branches: it builds and checks the package and keeps the files as the `dist` artifact, and builds the web app stamped with the commit's short sha as the `facet` artifact. The platform release deploys exactly these files. Nothing is published from these branches.
+- The context menu on an archived search result offers Restore.
+
+### Changed
+- Assign to Collections, from the toolbar or an artifact's menu, opens with the collections that already hold every chosen artifact checked, as the artifact window's Change does. Checking a collection adds the artifacts to it; unchecking a checked one removes them from it.
+- An artifact's menu acts on the whole selection when the artifact is one of several selected (Trash, Remove, Archive, Assign to collections, Restore); on any other artifact it acts on that artifact alone.
+- A change refused on an artifact or workspace on screen says "You can view this but not change it." instead of the store's "not found". Other failures keep the server's reason.
+
+### Fixed
+- An artifact created in a workspace, typed into and closed was deleted a second later when its last edit had not reached the server yet. It is now deleted only when no edit was sent before the delay ends.
+- Artifact windows covered the Settings modal, dialogs and menus. They now sit in one layer beneath every overlay.
+- A workspace created as an artifact, or a renamed workspace or collection, appears in tabs, Ctrl+K, Open as tab and the pickers without a reload.
+- An artifact restored elsewhere appears in the open workspace without a reload.
+- Restoring one of several archived search results removed the others from the results too.
+- A change to an archived or trashed artifact arriving from the change feed was read back through `GET /artifacts/{id}`, which answers 404 for it; it is no longer read.
+
 ## [0.2.5] - 2026-10-28
 
 ### Added

@@ -82,6 +82,9 @@ interface CardListProps {
   onAddToWorkspace?: (artifact: Artifact) => void;
   /** Called when assigning an artifact to one or more collections. */
   onAssignCollections?: (artifact: Artifact) => void;
+  /** A menu action on a card: the host takes it for the selection the card is in and answers true,
+   * or answers false and the card acts alone. */
+  onSelectionAction?: (actionId: string, artifact: Artifact) => boolean;
   /** Whether the list is showing search results (affects context menu actions). */
   isShowingSearchResults?: boolean;
 }
@@ -110,6 +113,7 @@ export default function CardList({
   onOpenArtifact,
   onAddToWorkspace,
   onAssignCollections,
+  onSelectionAction,
   isShowingSearchResults = false,
 }: CardListProps) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -320,6 +324,7 @@ export default function CardList({
             onRestore={() => onRestore?.(artifact)}
             onAddToWorkspace={onAddToWorkspace ? () => onAddToWorkspace(artifact) : undefined}
             onAssignCollections={onAssignCollections ? () => onAssignCollections(artifact) : undefined}
+            onSelectionAction={onSelectionAction ? (actionId) => onSelectionAction(actionId, artifact) : undefined}
             isSearchResult={isShowingSearchResults}
             removeLabel={removeLabel}
             dragData={payload}
@@ -353,6 +358,7 @@ export default function CardList({
     onOpenArtifact,
     onAddToWorkspace,
     onAssignCollections,
+    onSelectionAction,
     isShowingSearchResults,
     artifactCountsById,
     handleDragOver,

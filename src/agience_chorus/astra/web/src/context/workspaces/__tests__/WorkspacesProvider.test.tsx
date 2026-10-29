@@ -204,3 +204,29 @@ describe('WorkspacesProvider selection on load', () => {
     await waitFor(() => expect(screen.getByTestId('active')).toHaveTextContent('qa-ws'));
   });
 });
+
+// 2026-10-29, a tester: a workspace made as a card could not be opened as a tab or found with Ctrl+K
+// until a refresh, and a rename kept the old name there.
+describe('WorkspacesProvider follows changes saved elsewhere', () => {
+  beforeEach(() => { listWorkspacesMock.mockReset(); listWorkspacesMock.mockResolvedValue([{ id: 'ws-1', created_by: 'user-1' }]); });
+
+  it.each([
+    ['a new workspace', { id: 'ws-new', content_type: 'application/vnd.agience.workspace+json' }],
+    ['a listed workspace renamed', { id: 'ws-1', context: '{"title":"Renamed"}' }],
+  ])('reads the list again for %s', async (_name, change) => {
+    const { announceArtifactChange } = await import('../../../constants/strings');
+    renderProvider();
+    await waitFor(() => expect(listWorkspacesMock).toHaveBeenCalledTimes(1));
+    announceArtifactChange(change);
+    await waitFor(() => expect(listWorkspacesMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not for an ordinary card', async () => {
+    const { announceArtifactChange } = await import('../../../constants/strings');
+    renderProvider();
+    await waitFor(() => expect(listWorkspacesMock).toHaveBeenCalledTimes(1));
+    announceArtifactChange({ id: 'note-1', context: '{"content_type":"text/plain"}' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(listWorkspacesMock).toHaveBeenCalledTimes(1);
+  });
+});

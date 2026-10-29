@@ -15,7 +15,7 @@ import type { Artifact } from "../../context/workspace/workspace.types";
 import FloatingCardWindow from "../windows/FloatingCardWindow";
 import { getContentType } from "@/registry/content-types";
 import { resolveSearchHitsToArtifacts } from "../../utils/resolveSearchHits";
-import { isUntouchedNewCard, takeNewCard } from "@/utils/untitled";
+import { isUntouchedNewCard, newCardTitle, takeNewCard } from "@/utils/untitled";
 import { getArtifact } from "@/api/artifacts";
 
 /** How long after a new card's window closes it is judged: its editors save on close, and the
@@ -117,9 +117,14 @@ function MainLayout() {
     // A new card closed as it was created (no content, its default title) is discarded: it was a
     // click, not an artifact. 2026-10-13, a tester found such cards piling up.
     const artifactId = windowId.startsWith('artifact:') ? windowId.slice('artifact:'.length) : windowId;
-    const defaultTitle = takeNewCard(artifactId);
+    // Still marked new until the delay ends: an edit saved as the window closes takes it out
+    // (`updateArtifact`), and the card is kept. 2026-10-29, in production: a card typed into and
+    // closed disappeared seconds later, because the close had already taken it out and the server,
+    // asked before the edit reached it, still held the card as created.
+    const defaultTitle = newCardTitle(artifactId);
     if (defaultTitle === undefined) return;
     window.setTimeout(() => {
+      if (takeNewCard(artifactId) === undefined) return;
       const card = latestArtifactsRef.current.find((a) => String(a.id) === artifactId);
       if (!card || !isUntouchedNewCard(card, defaultTitle)) return;
       // Deleted for good, not moved to Trash, so the store's own copy decides: a card is discarded
@@ -221,26 +226,27 @@ function MainLayout() {
     return () => window.removeEventListener(ARTIFACT_CHANGED_EVENT, onChange);
   }, []);
 
+  // A result that leaves the active workspace's list (removed, trashed) leaves the results. Only one
+  // that was in the list: an archived result never is. 2026-10-29, a tester: restoring one of two
+  // archived results took both off the list, because the restore refreshed the workspace's list and
+  // the other, still archived, was not in it.
+  const listedIdsRef = useRef<{ workspace: string | null; ids: Set<string> }>({ workspace: null, ids: new Set() });
   useEffect(() => {
-    if (!activeWorkspaceId) return;
-
-    const liveArtifactIds = new Set(
+    const ids = new Set(
       artifacts
         .flatMap((artifact) => [artifact.id, artifact.root_id])
         .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
         .map(String),
     );
+    const before = listedIdsRef.current;
+    listedIdsRef.current = { workspace: activeWorkspaceId ?? null, ids };
+    if (!activeWorkspaceId || before.workspace !== activeWorkspaceId) return;
+    const left = new Set([...before.ids].filter((id) => !ids.has(id)));
+    if (!left.size) return;
 
-    setResolvedSearchArtifacts((prev) => prev.filter((artifact) => {
-      if (artifact.collection_id !== activeWorkspaceId) return true;
-
-      const candidates = [artifact.id, artifact.root_id]
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .map(String);
-
-      if (candidates.length === 0) return false;
-      return candidates.some((candidate) => liveArtifactIds.has(candidate));
-    }));
+    setResolvedSearchArtifacts((prev) => prev.filter((artifact) =>
+      artifact.collection_id !== activeWorkspaceId
+      || ![artifact.id, artifact.root_id].some((id) => id && left.has(String(id)))));
   }, [activeWorkspaceId, artifacts]);
 
   return (
@@ -316,7 +322,10 @@ function MainLayout() {
           onResizingChange={setIsPanelResizing}
         />
 
-        {/* Floating artifact windows */}
+        {/* Floating artifact windows, in a layer of their own under every overlay (z-50: Settings,
+            dialogs, menus): each window's z-index orders it among the windows only. 2026-10-29, a
+            tester: an open card window covered the Settings modal. */}
+        <div className="relative z-40" data-testid="artifact-window-layer">
         {openWindows.map((w, idx) => (
           <FloatingCardWindow
             key={w.id}
@@ -334,6 +343,7 @@ function MainLayout() {
             onOpenArtifact={handleOpenArtifact}
           />
         ))}
+        </div>
       </div>
 
       {/* Footer Bar — full width */}

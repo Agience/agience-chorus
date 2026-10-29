@@ -15,6 +15,8 @@ import { usePreferences } from '../../hooks/usePreferences';
 import { errorDetail } from '../../utils/errorDetail';
 import { inboxWorkspaceId } from '../../utils/inbox';
 import { safeParseArtifactContext, stringifyArtifactContext } from '../../utils/artifactContext';
+import { WORKSPACE_CONTENT_TYPE } from '../../utils/content-type';
+import { ARTIFACT_CHANGED_EVENT, changeOf } from '../../constants/strings';
 
 // The tab a person last selected, kept per browser and account so a reload reopens it. A
 // convenience only: unreadable storage falls back to the Inbox.
@@ -64,6 +66,24 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
           description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
         });
       });
+  }, [isAuthenticated, loading]);
+
+  // A workspace saved or created anywhere in the app is read again, so its name and its place in
+  // every list (tabs, Ctrl+K, Open as tab) follow without a reload. 2026-10-29, a tester: a
+  // workspace made as a card could not be opened as a tab or found with Ctrl+K until a refresh.
+  const listedRef = useRef<Workspace[]>([]);
+  listedRef.current = workspaces;
+  useEffect(() => {
+    if (loading || !isAuthenticated) return;
+    const onChange = (e: Event) => {
+      const change = changeOf(e);
+      if (!change) return;
+      const type = (change.content_type as string | undefined) ?? safeParseArtifactContext(change.context).content_type;
+      if (type !== WORKSPACE_CONTENT_TYPE && !listedRef.current.some(w => w.id === change.id)) return;
+      listWorkspaces().then(setWorkspaces).catch(err => console.error('Failed to reload workspaces', err));
+    };
+    window.addEventListener(ARTIFACT_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(ARTIFACT_CHANGED_EVENT, onChange);
   }, [isAuthenticated, loading]);
 
   useEffect(() => {

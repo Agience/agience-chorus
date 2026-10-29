@@ -214,7 +214,7 @@ vi.mock('../MainFooter', () => ({
 }));
 
 import MainLayout from '../MainLayout';
-import { markNewCard } from '@/utils/untitled';
+import { markNewCard, takeNewCard } from '@/utils/untitled';
 
 afterEach(() => {
   cleanup();
@@ -265,6 +265,35 @@ describe('MainLayout', () => {
     await new Promise((r) => setTimeout(r, 1300));
     expect(getArtifactMock).toHaveBeenCalledWith('new-artifact-1');
     expect(discardArtifactMock).not.toHaveBeenCalled();
+  });
+
+  // 2026-10-29, in production: a card typed into and closed disappeared seconds later. Its edit is
+  // sent as the window closes and was still on its way when the server was asked, which answered
+  // with the card as created.
+  it('keeps a card whose edit was sent as its window closed', async () => {
+    markNewCard('new-artifact-1', 'Untitled Text');
+    const untouched = { id: 'new-artifact-1', content: '', context: JSON.stringify({ title: 'Untitled Text' }), state: 'live' } as Artifact;
+    STORE_ARTIFACTS.push(untouched);
+    getArtifactMock.mockResolvedValue(untouched);
+    render(<MainLayout />);
+    await screen.findByTestId('header');
+    fireEvent.click(screen.getByTestId('create-artifact'));
+    fireEvent.click(await screen.findByText('close new-artifact-1'));
+    takeNewCard('new-artifact-1');     // what updateArtifact does with the edit saved on close
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(discardArtifactMock).not.toHaveBeenCalled();
+  });
+
+  // 2026-10-29, a tester: an open card window covered the Settings modal. The windows sit in one
+  // layer under every overlay (z-50).
+  it('puts card windows in a layer under the overlays', async () => {
+    render(<MainLayout />);
+    await screen.findByTestId('header');
+    fireEvent.click(screen.getByTestId('open-artifact'));
+    const win = await screen.findByTestId('floating-window-existing-artifact-1');
+    const layer = win.closest('[data-testid="artifact-window-layer"]');
+    expect(layer).not.toBeNull();
+    expect(layer?.className).toContain('z-40');
   });
 
   it('renders the two-panel layout with search and workspace panels', async () => {

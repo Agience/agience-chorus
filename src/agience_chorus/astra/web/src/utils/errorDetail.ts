@@ -22,3 +22,13 @@ export function errorDetail(err: unknown, fallback: string): string {
   }
   return fallback;
 }
+
+/** What to say when a change to something on screen is refused. The store answers a write it does
+ * not permit as it answers one to a missing resource (404), so as not to reveal what a caller cannot
+ * see; this caller can see it, so a refusal is said as what it is. 2026-10-29, a tester with Viewer
+ * access was told "not found" saving a card in a workspace they had open. */
+export function refusedWriteDetail(err: unknown, fallback: string): string {
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  if (status === 403 || status === 404) return 'You can view this but not change it.';
+  return errorDetail(err, fallback);
+}

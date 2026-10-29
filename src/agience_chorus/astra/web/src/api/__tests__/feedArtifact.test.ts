@@ -37,6 +37,15 @@ describe('a change-feed descriptor is completed through the authorized read', ()
     expect({ ...onScreen, ...full }.context).toBe('{"title":"Board figures"}');
   });
 
+  // 2026-10-29, a tester saw bursts of 404s after moving cards to Trash: the read answers 404 for an
+  // archived (or trashed) artifact by design.
+  it('does not read back an archived artifact', async () => {
+    const full = await completeFromFeed({ id: 'a1', state: 'archived', context: '{}' } as never) as unknown as Record<string, unknown>;
+    expect(getArtifactMock).not.toHaveBeenCalled();
+    expect(full.state).toBe('archived');
+    expect('context' in full).toBe(false);
+  });
+
   it("a workspace's created and updated cards arrive completed", async () => {
     getArtifactMock.mockResolvedValue({ id: 'a1', context: '{"title":"Board figures"}' });
     const created = vi.fn();

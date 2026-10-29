@@ -101,6 +101,8 @@ const SEARCH_RESULT_ACTIONS: DefaultAction[] = [
   { id: 'open',            label: 'Open',                 icon: OpenIcon,     states: [] },
   { id: 'add-to-workspace', label: 'Add to workspace',   icon: AddIcon,      states: [] },
   { id: 'assign-collections', label: 'Assign to collections…', icon: CollectionIcon, states: [] },
+  // 2026-10-29, a tester: an archived result could be restored only by opening it.
+  { id: 'restore',         label: 'Restore',              icon: RestoreIcon,  states: ['archived'], separator: 'before' },
 ];
 
 function isWorkspaceCard(artifact: Artifact): boolean {
