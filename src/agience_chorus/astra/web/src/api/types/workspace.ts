@@ -19,6 +19,8 @@ export interface WorkspaceResponse {
 export interface WorkspaceUpdate {
   name?: string;
   description?: string;
+  /** The whole client context, as `stringifyArtifactContext` writes it: a rename sets its title. */
+  context?: string;
 }
 
 export type Workspace = WorkspaceResponse;

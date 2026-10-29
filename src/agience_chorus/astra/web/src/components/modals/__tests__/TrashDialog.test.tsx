@@ -4,14 +4,14 @@ import { userEvent } from '@testing-library/user-event';
 import TrashDialog from '../TrashDialog';
 
 const listTrashMock = vi.fn();
-const updateArtifactMock = vi.fn();
+const untrashArtifactMock = vi.fn();
 const deleteArtifactMock = vi.fn();
 const refreshArtifactsMock = vi.fn();
 const confirmMock = vi.fn();
 
 vi.mock('@/api/artifacts', () => ({
   listTrash: (...args: unknown[]) => listTrashMock(...args),
-  updateArtifact: (...args: unknown[]) => updateArtifactMock(...args),
+  untrashArtifact: (...args: unknown[]) => untrashArtifactMock(...args),
   deleteArtifact: (...args: unknown[]) => deleteArtifactMock(...args),
 }));
 
@@ -27,8 +27,9 @@ vi.mock('@/context/dialog/useConfirm', () => ({
   useConfirm: () => ({ confirm: confirmMock }),
 }));
 
+const toastMock = vi.fn();
 vi.mock('sonner', () => ({
-  toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
+  toast: Object.assign((...args: unknown[]) => toastMock(...args), { success: vi.fn(), error: vi.fn() }),
 }));
 
 const ITEM = {
@@ -63,16 +64,26 @@ describe('TrashDialog', () => {
     expect(await screen.findByText('Trash is empty.')).toBeInTheDocument();
   });
 
-  it('Restore makes it live again and refreshes the workspace', async () => {
+  it('Restore takes it out of Trash and refreshes the workspace', async () => {
     listTrashMock.mockResolvedValueOnce([ITEM]);
-    updateArtifactMock.mockResolvedValueOnce({ ...ITEM, state: 'live' });
+    untrashArtifactMock.mockResolvedValueOnce({ ...ITEM, state: 'live' });
     const user = userEvent.setup();
     render(<TrashDialog isOpen onClose={vi.fn()} />);
     await user.click(await screen.findByRole('button', { name: 'Restore' }));
 
-    await waitFor(() => expect(updateArtifactMock).toHaveBeenCalledWith('a-1', { state: 'live' }));
+    await waitFor(() => expect(untrashArtifactMock).toHaveBeenCalledWith('a-1'));
     await waitFor(() => expect(screen.queryByText('Lantern notes')).not.toBeInTheDocument());
     expect(refreshArtifactsMock).toHaveBeenCalledWith('ws-1');
+  });
+
+  // 2026-10-23, a tester: an archived artifact restored from Trash came back live.
+  it('says when a restore returns it to Archived', async () => {
+    listTrashMock.mockResolvedValueOnce([ITEM]);
+    untrashArtifactMock.mockResolvedValueOnce({ ...ITEM, state: 'archived' });
+    const user = userEvent.setup();
+    render(<TrashDialog isOpen onClose={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: 'Restore' }));
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith('Restored "Lantern notes" to Archived'));
   });
 
   it('Delete permanently asks first, then deletes for good', async () => {

@@ -95,7 +95,7 @@ export default function HelpDialog({ isOpen, onClose, defaultTab = 'glossary' }:
                 <button
                   type="button"
                   onClick={openShortcutDialog}
-                  className="text-sm font-medium text-primary-700 hover:text-primary-800"
+                  className="text-sm font-medium text-primary hover:text-primary"
                 >
                   Open shortcuts panel
                 </button>

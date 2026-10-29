@@ -5,10 +5,11 @@ import { MemoryRouter } from 'react-router-dom';
 import { WorkspacesProvider } from '../WorkspacesProvider';
 import { useWorkspaces } from '../WorkspacesContext';
 
-const { listWorkspacesMock, createWorkspaceMock, toastErrorMock } = vi.hoisted(() => ({
+const { listWorkspacesMock, createWorkspaceMock, toastErrorMock, prefs } = vi.hoisted(() => ({
   listWorkspacesMock: vi.fn(),
   createWorkspaceMock: vi.fn(),
   toastErrorMock: vi.fn(),
+  prefs: { current: {} as Record<string, unknown>, update: (() => {}) as (p: Record<string, unknown>) => void },
 }));
 
 vi.mock('../../../api/workspaces', () => ({
@@ -23,7 +24,7 @@ vi.mock('../../../hooks/useAuth', () => ({
 }));
 
 vi.mock('../../../hooks/usePreferences', () => ({
-  usePreferences: () => ({ preferences: {}, isLoading: false, updatePreferences: vi.fn() }),
+  usePreferences: () => ({ preferences: prefs.current, isLoading: false, updatePreferences: prefs.update }),
 }));
 
 vi.mock('sonner', () => ({
@@ -94,6 +95,9 @@ describe('WorkspacesProvider deep links', () => {
   beforeEach(() => {
     listWorkspacesMock.mockReset();
     toastErrorMock.mockReset();
+    prefs.current = {};
+    prefs.update = () => {};
+    localStorage.clear();
   });
 
   function ActiveId() {
@@ -114,7 +118,7 @@ describe('WorkspacesProvider deep links', () => {
   // 2026-10-13, a tester opened a shared workspace link before being invited and saw their own
   // Inbox with no word that the link had not worked.
   it('says so when the link names a workspace this account cannot reach', async () => {
-    listWorkspacesMock.mockResolvedValueOnce([{ id: 'inbox-1', name: 'Inbox' }]);
+    listWorkspacesMock.mockResolvedValue([{ id: 'inbox-1', name: 'Inbox' }]);
     renderAt('/?workspace=shared-ws');
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith(
       "You can't open this workspace", expect.objectContaining({ description: expect.stringContaining('invitation') }),
@@ -127,5 +131,76 @@ describe('WorkspacesProvider deep links', () => {
     renderAt('/?workspace=shared-ws');
     await waitFor(() => expect(screen.getByTestId('active')).toHaveTextContent('shared-ws'));
     expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  // 2026-10-23, a tester claimed a Viewer invite; the claim page navigated to the workspace with
+  // the list loaded before the claim, and the app said it had not been shared with them.
+  it('reads the list again before refusing a link the loaded list does not hold', async () => {
+    listWorkspacesMock
+      .mockResolvedValueOnce([{ id: 'inbox-1', name: 'Inbox' }])
+      .mockResolvedValueOnce([{ id: 'inbox-1', name: 'Inbox' }, { id: 'shared-ws', name: 'S' }]);
+    renderAt('/?workspace=shared-ws');
+    await waitFor(() => expect(screen.getByTestId('active')).toHaveTextContent('shared-ws'));
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('docks a linked workspace that is not yet a tab, and keeps it selected', async () => {
+    const updates: Record<string, unknown>[] = [];
+    prefs.current = { browser: { dockedWorkspaceCardIds: ['inbox-1'] } };
+    prefs.update = (p) => { updates.push(p); };
+    listWorkspacesMock.mockResolvedValue([{ id: 'inbox-1', name: 'Inbox' }, { id: 'shared-ws', name: 'S' }]);
+    renderAt('/?workspace=shared-ws');
+    await waitFor(() => expect(updates).toContainEqual(
+      { browser: { dockedWorkspaceCardIds: ['inbox-1', 'shared-ws'] } }));
+    expect(screen.getByTestId('active')).toHaveTextContent('shared-ws');
+  });
+});
+
+describe('WorkspacesProvider selection on load', () => {
+  beforeEach(() => {
+    listWorkspacesMock.mockReset();
+    prefs.current = {};
+    prefs.update = () => {};
+    localStorage.clear();
+  });
+
+  function ActiveId() {
+    const { activeWorkspaceId, setActiveWorkspaceId } = useWorkspaces();
+    return <button data-testid="active" onClick={() => setActiveWorkspaceId('qa-ws')}>{activeWorkspaceId ?? ''}</button>;
+  }
+
+  const list = [
+    // The id that sorts first is not the Inbox: the order `/artifacts/visible` returns.
+    { id: '73459b53-qa', name: 'QA', created_by: 'user-1', created_time: '2026-10-13T00:00:00Z' },
+    { id: 'f7d56caf-inbox', name: 'Inbox', created_by: 'user-1', created_time: '2026-10-01T00:00:00Z' },
+    { id: 'qa-ws', name: 'Other', created_by: 'user-1', created_time: '2026-10-14T00:00:00Z' },
+  ];
+
+  function renderRoot() {
+    return render(
+      <MemoryRouter initialEntries={['/']}>
+        <WorkspacesProvider>
+          <ActiveId />
+        </WorkspacesProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  // 2026-10-23, a tester: with the Inbox selected, a reload selected the workspace sorting first.
+  it('selects the Inbox, not the first workspace by id', async () => {
+    listWorkspacesMock.mockResolvedValue(list);
+    renderRoot();
+    await waitFor(() => expect(screen.getByTestId('active')).toHaveTextContent('f7d56caf-inbox'));
+  });
+
+  it('reopens the tab last selected', async () => {
+    listWorkspacesMock.mockResolvedValue(list);
+    const first = renderRoot();
+    await waitFor(() => expect(screen.getByTestId('active')).toHaveTextContent('f7d56caf-inbox'));
+    fireEvent.click(screen.getByTestId('active'));
+    await waitFor(() => expect(screen.getByTestId('active')).toHaveTextContent('qa-ws'));
+    first.unmount();
+    renderRoot();
+    await waitFor(() => expect(screen.getByTestId('active')).toHaveTextContent('qa-ws'));
   });
 });

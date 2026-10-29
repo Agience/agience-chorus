@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useWorkspace } from "../../hooks/useWorkspace";
 import { useWorkspaces } from "../../hooks/useWorkspaces";
+import { useCollections } from '../../context/collections/CollectionsContext';
 import { useAuth } from "../../hooks/useAuth";
 import { usePreferences } from '../../hooks/usePreferences';
 import { useWorkspaceSearch } from "../../hooks/useWorkspaceSearch";
@@ -26,7 +27,7 @@ import { getCollectionArtifacts, listArchivedChildren, subscribeCollectionEvents
 import { getContentTypeCategory } from "../../utils/search";
 import type { SearchResponse, SearchHit } from "../../api/types/search";
 import { useConfirm } from "@/context/dialog/useConfirm";
-import { CARD_CONFIRM, BULK_CONFIRM, BUTTON_LABELS, SHORTCUTS, TRASH_RETENTION_DAYS } from "@/constants/strings";
+import { CARD_CONFIRM, BULK_CONFIRM, BUTTON_LABELS, SHORTCUTS } from "@/constants/strings";
 import { noun } from "@/product/copy";
 import { inboxWorkspaceId as inboxWorkspaceIdOf } from "@/utils/inbox";
 import { canDeleteArtifact, type CardRemoveMode } from "@/utils/artifact-permissions";
@@ -101,6 +102,7 @@ export default function Browser({
     selectedArtifactIds,
     removeArtifact,
     deleteArtifact,
+    announceTrashed,
     selectArtifact,
     selectAllArtifacts,
     unselectAllArtifacts,
@@ -123,6 +125,7 @@ export default function Browser({
   useEffect(() => { latestArtifactsRef.current = artifacts; }, [artifacts]);
 
   const { workspaces, activeWorkspace, createWorkspace, setActiveWorkspaceId, updateWorkspace } = useWorkspaces();
+  const { collections } = useCollections();
   const { user } = useAuth();
   // The person's Inbox: their oldest own workspace, as Mantle provisions it. Not their user id.
   const inboxWorkspaceId = useMemo(() => inboxWorkspaceIdOf(workspaces, user?.id), [workspaces, user?.id]);
@@ -536,6 +539,12 @@ export default function Browser({
       result = result.filter((c: Artifact) => c.state === activeFilter);
     }
     
+    // An artifact archived here leaves the live view at once, not at the next reload. 2026-10-23,
+    // a tester archived a card from the Inbox and it stayed until they refreshed the page.
+    if (!showingArchived && !isShowingSearchResults && activeFilter !== 'archived') {
+      result = result.filter((c: Artifact) => c.state !== 'archived');
+    }
+
     // The archived members are not in the live list; with the Archived chip on, they are added.
     if (showingArchived && !isShowingSearchResults) {
       const seen = new Set(result.map((c: Artifact) => String(c.root_id ?? c.id)));
@@ -848,18 +857,16 @@ export default function Browser({
 
     if (!confirmed) return;
 
-    let trashed = 0;
+    const trashed: string[] = [];
     for (const artifact of items) {
       if (await deleteArtifact(String(artifact.id), { announce: false })) {
-        trashed += 1;
+        trashed.push(String(artifact.id));
         undockWorkspaceIfNeeded(artifact);
       }
     }
-    if (trashed) toast(`Moved ${trashed} ${noun(trashed).toLowerCase()} to Trash`, {
-      description: `Restore ${trashed === 1 ? 'it' : 'them'} from Trash within ${TRASH_RETENTION_DAYS} days.`,
-    });
+    if (trashed.length) announceTrashed(trashed, `${trashed.length} ${noun(trashed.length).toLowerCase()}`);
     unselectAllArtifacts();
-  }, [dangerConfirm, bulkSelectedArtifacts, deleteArtifact, unselectAllArtifacts, undockWorkspaceIfNeeded, user?.id]);
+  }, [dangerConfirm, bulkSelectedArtifacts, deleteArtifact, announceTrashed, unselectAllArtifacts, undockWorkspaceIfNeeded, user?.id]);
 
   // Entire-workspace dropzone state
   const [, setDragDepth] = useState(0);
@@ -1250,10 +1257,14 @@ export default function Browser({
                 size: file.size,
                 processing: { strategy: "deterministic", status: "ready" },
               };
+        // Typed as the file, like an upload Mantle stores (`initiate_upload`): the type is what it
+        // renders as and what a `type:` filter matches. 2026-10-23, a tester: an uploaded Markdown
+        // file showed as a generic card and `type:text/markdown` did not find it.
         const created: Artifact | ArtifactCreate | null = await (createArtifact
           ? createArtifact({
               context: JSON.stringify(inlineCtx),
-              content: text
+              content: text,
+              content_type: inlineCtx.content_type,
             }, insertIndex + i)
           : (async () => {
               await addArtifact({
@@ -1544,9 +1555,16 @@ export default function Browser({
 
   browserRemoveRef.current = (artifact: Artifact) => handleBrowserRemove(artifact);
 
-  // The container on screen, as remove labels name it.
-  const containerName = activeSource?.type === 'collection' ? 'collection'
-    : workspaceId && workspaceId === inboxWorkspaceId ? 'Inbox' : 'workspace';
+  // The container on screen, by the title it is shown by, as remove labels name it. 2026-10-23, a
+  // tester: the toolbar said "Remove from Inbox" and the card menu "Remove from workspace".
+  const containerName = activeSource?.type === 'collection'
+    ? (collections.find(c => String(c.id) === String(activeSource.id))?.name || 'collection')
+    : workspaceId && workspaceId === inboxWorkspaceId ? 'Inbox'
+    : (activeWorkspace?.name || 'workspace');
+  const namedSource = useMemo(
+    () => (activeSource ? { ...activeSource, noun: containerName } : activeSource),
+    [activeSource, containerName],
+  );
 
   const renderArtifactSection = useCallback((sectionArtifacts: Artifact[], sectionKey: string) => {
     if (sectionArtifacts.length === 0) return null;
@@ -1562,7 +1580,7 @@ export default function Browser({
             fillHeight={true}
             selectedIds={selectedArtifactIds}
             isSelected={(id) => selectedArtifactIds.includes(id)}
-            activeSource={activeSource}
+            activeSource={namedSource}
             isShowingSearchResults={isShowingSearchResults}
             onArtifactMouseDown={(id, e) => {
               selectArtifact(id, e);
@@ -1603,6 +1621,7 @@ export default function Browser({
           onEditArtifactOpen={() => {
             // Preview pane uses current selection.
           }}
+          containerNoun={containerName}
           onOpenArtifact={onOpenArtifact}
           onAssignCollections={(artifact: Artifact) => {
             openAssignFor(artifact);
@@ -1639,7 +1658,7 @@ export default function Browser({
         />
       </div>
     );
-  }, [activeSource, addExistingArtifact, artifactCountsByOwnerId, handleBrowserRemove, handleResolvedDrop, reloadArchived, isShowingSearchResults, openAssignFor, onArtifactSelect, onOpenArtifact, orderArtifacts, selectArtifact, selectedArtifactIds, undockWorkspaceIfNeeded, updateArtifact, uploadFilesAt, viewMode, workspaceId]);
+  }, [activeSource, namedSource, containerName, addExistingArtifact, artifactCountsByOwnerId, handleBrowserRemove, handleResolvedDrop, reloadArchived, isShowingSearchResults, openAssignFor, onArtifactSelect, onOpenArtifact, orderArtifacts, selectArtifact, selectedArtifactIds, undockWorkspaceIfNeeded, updateArtifact, uploadFilesAt, viewMode, workspaceId]);
 
   return (
     <div className="h-full flex flex-col">

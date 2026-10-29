@@ -1,4 +1,5 @@
 ﻿// "Artifact Preview" – the small grid tile representation of a single artifact inside the Artifact Grid.
+import { artifactTitle } from '@/utils/untitled';
 import { MouseEvent, DragEvent, useState, useRef, useEffect, useMemo } from 'react';
 import clsx from 'clsx';
 import {
@@ -71,29 +72,10 @@ interface CardGridItemProps {
   isShowingSearchResults?: boolean;
 }
 
+// The title over the filename, as every card shows it (`artifactTitle`). 2026-10-23, a tester renamed
+// an upload and its card kept the filename it was uploaded under.
 function parseContextTitle(context: unknown): string {
-  try {
-    if (typeof context === 'string') {
-      const obj = JSON.parse(context);
-      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-        const contextObj = obj as { filename?: string; title?: string };
-        const f = contextObj.filename;
-        if (typeof f === 'string' && f.trim()) return f.trim();
-        const t = contextObj.title;
-        if (typeof t === 'string' && t.trim()) return t.trim();
-      }
-      return '';
-    }
-    if (context && typeof context === 'object' && !Array.isArray(context)) {
-      const f = (context as { filename?: string }).filename;
-      if (typeof f === 'string' && f.trim()) return f.trim();
-      const t = (context as { title?: string }).title;
-      return typeof t === 'string' ? t.trim() : '';
-    }
-  } catch {
-    // Ignore parsing errors
-  }
-  return '';
+  return artifactTitle({ context } as Pick<Artifact, 'context'>);
 }
 
 interface ContextMeta {

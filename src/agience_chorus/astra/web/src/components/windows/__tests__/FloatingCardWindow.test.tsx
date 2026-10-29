@@ -8,6 +8,9 @@ const viewerSpy = vi.fn(({ state }: { state?: string }) => <div data-testid="gen
 
 vi.mock('@/hooks/useWorkspace', () => ({
   useWorkspace: () => ({
+    openedArtifacts: [],
+    keepOpenedArtifact: () => {},
+    isEditable: (a?: { state?: string } | null) => Boolean(a) && a?.state !== 'archived',
     artifacts: [
       {
         id: 'artifact-1',

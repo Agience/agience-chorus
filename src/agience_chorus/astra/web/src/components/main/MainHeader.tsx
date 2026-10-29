@@ -18,7 +18,7 @@ import { useUpgradePrompt } from '@/hooks/useUpgradePrompt';
 import { getArtifact } from '@/api/artifacts';
 
 // No 'llm-keys' section: the platform does not expose model selection to the user.
-type SettingsSection = 'profile' | 'billing' | 'demo-data';
+type SettingsSection = 'profile' | 'billing';
 
 type ArtifactOpenOptions = {
   startInEditMode?: boolean;
@@ -62,7 +62,8 @@ export default function HeaderBar({
   const { user, logout: signOut } = useAuth() ?? {};
   const shortcutHint = formatShortcutCombo('mod+/').join(' + ');
   const { createArtifact } = useWorkspace();
-  const { activeWorkspaceId } = useWorkspaces();
+  const { activeWorkspaceId, workspaces } = useWorkspaces();
+  const activeWorkspaceName = workspaces?.find((w) => w.id === activeWorkspaceId)?.name;
 
   // Open settings modal when initialSection is set from parent
   useEffect(() => {
@@ -343,6 +344,7 @@ export default function HeaderBar({
           open={showShare}
           onOpenChange={setShowShare}
           workspaceId={activeWorkspaceId}
+          workspaceName={activeWorkspaceName}
         />
       )}
     </header>

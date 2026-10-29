@@ -29,13 +29,16 @@ describe('api/workspaces', () => {
     getList.mockResolvedValueOnce([{ id: 'w1' }]);
     const res = await listWorkspaces();
     expect(getList).toHaveBeenCalledWith('/artifacts/visible?content_type=application%2Fvnd.agience.workspace%2Bjson');
-    expect(res).toEqual([{ id: 'w1' }]);
+    expect(res).toEqual([{ id: 'w1', name: '' }]);
   });
 
   it('createWorkspace calls POST /artifacts with workspace content_type', async () => {
     post.mockResolvedValueOnce({ id: 'w-new', name: 'N' });
     const res = await createWorkspace({ name: 'N', description: 'D' });
-    expect(post).toHaveBeenCalledWith('/artifacts', { name: 'N', description: 'D', content_type: 'application/vnd.agience.workspace+json' });
+    expect(post).toHaveBeenCalledWith('/artifacts', {
+      name: 'N', description: 'D', content_type: 'application/vnd.agience.workspace+json',
+      context: JSON.stringify({ content_type: 'application/vnd.agience.workspace+json', title: 'N' }),
+    });
     expect(res.id).toBe('w-new');
   });
 

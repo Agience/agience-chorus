@@ -38,7 +38,7 @@ function parseTitle(artifact: Artifact): string {
   try {
     const ctx =
       typeof artifact.context === 'string' ? JSON.parse(artifact.context) : artifact.context;
-    return ctx?.filename || ctx?.title || 'Untitled';
+    return ctx?.title || ctx?.filename || 'Untitled';
   } catch {
     return 'Untitled';
   }

@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { deleteArtifact, listTrash, updateArtifact } from '@/api/artifacts';
+import { deleteArtifact, listTrash, untrashArtifact } from '@/api/artifacts';
 import type { ArtifactResponse } from '@/api/types/artifact';
 import { BUTTON_LABELS, CARD_CONFIRM, TRASH_RETENTION_DAYS } from '@/constants/strings';
 import { useConfirm } from '@/context/dialog/useConfirm';
@@ -72,9 +72,12 @@ function TrashContents({ onClose }: { onClose: () => void }) {
     const id = String(item.id);
     setBusyId(id);
     try {
-      await updateArtifact(id, { state: 'live' });
+      const restored = await untrashArtifact(id);
       drop(id);
-      toast(`Restored "${titleOf(item)}"`);
+      // It returns to the state it had, so one archived before its delete comes back archived.
+      toast(restored?.state === 'archived'
+        ? `Restored "${titleOf(item)}" to Archived`
+        : `Restored "${titleOf(item)}"`);
       if (activeWorkspaceId) await refreshArtifacts(activeWorkspaceId);
     } catch (err) {
       toast.error('Could not restore it', {

@@ -90,7 +90,7 @@ export function CollectionPicker({
     if (!searchQuery) return collections;
     const query = searchQuery.toLowerCase();
     return collections.filter(c => 
-      c.name.toLowerCase().includes(query) || 
+      (c.name || '').toLowerCase().includes(query) || 
       c.description?.toLowerCase().includes(query)
     );
   }, [collections, searchQuery]);
@@ -215,7 +215,7 @@ export function CollectionPicker({
                           <div className="flex items-center gap-2">
                             <FolderOpen className="w-4 h-4 text-gray-400 flex-shrink-0" />
                             <h3 className="font-medium text-gray-900 truncate">
-                              {collection.name}
+                              {collection.name || 'Untitled collection'}
                             </h3>
                           </div>
                           {collection.description && (

@@ -88,20 +88,21 @@ export function DialogProvider({ children }: PropsWithChildren) {
           }
         }}
       >
+        {/* Radix names the dialog from its Title and Description; ids of our own would override
+            the ones it checks for and leave the dialog reported as untitled. */}
         <DialogContent
           className="max-w-md"
-          aria-labelledby="confirm-dialog-title"
-          aria-describedby="confirm-dialog-description"
+          {...(description ? {} : { 'aria-describedby': undefined })}
         >
           <DialogHeader className="space-y-3">
             <div className="flex items-center gap-3">
               <span aria-hidden="true">{toneIcon}</span>
-              <DialogTitle id="confirm-dialog-title" className="text-left">
+              <DialogTitle className="text-left">
                 {title || (tone === 'warn' ? 'Are you sure?' : 'Delete item?')}
               </DialogTitle>
             </div>
             {description ? (
-              <DialogDescription id="confirm-dialog-description" className="text-left">
+              <DialogDescription className="text-left">
                 {description}
               </DialogDescription>
             ) : null}

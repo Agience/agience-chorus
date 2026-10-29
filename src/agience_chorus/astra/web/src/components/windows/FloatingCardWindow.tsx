@@ -36,11 +36,8 @@ type Rect = { x: number; y: number; w: number; h: number };
 // ─── Context Panel ───────────────────────────────────────────────────────────
 
 function ContextPanel({ artifact }: { artifact: Artifact }) {
-	const { artifacts, updateArtifact } = useWorkspace();
-	const isReadOnly = useMemo(
-		() => artifact.state === 'archived' || !artifacts.find((c) => String(c.id) === String(artifact.id)),
-		[artifacts, artifact.id, artifact.state],
-	);
+	const { updateArtifact, isEditable } = useWorkspace();
+	const isReadOnly = !isEditable(artifact);
 
 	const ctx = useMemo(() => safeParseArtifactContext(artifact.context), [artifact.context]);
 
@@ -265,14 +262,11 @@ function ContextPanel({ artifact }: { artifact: Artifact }) {
 // ─── Collections Panel ───────────────────────────────────────────────────────
 
 function CollectionsPanel({ artifact }: { artifact: Artifact }) {
-	const { artifacts, displayedArtifacts = [] } = useWorkspace();
+	const { artifacts, displayedArtifacts = [], isEditable } = useWorkspace();
 	const { collections = [] } = useCollections();
 	const [showPicker, setShowPicker] = useState(false);
 
-	const isReadOnly = useMemo(
-		() => artifact.state === 'archived' || !artifacts.find((c) => String(c.id) === String(artifact.id)),
-		[artifacts, artifact.id, artifact.state],
-	);
+	const isReadOnly = !isEditable(artifact);
 
 	const committedCollectionIds = useMemo(
 		() => Array.isArray(artifact.committed_collection_ids)
@@ -482,14 +476,13 @@ export default function FloatingCardWindow(props: {
 	const { artifactId, zIndex, onClose, onFocus, onSnapToGrid, initialRect, initialViewState, onOpenCollection, onOpenArtifact, windowIndex = 0 } = props;
 	const containerRef = useRef<HTMLDivElement>(null);
 
-	const { artifacts, displayedArtifacts = [], updateArtifact } = useWorkspace();
+	const { artifacts, openedArtifacts, displayedArtifacts = [], updateArtifact, isEditable } = useWorkspace();
 	const { updateWorkspace, activeWorkspaceId } = useWorkspaces();
 
 	const artifact = useMemo(() => {
-		const foundInWorkspace = artifacts.find((c) => String(c.id) === String(artifactId));
-		if (foundInWorkspace) return foundInWorkspace;
-		return displayedArtifacts.find((c) => String(c.id) === String(artifactId)) || null;
-	}, [artifacts, displayedArtifacts, artifactId]);
+		const same = (c: Artifact) => String(c.id) === String(artifactId);
+		return artifacts.find(same) || openedArtifacts.find(same) || displayedArtifacts.find(same) || null;
+	}, [artifacts, openedArtifacts, displayedArtifacts, artifactId]);
 
 	const contentType = useMemo(() => {
 		if (!artifact) return null;
@@ -609,10 +602,7 @@ export default function FloatingCardWindow(props: {
 	}, [artifact]);
 
 	// Inline-editable title in the window header
-	const isArtifactWritable = useMemo(
-		() => !isArchived && Boolean(artifacts.find((a) => String(a.id) === String(artifactId))),
-		[artifacts, artifactId, isArchived],
-	);
+	const isArtifactWritable = isEditable(artifact);
 	const [localTitle, setLocalTitle] = useState(title);
 
 	// Sync local title only when the artifact identity changes (different artifact selected),

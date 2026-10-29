@@ -57,7 +57,7 @@ import AdvancedSearch from '../browser/AdvancedSearch';
 import type { SearchResponse } from '../../api/types/search';
 
 // No LLM Keys settings section: this app has no model configuration surface.
-type SettingsSection = 'profile' | 'demo-data';
+type SettingsSection = 'profile';
 
 interface SidebarEnhancedProps {
   activeSource: ActiveSource;

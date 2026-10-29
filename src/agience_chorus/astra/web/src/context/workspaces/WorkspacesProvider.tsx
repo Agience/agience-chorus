@@ -13,6 +13,22 @@ import { WorkspaceUpdate } from '../../api/types/workspace';
 import { useAuth } from '../../hooks/useAuth';
 import { usePreferences } from '../../hooks/usePreferences';
 import { errorDetail } from '../../utils/errorDetail';
+import { inboxWorkspaceId } from '../../utils/inbox';
+import { safeParseArtifactContext, stringifyArtifactContext } from '../../utils/artifactContext';
+
+// The tab a person last selected, kept per browser and account so a reload reopens it. A
+// convenience only: unreadable storage falls back to the Inbox.
+const lastTabKey = (userId: string) => `agience.lastWorkspaceTab.${userId}`;
+
+function readLastTab(userId: string | undefined): string | null {
+  if (!userId) return null;
+  try { return localStorage.getItem(lastTabKey(userId)); } catch { return null; }
+}
+
+function writeLastTab(userId: string | undefined, id: string | null): void {
+  if (!userId || !id) return;
+  try { localStorage.setItem(lastTabKey(userId), id); } catch { /* storage unavailable */ }
+}
 
 export function WorkspacesProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, loading, user } = useAuth();
@@ -30,6 +46,9 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
   const [searchParams] = useSearchParams();
   const urlWorkspaceId = searchParams.get('workspace');
   const deepLinkApplied = useRef(false);
+  // A workspace being opened as a tab before the preference that docks it has come back. The
+  // selection below keeps it rather than falling back to a docked tab in the meantime.
+  const opening = useRef<string | null>(null);
 
   // Load workspaces once authenticated
   useEffect(() => {
@@ -65,13 +84,36 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const isVisible = (id: string | null | undefined) =>
+      Boolean(id && visibleWorkspaces.some((workspace) => workspace.id === id));
+    if (opening.current && dockedWorkspaceTabIds?.includes(opening.current)) opening.current = null;
     setActiveWorkspaceId((current) => {
-      if (current && visibleWorkspaces.some((workspace) => workspace.id === current)) {
-        return current;
-      }
+      if (current && current === opening.current && workspaces.some((w) => w.id === current)) return current;
+      if (isVisible(current)) return current;
+      // On load: the tab last selected here, else the Inbox, else the first tab. 2026-10-23, a
+      // tester: a reload selected the workspace whose id sorts first, not the Inbox they had open.
+      const last = readLastTab(user?.id);
+      if (isVisible(last)) return last;
+      const inbox = inboxWorkspaceId(visibleWorkspaces, user?.id);
+      if (isVisible(inbox)) return inbox;
       return visibleWorkspaces[0]?.id || null;
     });
   }, [dockedWorkspaceTabIds, isAuthenticated, loading, preferencesLoading, workspaces, user?.id, updatePreferences, preferences.browser]);
+
+  useEffect(() => {
+    writeLastTab(user?.id, activeWorkspaceId);
+  }, [activeWorkspaceId, user?.id]);
+
+  // Open a workspace as a tab: dock it when the tabs are an explicit list, then select it.
+  const openWorkspaceTab = useCallback((id: string) => {
+    if (dockedWorkspaceTabIds && !dockedWorkspaceTabIds.includes(id)) {
+      opening.current = id;
+      void updatePreferences({
+        browser: { ...preferences.browser, dockedWorkspaceCardIds: [...dockedWorkspaceTabIds, id] },
+      });
+    }
+    setActiveWorkspaceId(id);
+  }, [dockedWorkspaceTabIds, preferences.browser, updatePreferences]);
 
   // Deep link: if URL has /:artifactId (or ?workspace=xyz) matching a
   // known workspace, activate it on first load.
@@ -79,11 +121,8 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
     if (deepLinkApplied.current || workspaces.length === 0) return;
     const targetWsId = urlWorkspaceId || urlArtifactId;
     if (targetWsId) {
-      const found = workspaces.find((w) => w.id === targetWsId);
       deepLinkApplied.current = true;
-      if (found) {
-        setActiveWorkspaceId(found.id);
-      } else {
+      const refuse = () => {
         // A link to a workspace this account cannot reach. Saying so, rather than opening the
         // Inbox as if the link had worked; whether it exists is not revealed either way.
         // 2026-10-13, a tester opened a shared link before being invited and saw their own Inbox.
@@ -91,9 +130,24 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
           description: "It hasn't been shared with you, or it no longer exists. Ask its owner for an invitation.",
           duration: 10000,
         });
+      };
+      if (workspaces.some((w) => w.id === targetWsId)) {
+        openWorkspaceTab(targetWsId);
+        return;
       }
+      // The list may predate the link: an invite claimed in this tab navigates here with the list
+      // loaded before the claim. Read it again before refusing. 2026-10-23, a tester claimed a
+      // Viewer invite and was told the workspace had not been shared with them.
+      listWorkspaces()
+        .then((fresh) => {
+          const list = Array.isArray(fresh) ? fresh : [];
+          if (!list.some((w) => w.id === targetWsId)) return refuse();
+          setWorkspaces(list);
+          openWorkspaceTab(targetWsId);
+        })
+        .catch(refuse);
     }
-  }, [workspaces, urlArtifactId, urlWorkspaceId]);
+  }, [workspaces, urlArtifactId, urlWorkspaceId, openWorkspaceTab]);
 
   // Create. A failure is toasted here with the server's reason, then rethrown so the
   // caller stops; callers need not toast again.
@@ -129,15 +183,21 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
     async (updates: Partial<Workspace> & { id: string }) => {
       const { id, name, description } = updates;
 
+      // A rename sets the title the context holds, which is what cards and pickers show, as well
+      // as `name`. The whole client context is sent: an update replaces the client's keys.
+      const current = workspaces.find(w => w.id === id);
       const payload: WorkspaceUpdate = {
-        ...(name !== undefined ? { name } : {}),
+        ...(name !== undefined ? {
+          name,
+          context: stringifyArtifactContext({ ...safeParseArtifactContext(current?.context), title: name }),
+        } : {}),
         ...(description !== undefined ? { description } : {}),
       };
 
       const updated = await apiUpdateWorkspace(id, payload);
       setWorkspaces(prev => prev.map(w => (w.id === updated.id ? updated : w)));
     },
-    []
+    [workspaces]
   );
 
   // Delete
@@ -173,8 +233,9 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
       updateWorkspace,
       deleteWorkspace,
       setActiveWorkspaceId,
+      openWorkspaceTab,
     }),
-    [workspaces, activeWorkspace, activeWorkspaceId, createWorkspace, updateWorkspace, deleteWorkspace]
+    [workspaces, activeWorkspace, activeWorkspaceId, createWorkspace, updateWorkspace, deleteWorkspace, openWorkspaceTab]
   );
 
   return (

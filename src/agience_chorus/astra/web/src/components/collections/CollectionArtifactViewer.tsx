@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutGrid, List, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -11,7 +11,7 @@ import type { Artifact } from '@/context/workspace/workspace.types';
 import { getStableArtifactId } from '@/utils/artifact-identifiers';
 import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import { useConfirm } from '@/context/dialog/useConfirm';
-import { BUTTON_LABELS, CARD_CONFIRM } from '@/constants/strings';
+import { ARTIFACT_CHANGED_EVENT, BUTTON_LABELS, CARD_CONFIRM, changeOf } from '@/constants/strings';
 import { addArtifactToWorkspace } from '@/api/workspaces';
 import CardTypePickerDialog from '@/components/browser/CardTypePickerDialog';
 import { getContentTypeById } from '@/registry/content-types';
@@ -88,9 +88,13 @@ export default function CollectionArtifactViewer({
     return declared === WORKSPACE_CONTENT_TYPE;
   }, [artifact]);
   const noun = isWorkspace ? 'workspace' : 'collection';
+  // Remove labels name this container by its title ("Remove from REG-WS").
+  const removeTarget = artifactTitle(artifact) || noun;
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const [memberItems, setMemberItems] = useState<Artifact[]>([]);
+  const memberItemsRef = useRef<Artifact[]>(memberItems);
+  memberItemsRef.current = memberItems;
   const [isLoading, setIsLoading] = useState(false);
   const [viewMode, setViewMode] = useState<CollectionViewMode>(mode === 'list' ? 'list' : 'grid');
   const [dropActive, setDropActive] = useState(false);
@@ -121,6 +125,22 @@ export default function CollectionArtifactViewer({
     void reloadArtifacts();
   }, [reloadArtifacts]);
 
+  // One change to a member: an archived one leaves the window, a listed one takes the change, and a
+  // live one not listed (a restore) is read in with the rest.
+  const applyChange = useCallback((artifact: Artifact) => {
+    const aKey = String(artifact.root_id ?? artifact.id);
+    const listed = (c: Artifact) => String(c.root_id ?? c.id) === aKey || String(c.id) === String(artifact.id);
+    if (artifact.state === 'archived') {
+      setMemberItems(prev => prev.filter(c => !listed(c)));
+      return;
+    }
+    if (!memberItemsRef.current.some(listed)) {
+      if (artifact.state === 'live') void reloadArtifacts();
+      return;
+    }
+    setMemberItems(prev => prev.map(c => (listed(c) ? { ...c, ...artifact } as Artifact : c)));
+  }, [reloadArtifacts]);
+
   // Subscribe to real-time collection change events via SSE
   useEffect(() => {
     if (!collectionId) return;
@@ -133,15 +153,7 @@ export default function CollectionArtifactViewer({
           return [...prev, artifact as Artifact];
         });
       },
-      onArtifactUpdated: (artifact) => {
-        setMemberItems(prev =>
-          prev.map(c => {
-            const cKey = String(c.root_id ?? c.id);
-            const aKey = String((artifact as Artifact).root_id ?? artifact.id);
-            return cKey === aKey ? { ...c, ...artifact } as Artifact : c;
-          })
-        );
-      },
+      onArtifactUpdated: (artifact) => { applyChange(artifact as Artifact); },
       onArtifactDeleted: (artifactId) => {
         setMemberItems(prev =>
           prev.filter(c => String(c.root_id ?? c.id) !== String(artifactId))
@@ -153,7 +165,20 @@ export default function CollectionArtifactViewer({
     });
 
     return unsubscribe;
-  }, [collectionId, reloadArtifacts]);
+  }, [collectionId, applyChange, reloadArtifacts]);
+
+  // A change saved anywhere in the app, as this window's members show it. 2026-10-23, a tester
+  // restored a note with this workspace's window open, and it appeared only after the window was
+  // closed and opened again; 2026-10-27, measured in a browser, a member edited in its own window
+  // kept its old title and preview here.
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const change = changeOf(e);
+      if (change) applyChange(change as unknown as Artifact);
+    };
+    window.addEventListener(ARTIFACT_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(ARTIFACT_CHANGED_EVENT, onChange);
+  }, [applyChange]);
 
   const pendingWorkspaceItems = useMemo(() => {
     if (!collectionId) return [] as Artifact[];
@@ -366,7 +391,7 @@ export default function CollectionArtifactViewer({
               selectable
               draggable
               fillHeight
-              activeSource={collectionId ? { type: 'collection', id: collectionId, noun } : null}
+              activeSource={collectionId ? { type: 'collection', id: collectionId, noun: removeTarget } : null}
               onOpenArtifact={onOpenArtifact}
               onRemove={handleRemove}
               deleteEnabled
@@ -385,7 +410,7 @@ export default function CollectionArtifactViewer({
             selectable
             draggable
             sourceCollectionId={collectionId || undefined}
-            containerNoun={noun}
+            containerNoun={removeTarget}
             onOpenArtifact={onOpenArtifact}
             onRemove={handleRemove}
             deleteEnabled

@@ -22,9 +22,9 @@ import { extractInformation } from '../../api/agent';
 import { errorDetail } from '../../utils/errorDetail';
 import { announceRemoval } from '../../utils/removal';
 import { addArtifactToCollection } from '../../api/collections';
-import { trashArtifact } from '../../api/artifacts';
+import { trashArtifact, untrashArtifact } from '../../api/artifacts';
 import { takeNewCard } from '../../utils/untitled';
-import { OPEN_TRASH_EVENT, TRASH_RETENTION_DAYS } from '../../constants/strings';
+import { OPEN_TRASH_EVENT, TRASH_RETENTION_DAYS, announceArtifactChange } from '../../constants/strings';
 
 type UpdateArtifactPayload = {
   state?: Artifact['state'];
@@ -101,6 +101,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   // Artifacts currently shown in center panel (workspace, collection, or search results)
   const [displayedArtifacts, setDisplayedArtifacts] = useState<Artifact[]>([]);
+  // Opened from outside the active list. 2026-10-23, a tester: a note whose only home is a
+  // workspace shown in a window could not be edited there, and its editor vanished while typing —
+  // editability asked whether it was in the active tab, and the window read it from the list the
+  // center panel replaces on every change.
+  const [openedArtifacts, setOpenedArtifacts] = useState<Artifact[]>([]);
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [orderVersion, setOrderVersion] = useState<number | null>(null);
@@ -207,10 +212,29 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // through PATCH /artifacts/{id}/upload-status) or the artifact that route returns.
   const patchArtifactLocally = useCallback((patchIn: Partial<Artifact>) => {
     if (patchIn.id === undefined || patchIn.id === null) return;
-    setArtifacts(prev =>
-      prev.map(c => (String(c.id) === String(patchIn.id) ? { ...c, ...patchIn } as Artifact : c))
-    );
+    const patch = (prev: Artifact[]) =>
+      prev.map(c => (String(c.id) === String(patchIn.id) ? { ...c, ...patchIn } as Artifact : c));
+    setArtifacts(patch);
+    setOpenedArtifacts(patch);
   }, []);
+
+  // A copy opened again from a list that has not caught up is older than the one kept: the newer
+  // stays. 2026-10-27, measured in a browser: a note edited in its window and opened again from its
+  // workspace's window showed its old title and an empty body.
+  const keepOpenedArtifact = useCallback((artifact: Artifact) => {
+    if (artifact.id === undefined || artifact.id === null) return;
+    setOpenedArtifacts(prev => {
+      const kept = prev.find(c => String(c.id) === String(artifact.id));
+      const newer = kept && String(kept.modified_time ?? '') > String(artifact.modified_time ?? '') ? kept : artifact;
+      return [...prev.filter(c => String(c.id) !== String(artifact.id)), newer];
+    });
+  }, []);
+
+  const isEditable = useCallback((artifact: Artifact | null | undefined) => {
+    if (!artifact || artifact.state === 'archived') return false;
+    const id = String(artifact.id);
+    return artifacts.some(c => String(c.id) === id) || openedArtifacts.some(c => String(c.id) === id);
+  }, [artifacts, openedArtifacts]);
 
   // Create an artifact, return it, and insert it at a specific index
   const createArtifact = useCallback(
@@ -267,7 +291,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
       // An archived artifact is read-only: the store answers an edit to it with 404, and the
       // refresh after the failure drops it from view with the edit lost. Only restoring it is sent.
-      const current = [...artifacts, ...displayedArtifacts].find(c => String(c.id) === String(patchIn.id));
+      const current = [...artifacts, ...openedArtifacts, ...displayedArtifacts].find(c => String(c.id) === String(patchIn.id));
       const restoring = patchIn.state === 'live';
       if (current?.state === 'archived' && !restoring
           && (typeof patchIn.context !== 'undefined' || typeof patchIn.content !== 'undefined')) {
@@ -281,13 +305,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       }
 
       // Optimistic update
-      setArtifacts(prev =>
+      const optimistic = (prev: Artifact[]) =>
         prev.map(c =>
           String(c.id) === String(patchIn.id)
             ? { ...c, ...patchIn } as Artifact
             : c
-        )
-      );
+        );
+      setArtifacts(optimistic);
+      setOpenedArtifacts(optimistic);
 
       // Build minimal payload - only send fields that are explicitly set
       const payload: UpdateArtifactPayload = {};
@@ -301,11 +326,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           String(patchIn.id),
           payload
         );
-        setArtifacts(prev =>
+        const confirmed = (prev: Artifact[]) =>
           prev.map(c => (String(c.id) === String(patchIn.id)
             ? { ...c, ...updated } as Artifact
-            : c))
-        );
+            : c));
+        setArtifacts(confirmed);
+        setOpenedArtifacts(confirmed);
+        announceArtifactChange({ ...updated, id: String(patchIn.id) });
         if (restoring && !current) {
           // Restored from the archived listing: the live list never held it, so read it again.
           await refreshArtifacts(activeWorkspace.id);
@@ -317,7 +344,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           toast(`Archived "${artifactTitle(current)}"`, {
             description: 'It no longer appears in this workspace.',
             action: { label: 'Undo', onClick: () => { void updateWorkspaceArtifact(activeWorkspace.id, id, { state: 'live' })
-              .then(() => refreshArtifacts(activeWorkspace.id)).catch(() => {
+              .then(() => { announceArtifactChange({ id, state: 'live' }); return refreshArtifacts(activeWorkspace.id); }).catch(() => {
                 toast.error('Could not restore the card');
               }); } },
           });
@@ -332,7 +359,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         } catch { /* ignore */ }
       }
     },
-    [activeWorkspace?.id, artifacts, displayedArtifacts, refreshArtifacts]
+    [activeWorkspace?.id, artifacts, openedArtifacts, displayedArtifacts, refreshArtifacts]
   );
 
   const removeArtifact = useCallback(
@@ -362,6 +389,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setSelectedArtifactIds(prev => prev.filter(cid => cid !== String(id)));
   }, []);
 
+  // What a move to Trash says, from any entry point: what moved, Undo, and View Trash. 2026-10-23,
+  // a tester: the toolbar's Delete said it in text alone, the card menu's offered both buttons.
+  const announceTrashed = useCallback((ids: string[], what: string) => {
+    const workspaceId = activeWorkspace?.id;
+    toast(`Moved ${what} to Trash`, {
+      description: `Restore ${ids.length === 1 ? 'it' : 'them'} from Trash within ${TRASH_RETENTION_DAYS} days.`,
+      action: { label: 'Undo', onClick: () => {
+        void Promise.all(ids.map((id) => untrashArtifact(id)))
+          .then(() => (workspaceId ? refreshArtifacts(workspaceId) : undefined))
+          .catch(() => { toast.error(ids.length === 1 ? 'Could not restore the card' : 'Could not restore every card'); });
+      } },
+      cancel: { label: 'View Trash', onClick: () => { window.dispatchEvent(new Event(OPEN_TRASH_EVENT)); } },
+    });
+  }, [activeWorkspace?.id, refreshArtifacts]);
+
   // Delete as a person means it: move the artifact to Trash (`POST /artifacts/{id}/trash`), where
   // it can be restored for 30 days, as opposed to `removeArtifact`, which unlinks it from the
   // active workspace. Resolves false when the server refuses.
@@ -378,21 +420,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         return false;
       }
       dropLocally(id);
-      if (options?.announce !== false) {
-        const workspaceId = activeWorkspace?.id;
-        toast(`Moved "${artifactTitle(current)}" to Trash`, {
-          description: `Restore it from Trash within ${TRASH_RETENTION_DAYS} days.`,
-          action: { label: 'Undo', onClick: () => {
-            void updateWorkspaceArtifact(workspaceId ?? '', String(id), { state: 'live' })
-              .then(() => (workspaceId ? refreshArtifacts(workspaceId) : undefined))
-              .catch(() => { toast.error('Could not restore the card'); });
-          } },
-          cancel: { label: 'View Trash', onClick: () => { window.dispatchEvent(new Event(OPEN_TRASH_EVENT)); } },
-        });
-      }
+      if (options?.announce !== false) announceTrashed([String(id)], `"${artifactTitle(current)}"`);
       return true;
     },
-    [activeWorkspace?.id, artifacts, displayedArtifacts, dropLocally, refreshArtifacts]
+    [artifacts, displayedArtifacts, dropLocally, announceTrashed]
   );
 
   // Delete for good (`DELETE /artifacts/{id}`): emptying Trash, and discarding a new card that was
@@ -670,6 +701,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       artifacts,
       displayedArtifacts,
       setDisplayedArtifacts,
+      openedArtifacts,
+      keepOpenedArtifact,
+      isEditable,
       selectedArtifactIds,
       addArtifact,
       addExistingArtifact,
@@ -678,6 +712,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       updateArtifact,
       removeArtifact,
       deleteArtifact,
+      announceTrashed,
       discardArtifact,
       orderArtifacts,
       importArtifactsByRootIds,
@@ -693,6 +728,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [
       artifacts,
       displayedArtifacts,
+      openedArtifacts,
+      keepOpenedArtifact,
+      isEditable,
       selectedArtifactIds,
       addArtifact,
       addExistingArtifact,
@@ -701,6 +739,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       updateArtifact,
       removeArtifact,
       deleteArtifact,
+      announceTrashed,
       discardArtifact,
       orderArtifacts,
       importArtifactsByRootIds,

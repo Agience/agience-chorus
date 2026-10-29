@@ -63,13 +63,10 @@ interface Props {
 }
 
 export default function MarkdownCardViewer({ artifact, state = 'view' }: Props) {
-  const { artifacts, updateArtifact } = useWorkspace();
+  const { updateArtifact, isEditable } = useWorkspace();
   const { content: resolvedContent, loading: contentLoading } = useArtifactContent(artifact);
 
-  const isReadOnly = useMemo(
-    () => !artifacts.find((c) => String(c.id) === String(artifact.id)),
-    [artifacts, artifact.id],
-  );
+  const isReadOnly = !isEditable(artifact);
 
   const isEditing = state === 'edit' && !isReadOnly;
 

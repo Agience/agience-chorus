@@ -10,6 +10,8 @@ export interface WorkspacesContextType {
   updateWorkspace: (workspace: Partial<Workspace> & { id: string }) => Promise<void>;
   deleteWorkspace: (id: string) => Promise<void>;
   setActiveWorkspaceId: (id: string | null) => void;
+  /** Open a workspace as a tab: docked if the tabs are an explicit list, and selected. */
+  openWorkspaceTab: (id: string) => void;
 }
 
 export const [WorkspacesContext, useWorkspaces] =

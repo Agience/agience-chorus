@@ -55,7 +55,10 @@ describe('api/collections', () => {
   it('createCollection calls POST /artifacts with collection content_type', async () => {
     post.mockResolvedValueOnce({ id: 'c-new', name: 'New', description: 'D' });
     const res = await createCollection({ name: 'New', description: 'D' });
-    expect(post).toHaveBeenCalledWith('/artifacts', { name: 'New', description: 'D', content_type: 'application/vnd.agience.collection+json' });
+    expect(post).toHaveBeenCalledWith('/artifacts', {
+      name: 'New', description: 'D', content_type: 'application/vnd.agience.collection+json',
+      context: JSON.stringify({ content_type: 'application/vnd.agience.collection+json', title: 'New' }),
+    });
     expect(res.id).toBe('c-new');
   });
 
@@ -72,11 +75,22 @@ describe('api/collections', () => {
     expect(get).toHaveBeenCalledWith('/artifacts/c1');
   });
 
-  it('updateCollection calls PATCH /artifacts/:id', async () => {
-    patch.mockResolvedValueOnce({ id: 'c1', name: 'Updated' });
+  it('updateCollection renames through PATCH /artifacts/:id, title and name together', async () => {
+    get.mockResolvedValueOnce({ id: 'c1', name: 'Old', context: { title: 'Old', tags: ['t'] } });
+    patch.mockResolvedValueOnce({ id: 'c1', name: 'Updated', context: { title: 'Updated', tags: ['t'] } });
     const res = await updateCollection('c1', { name: 'Updated' });
-    expect(patch).toHaveBeenCalledWith('/artifacts/c1', { name: 'Updated' });
+    expect(patch).toHaveBeenCalledWith('/artifacts/c1', {
+      name: 'Updated', context: JSON.stringify({ title: 'Updated', tags: ['t'] }),
+    });
     expect(res.name).toBe('Updated');
+  });
+
+  // 2026-10-23, a tester: a collection made as a card has a title and no name, and the picker
+  // showed it blank.
+  it('a listed collection is named by its title', async () => {
+    getList.mockResolvedValueOnce([{ id: 'c2', context: { title: 'REG-COL' } }]);
+    const [c] = await listCollections('create');
+    expect(c.name).toBe('REG-COL');
   });
 
   it('deleteCollection calls DELETE /artifacts/:id', async () => {

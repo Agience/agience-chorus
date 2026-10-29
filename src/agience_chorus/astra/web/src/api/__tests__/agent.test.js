@@ -1,5 +1,5 @@
 // src/api/__tests__/agent.test.js
-// Tests for api/agent.ts — loadDemoData, extractUnits, extractInformation.
+// Tests for api/agent.ts — extractUnits, extractInformation.
 // These helpers dispatch through POST /artifacts/{server}/invoke, which is
 // the MCP server artifact's invoke operation. The invoke operation reads
 // body.name as the tool to call on that server.
@@ -10,103 +10,11 @@ vi.mock('../api', () => ({
 }));
 
 import { post } from '../api';
-import { loadDemoData, extractUnits, extractInformation } from '../agent';
+import { extractUnits, extractInformation } from '../agent';
 
 describe('api/agent', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-  });
-
-  describe('loadDemoData', () => {
-    it('dispatches to lumen.load_demo_data with all params', async () => {
-      const mockResponse = {
-        workspaces_created: 2,
-        workspace_ids: ['ws-1', 'ws-2'],
-        workspace_artifacts_created: 10,
-        agience_guide_added: true,
-        message: 'Demo data loaded successfully',
-      };
-
-      post.mockResolvedValueOnce(mockResponse);
-
-      const request = {
-        topics: ['Technology', 'Science', 'Art'],
-        num_workspaces: 2,
-        artifacts_per_workspace: 8,
-        include_agience_guide: true,
-      };
-
-      const result = await loadDemoData(request);
-
-      expect(post).toHaveBeenCalledWith('/artifacts/lumen/op/invoke', {
-        name: 'load_demo_data',
-        arguments: {
-          topics: ['Technology', 'Science', 'Art'],
-          num_workspaces: 2,
-          artifacts_per_workspace: 8,
-          include_agience_guide: true,
-        },
-      });
-
-      expect(result).toEqual(mockResponse);
-    });
-
-    it('handles a minimal (empty) request — all arguments are undefined', async () => {
-      const mockResponse = {
-        workspaces_created: 0,
-        workspace_ids: [],
-        workspace_artifacts_created: 0,
-        agience_guide_added: false,
-        message: 'No data generated',
-      };
-
-      post.mockResolvedValueOnce(mockResponse);
-
-      const result = await loadDemoData({});
-
-      expect(post).toHaveBeenCalledWith('/artifacts/lumen/op/invoke', {
-        name: 'load_demo_data',
-        arguments: {
-          topics: undefined,
-          num_workspaces: undefined,
-          artifacts_per_workspace: undefined,
-          include_agience_guide: undefined,
-        },
-      });
-
-      expect(result).toEqual(mockResponse);
-    });
-
-    it('passes include_agience_guide through to arguments', async () => {
-      const mockResponse = {
-        workspaces_created: 0,
-        workspace_ids: [],
-        workspace_artifacts_created: 0,
-        agience_guide_added: true,
-        message: 'Agience guide added',
-      };
-
-      post.mockResolvedValueOnce(mockResponse);
-
-      const result = await loadDemoData({ include_agience_guide: true });
-
-      expect(post).toHaveBeenCalledWith(
-        '/artifacts/lumen/op/invoke',
-        expect.objectContaining({
-          name: 'load_demo_data',
-          arguments: expect.objectContaining({ include_agience_guide: true }),
-        })
-      );
-
-      expect(result.agience_guide_added).toBe(true);
-    });
-
-    it('propagates backend errors', async () => {
-      post.mockRejectedValueOnce(new Error('Demo data generation failed'));
-
-      await expect(loadDemoData({ num_workspaces: 5 }))
-        .rejects.toThrow('Demo data generation failed');
-    });
   });
 
   describe('extractUnits', () => {

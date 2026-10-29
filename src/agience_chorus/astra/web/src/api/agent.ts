@@ -13,47 +13,6 @@
 import { post } from './api';
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Demo data
-// ──────────────────────────────────────────────────────────────────────────────
-
-interface LoadDemoDataRequest {
-  topics?: string[];
-  num_workspaces?: number;
-  artifacts_per_workspace?: number;
-  include_agience_guide?: boolean;
-}
-
-interface LoadDemoDataResponse {
-  workspaces_created: number;
-  workspace_ids: string[];
-  workspace_artifacts_created: number;
-  agience_guide_added: boolean;
-  message: string;
-}
-
-/**
- * Generate AI-powered demo data.
- *
- * Dispatches to Lumen's ``load_demo_data`` tool (demo-data authoring
- * lives in the reasoning server since it needs the LLM to synthesize
- * content).
- */
-export async function loadDemoData(request: LoadDemoDataRequest): Promise<LoadDemoDataResponse> {
-  return post<LoadDemoDataResponse, unknown>(
-    `/artifacts/lumen/op/invoke`,
-    {
-      name: 'load_demo_data',
-      arguments: {
-        topics: request.topics,
-        num_workspaces: request.num_workspaces,
-        artifacts_per_workspace: request.artifacts_per_workspace,
-        include_agience_guide: request.include_agience_guide,
-      },
-    },
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
 // Information extraction
 // ──────────────────────────────────────────────────────────────────────────────
 

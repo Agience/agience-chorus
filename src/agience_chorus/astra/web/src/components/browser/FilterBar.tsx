@@ -68,7 +68,7 @@ export default function FilterBar({
           // Get color for each filter type when selected
           const getSelectedColor = () => {
             switch (filter.key) {
-              case 'all': return 'bg-primary-600 text-white';
+              case 'all': return 'bg-primary text-white';
               case 'archived': return 'bg-red-500 text-white';
               default: return 'bg-gray-400 text-white';
             }
@@ -119,7 +119,7 @@ export default function FilterBar({
                 className="flex items-center justify-between cursor-pointer"
               >
                 {option.label}
-                {sortBy === option.value && <FiCheck size={16} className="text-primary-600" />}
+                {sortBy === option.value && <FiCheck size={16} className="text-primary" />}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
@@ -146,7 +146,7 @@ export default function FilterBar({
                     <Icon size={16} />
                     {option.label}
                   </span>
-                  {viewMode === option.value && <FiCheck size={16} className="text-primary-600" />}
+                  {viewMode === option.value && <FiCheck size={16} className="text-primary" />}
                 </DropdownMenuItem>
               );
             })}

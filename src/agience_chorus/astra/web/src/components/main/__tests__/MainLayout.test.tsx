@@ -22,6 +22,9 @@ const EMPTY_IDS: never[] = [];
 
 vi.mock('../../../hooks/useWorkspace', () => ({
   useWorkspace: () => ({
+    openedArtifacts: [],
+    keepOpenedArtifact: () => {},
+    isEditable: (a?: { state?: string } | null) => Boolean(a) && a?.state !== 'archived',
     artifacts: STORE_ARTIFACTS,
     displayedArtifacts: EMPTY_ARTIFACTS,
     selectedArtifactIds: EMPTY_IDS,

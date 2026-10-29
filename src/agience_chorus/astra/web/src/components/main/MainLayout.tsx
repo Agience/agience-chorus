@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ARTIFACT_CHANGED_EVENT, changeOf } from '@/constants/strings';
 
 import type { ActiveSource } from "../../types/workspace";
 import FooterBar from "./MainFooter";
@@ -37,7 +38,7 @@ function MainLayout() {
   // Settings modal state, driven from HeaderBar. There is no 'llm-keys' section: the platform
   // runs model-free, so there is nothing for an LLM Keys settings panel to hold.
   const [settingsInitialSection, setSettingsInitialSection] = useState<
-    'profile' | 'billing' | 'demo-data' | undefined
+    'profile' | 'billing' | undefined
   >(undefined);
   const [settingsScopedCollectionId, setSettingsScopedCollectionId] = useState<
     string | undefined
@@ -47,14 +48,15 @@ function MainLayout() {
   const {
     artifacts,
     displayedArtifacts = [],
-    setDisplayedArtifacts,
+    openedArtifacts,
+    keepOpenedArtifact,
     unselectAllArtifacts,
     addExistingArtifact,
     discardArtifact,
   } = useWorkspace();
   // The cards as they are now, for a check that runs after a window has closed.
   const latestArtifactsRef = useRef<Artifact[]>([]);
-  latestArtifactsRef.current = [...artifacts, ...displayedArtifacts];
+  latestArtifactsRef.current = [...artifacts, ...openedArtifacts, ...displayedArtifacts];
   const { activeWorkspaceId } = useWorkspaces();
 
   // Panel widths for header coordination
@@ -143,19 +145,10 @@ function MainLayout() {
       const contentType = getContentType(artifact);
       const artifactId = artifact.id ? String(artifact.id) : null;
 
-      if (
-        artifactId &&
-        typeof setDisplayedArtifacts === 'function' &&
-        !artifacts.some((current) => String(current.id) === artifactId)
-      ) {
-        const nextDisplayedArtifacts = displayedArtifacts.some(
-          (current) => String(current.id) === artifactId,
-        )
-          ? displayedArtifacts.map((current) =>
-              String(current.id) === artifactId ? artifact : current,
-            )
-          : [...displayedArtifacts, artifact];
-        setDisplayedArtifacts(nextDisplayedArtifacts);
+      // Opened from outside the active workspace: kept as opened, which its window reads and every
+      // edit patches, rather than in the center panel's list, which that panel replaces.
+      if (artifactId && !artifacts.some((current) => String(current.id) === artifactId)) {
+        keepOpenedArtifact(artifact);
       }
 
       if (
@@ -167,7 +160,7 @@ function MainLayout() {
       }
       if (artifactId) openOrFocusArtifactWindow(artifactId, options);
     },
-    [artifacts, displayedArtifacts, openOrFocusArtifactWindow, setDisplayedArtifacts],
+    [artifacts, keepOpenedArtifact, openOrFocusArtifactWindow],
   );
 
   const openWindows = useMemo(() => {
@@ -214,6 +207,19 @@ function MainLayout() {
     },
     [addExistingArtifact],
   );
+
+  // A search result changed elsewhere shows the change. 2026-10-23, a tester restored a card opened
+  // from archived results and its result kept the Archived badge.
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const change = changeOf(e);
+      if (!change) return;
+      setResolvedSearchArtifacts((prev) => prev.map((a) =>
+        String(a.id) === change.id || String(a.root_id) === change.id ? { ...a, ...change } as Artifact : a));
+    };
+    window.addEventListener(ARTIFACT_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(ARTIFACT_CHANGED_EVENT, onChange);
+  }, []);
 
   useEffect(() => {
     if (!activeWorkspaceId) return;

@@ -19,6 +19,7 @@ vi.mock('../../../api/workspaces', () => ({
 
 vi.mock('../../../api/artifacts', () => ({
   trashArtifact: vi.fn(),
+  untrashArtifact: vi.fn(),
 }));
 
 vi.mock('../../../hooks/useAuth', () => ({
@@ -58,7 +59,7 @@ import {
   subscribeWorkspaceEvents,
 } from '../../../api/workspaces';
 import { toast } from 'sonner';
-import { trashArtifact } from '../../../api/artifacts';
+import { trashArtifact, untrashArtifact } from '../../../api/artifacts';
 
 import { extractInformation } from '../../../api/agent';
 
@@ -545,7 +546,7 @@ describe('WorkspaceProvider', () => {
 
     it('says where it went and offers Undo, which restores it', async () => {
       trashArtifact.mockResolvedValueOnce({ id: '1', state: 'archived' });
-      updateWorkspaceArtifact.mockResolvedValueOnce({ id: '1', state: 'live' });
+      untrashArtifact.mockResolvedValueOnce({ id: '1', state: 'live' });
       const user = await renderLoaded();
 
       await user.click(screen.getByText('Delete'));
@@ -556,7 +557,7 @@ describe('WorkspaceProvider', () => {
       expect(options.cancel.label).toBe('View Trash');
 
       options.action.onClick();
-      await waitFor(() => expect(updateWorkspaceArtifact).toHaveBeenCalledWith('ws-1', '1', { state: 'live' }));
+      await waitFor(() => expect(untrashArtifact).toHaveBeenCalledWith('1'));
     });
 
     it('announce: false moves it to Trash without a toast', async () => {
@@ -669,6 +670,48 @@ describe('WorkspaceProvider', () => {
       await user.click(screen.getByText('Set Displayed'));
       
       expect(screen.getByTestId('displayed-count')).toHaveTextContent('1');
+    });
+  });
+
+  // 2026-10-23, a tester: a note whose only home is a workspace shown in a window could not be
+  // edited there, and its editor vanished while typing.
+  describe('An artifact opened from outside the active workspace', () => {
+    const elsewhere = mockArtifact({ id: 'zeta', title: 'ZETA', state: 'live', content: 'a' });
+
+    function OpenedConsumer() {
+      const w = useWorkspace();
+      const opened = w.openedArtifacts.find((a) => a.id === 'zeta');
+      return (
+        <div>
+          <div data-testid="editable">{String(w.isEditable(opened ?? elsewhere))}</div>
+          <div data-testid="content">{opened?.content ?? ''}</div>
+          <button onClick={() => w.keepOpenedArtifact(elsewhere)}>open</button>
+          <button onClick={() => w.updateArtifact({ id: 'zeta', content: 'ab' })}>type</button>
+          <button onClick={() => w.setDisplayedArtifacts?.([])}>panel</button>
+        </div>
+      );
+    }
+
+    it('is editable once opened, takes its edits, and outlives the center panel', async () => {
+      updateWorkspaceArtifact.mockResolvedValue({ ...elsewhere, content: 'ab' });
+      const user = userEvent.setup();
+      render(<WorkspaceProvider><OpenedConsumer /></WorkspaceProvider>);
+      expect(screen.getByTestId('editable')).toHaveTextContent('false');
+      await user.click(screen.getByText('open'));
+      expect(screen.getByTestId('editable')).toHaveTextContent('true');
+      await user.click(screen.getByText('type'));
+      await user.click(screen.getByText('panel'));
+      await waitFor(() => expect(screen.getByTestId('content')).toHaveTextContent('ab'));
+      expect(updateWorkspaceArtifact).toHaveBeenCalledWith('ws-1', 'zeta', { content: 'ab' });
+    });
+
+    it('is not editable when archived', async () => {
+      function Archived() {
+        const w = useWorkspace();
+        return <div data-testid="editable">{String(w.isEditable({ ...elsewhere, state: 'archived' }))}</div>;
+      }
+      render(<WorkspaceProvider><Archived /></WorkspaceProvider>);
+      expect(screen.getByTestId('editable')).toHaveTextContent('false');
     });
   });
 });

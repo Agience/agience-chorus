@@ -11,6 +11,23 @@ export const TRASH_RETENTION_DAYS = 30;
 /** The window event that opens Trash from anywhere in the app. */
 export const OPEN_TRASH_EVENT = 'agience:open-trash';
 
+/** The window event a saved change sends, `detail: { artifact }` (at least its `id`; an archive or
+ * restore names its `state`), so every view on screen shows it: a container's window, search
+ * results, an artifact opened again. */
+export const ARTIFACT_CHANGED_EVENT = 'agience:artifact-changed';
+
+export type ArtifactChange = { id: string; state?: string; [key: string]: unknown };
+
+export function announceArtifactChange(artifact: ArtifactChange): void {
+  window.dispatchEvent(new CustomEvent(ARTIFACT_CHANGED_EVENT, { detail: { artifact } }));
+}
+
+/** The change a window event carries, or null. */
+export function changeOf(e: Event): ArtifactChange | null {
+  const a = (e as CustomEvent<{ artifact?: ArtifactChange }>).detail?.artifact;
+  return a && a.id ? a : null;
+}
+
 // Artifact deletion/removal confirmations
 export const CARD_CONFIRM = {
   DELETE_TITLE: `Move this ${PRODUCT_NOUN.singular.toLowerCase()} to Trash?`,

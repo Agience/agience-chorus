@@ -19,7 +19,7 @@ type StateMessageProps = {
 };
 
 const VARIANT_ICON: Record<StateVariant, ReactNode> = {
-  loading: <Loader2 className="h-10 w-10 text-primary-600 animate-spin" aria-hidden="true" />,
+  loading: <Loader2 className="h-10 w-10 text-primary animate-spin" aria-hidden="true" />,
   empty: <Inbox className="h-10 w-10 text-gray-400" aria-hidden="true" />,
   error: <AlertTriangle className="h-10 w-10 text-rose-500" aria-hidden="true" />,
   blocked: <ShieldAlert className="h-10 w-10 text-amber-500" aria-hidden="true" />,

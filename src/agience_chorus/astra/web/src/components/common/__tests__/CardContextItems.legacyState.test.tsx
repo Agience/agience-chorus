@@ -24,7 +24,7 @@ describe('CardContextItems with a legacy state', () => {
     render(<CardContextItems artifact={legacy(state)} contentType={plainType} onAction={onAction} />);
 
     expect(screen.getByText('Archive')).toBeInTheDocument();
-    expect(screen.getByText('Edit')).toBeInTheDocument();
+    expect(screen.getByText('Open')).toBeInTheDocument();
     expect(screen.queryByText(/Revert/)).toBeNull();
     expect(screen.queryByText('Restore')).toBeNull();
 

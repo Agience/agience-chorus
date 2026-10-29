@@ -67,7 +67,7 @@ export default function CommandPalette({
   const [open, setOpen] = useState(false);
   const [collections, setCollections] = useState<CollectionResponse[]>([]);
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
-  const { workspaces, setActiveWorkspaceId } = useWorkspaces();
+  const { workspaces, openWorkspaceTab } = useWorkspaces();
   const { selectedArtifactIds, extractInformationFromSelection } = useWorkspace();
   const { registerShortcut } = useShortcuts();
 
@@ -135,10 +135,11 @@ export default function CommandPalette({
   // Handle workspace selection
   const handleWorkspaceSelect = useCallback((workspaceId: string, workspaceName: string) => {
     addRecentItem('workspace', workspaceId, workspaceName);
-    setActiveWorkspaceId(workspaceId);
+    // Opened as a tab: a workspace not yet docked would otherwise be selected and dropped again.
+    openWorkspaceTab(workspaceId);
     onWorkspaceSelect?.(workspaceId);
     setOpen(false);
-  }, [setActiveWorkspaceId, onWorkspaceSelect, addRecentItem]);
+  }, [openWorkspaceTab, onWorkspaceSelect, addRecentItem]);
 
   // Handle collection selection
   const handleCollectionSelect = useCallback((collectionId: string, collectionName: string) => {
@@ -203,13 +204,13 @@ export default function CommandPalette({
               {workspaces.map((workspace) => (
                 <CommandItem
                   key={workspace.id}
-                  value={`workspace-${workspace.name}`}
-                  onSelect={() => handleWorkspaceSelect(workspace.id, workspace.name)}
+                  value={`workspace-${workspace.name || 'Untitled workspace'}-${workspace.id}`}
+                  onSelect={() => handleWorkspaceSelect(workspace.id, workspace.name || 'Untitled workspace')}
                   className="cursor-pointer"
                 >
                   <NotebookPen className="mr-2 h-4 w-4 text-gray-500" />
                   <div className="flex flex-col flex-1 min-w-0">
-                    <span className="font-medium text-sm truncate">{workspace.name}</span>
+                    <span className="font-medium text-sm truncate">{workspace.name || 'Untitled workspace'}</span>
                     {workspace.description && (
                       <span className="text-xs text-gray-500 truncate">
                         {workspace.description}
@@ -230,13 +231,13 @@ export default function CommandPalette({
               {collections.map((collection) => (
                 <CommandItem
                   key={collection.id}
-                  value={`collection-${collection.name}`}
-                  onSelect={() => handleCollectionSelect(collection.id, collection.name)}
+                  value={`collection-${collection.name || 'Untitled collection'}-${collection.id}`}
+                  onSelect={() => handleCollectionSelect(collection.id, collection.name || 'Untitled collection')}
                   className="cursor-pointer"
                 >
                   <FolderOpen className="mr-2 h-4 w-4 text-gray-500" />
                   <div className="flex flex-col flex-1 min-w-0">
-                    <span className="font-medium text-sm truncate">{collection.name}</span>
+                    <span className="font-medium text-sm truncate">{collection.name || 'Untitled collection'}</span>
                     {collection.description && (
                       <span className="text-xs text-gray-500 truncate">
                         {collection.description}

@@ -81,8 +81,10 @@ export interface GrantResponse {
   accepted_by?: string | null;
   created_time: string;
   modified_time: string;
-  // Only present on invite creation response
+  // Only present on an invite's creation or resend response
   claim_token?: string;
+  claim_url?: string;
+  email_sent?: boolean;
 }
 
 export type Grant = GrantResponse;

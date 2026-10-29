@@ -11,6 +11,9 @@ vi.mock('../src/hooks/useWorkspaces', () => ({
 vi.mock('../src/hooks/useWorkspace', () => {
   return {
     useWorkspace: () => ({
+    openedArtifacts: [],
+    keepOpenedArtifact: () => {},
+    isEditable: (a?: { state?: string } | null) => Boolean(a) && a?.state !== 'archived',
       artifacts: [
         {
           id: 'org-1',

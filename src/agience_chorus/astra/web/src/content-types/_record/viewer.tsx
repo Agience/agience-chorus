@@ -269,7 +269,7 @@ export default function RecordViewer({
   mode?: ViewMode;
   state?: ViewState;
 }) {
-  const { artifacts, updateArtifact } = useWorkspace();
+  const { updateArtifact, isEditable } = useWorkspace();
   const { content: resolvedContent } = useArtifactContent(artifact);
   const ctx = useMemo<Record<string, unknown>>(() => safeParseArtifactContext(artifact.context), [artifact.context]);
   const [draftContext, setDraftContext] = useState<Record<string, unknown>>(ctx);
@@ -285,10 +285,7 @@ export default function RecordViewer({
   const definition = fromTypeJson
     ? recordDefinitionFromConfig(typeDef.record as RecordConfig, typeDef)
     : fallbackDefinition(mime);
-  const isWorkspaceArtifact = useMemo(
-    () => artifacts.some((workspaceArtifact) => String(workspaceArtifact.id) === String(artifact.id)),
-    [artifacts, artifact.id]
-  );
+  const isWorkspaceArtifact = isEditable(artifact);
   // Declarative records are editable wherever viewed — only principals with
   // update access can open them, and the backend authorizes the PATCH regardless.
   // The generic fallback keeps the workspace gate (no declared editability).

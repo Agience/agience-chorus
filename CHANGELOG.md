@@ -5,6 +5,31 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-28
+
+### Added
+- Version history for an artifact: `api/history` can list an artifact's earlier versions (`GET /artifacts/{id}/versions`), read one, and restore one as a new current version, with nothing lost. The `HistoryPanel` window shows them.
+- `api/artifacts` can take an artifact out of Trash (`POST /artifacts/{id}/untrash`), returning it to the live or archived state it had.
+- `ShareDialog` lists who has access to a workspace and lets an owner revoke access. Pending invites can be sent again (`POST /grants/{id}/resend`) with a new link, and the link sent before stops working.
+- `ShareDialog` reports whether an invite email was sent. When it was not, the dialog shows the invite link to pass on, and the dialog stays open.
+- The artifact context menu offers `Open as tab` on a workspace shown as an artifact, so it can be opened as a main tab and shared.
+- `AdvancedSearch` shows a notice inside its panel when Apply is pressed with no search text, and the panel stays open.
+- Uploaded text files are created with the file's own content type, so they render as that type and match a `type:` filter.
+
+### Changed
+- Workspaces and collections store their title in the artifact `context` (`context.title`) when created or renamed through `api/workspaces` and `api/collections`. `name` is still sent alongside it.
+- Artifacts, pickers, the command palette and collection lists show the title held in the artifact context in preference to the filename. Untitled workspaces and collections appear as `Untitled workspace` and `Untitled collection`.
+- The command palette opens a chosen workspace as a tab.
+- An artifact archived from a workspace leaves the live view immediately, and an open `CollectionArtifactViewer` window updates its members when an artifact is changed, restored or archived elsewhere in the app.
+- Remove labels name the container by its title, for example "Remove from REG-WS", in the toolbar and artifact menu.
+- The artifact context menu no longer has a separate `Edit` action; `Open` opens the artifact in an editable window.
+- The `AdvancedSearch` tag match options are labelled `is (any case)` and `is exactly` with explanatory tooltips, and the panel uses a single column in the compact sidebar.
+- Bulk move-to-Trash shows one announcement for the whole selection.
+- Primary-colour classes in `FilterBar` use the shared `primary` colour.
+
+### Removed
+- The unused `loadDemoData` helper in `api/agent`, which called Lumen's `load_demo_data`.
+
 ## [0.2.4] - 2026-10-17
 
 ### Changed

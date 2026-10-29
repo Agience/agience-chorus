@@ -156,8 +156,9 @@ export function SearchPanel({
 
   return (
     <div className="flex flex-col h-full bg-blue-50">
-      {/* Search bar — always visible */}
-      <div className="flex-shrink-0 px-3 h-14 flex items-center border-b border-gray-200 bg-white">
+      {/* Search bar — always visible. It grows with what the search shows under the box (what was
+          sent, the filters applied, a notice); at a fixed height those overlapped the row below. */}
+      <div className="flex-shrink-0 px-3 min-h-14 py-2 flex items-center border-b border-gray-200 bg-white">
         <AdvancedSearch
           scope="global"
           scopeId=""

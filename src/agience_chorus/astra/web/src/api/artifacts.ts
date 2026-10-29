@@ -48,6 +48,11 @@ export function trashArtifact(artifactId: string): Promise<ArtifactResponse> {
   return post(`/artifacts/${artifactId}/trash`);
 }
 
+/** Take an artifact out of Trash, back to the state it had: live, or archived if it was. */
+export function untrashArtifact(artifactId: string): Promise<ArtifactResponse> {
+  return post(`/artifacts/${artifactId}/untrash`);
+}
+
 /** The caller's Trash, most recently trashed first; each item carries `purge_after`. */
 export function listTrash(): Promise<ArtifactResponse[]> {
   return getList(`/artifacts/trash`);

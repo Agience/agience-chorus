@@ -5,6 +5,8 @@ import type { RemoveResult } from '../utils/removal';
 import { COLLECTION_CONTENT_TYPE } from '@/utils/content-type';
 import { subscribeEvents, type BusEvent } from './events';
 import { completeFromFeed } from './feedArtifact';
+import { titled } from '@/utils/untitled';
+import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
 import {
   CollectionResponse,
   CollectionCreate,
@@ -28,13 +30,15 @@ import {
 // only follow a literal, so this one call site was reported as unverifiable on every run — the
 // single blind spot in a gate that otherwise covers the whole api layer. A path a tool cannot read
 // is a path nobody is checking.
-export function listCollections(action: string = 'read'): Promise<CollectionResponse[]> {
+export async function listCollections(action: string = 'read'): Promise<CollectionResponse[]> {
   // `encodeURIComponent`, not `URLSearchParams`: the latter is form-encoding and would be a
   // different encoder over the same values. This keeps the bytes on the wire identical.
   const scope = action === 'read' ? '' : `&action=${encodeURIComponent(action)}`;
-  return getList(
+  // Each is `titled`: its `name` is the title it is shown by.
+  const list = await getList<CollectionResponse>(
     `/artifacts/visible?content_type=${encodeURIComponent(COLLECTION_CONTENT_TYPE)}${scope}`,
   );
+  return list.map(titled);
 }
 
 // Every artifact of one content type the caller can read: what a picker offers for an argument
@@ -44,32 +48,39 @@ export function listVisibleOfType(contentType: string): Promise<ArtifactResponse
 }
 
 // get a single collection
-export function getCollection(id: string, _grantKey?: string): Promise<CollectionResponse> {
-  return get(`/artifacts/${id}`);
+export async function getCollection(id: string, _grantKey?: string): Promise<CollectionResponse> {
+  return titled(await get<CollectionResponse>(`/artifacts/${id}`));
 }
 
 
 // create a new collection
-export function createCollection(
+export async function createCollection(
   input: CollectionCreate,
   containerId?: string,
 ): Promise<CollectionResponse> {
   // A collection is an artifact — created in a container (the active workspace),
   // it becomes a member and shows there like anything else. Omit container for
   // a top-level collection.
-  return post('/artifacts', {
+  // The title is content and lives in the context; `name` is kept beside it for older readers.
+  return titled(await post<CollectionResponse>('/artifacts', {
     ...input,
     content_type: COLLECTION_CONTENT_TYPE,
+    context: stringifyArtifactContext({ content_type: COLLECTION_CONTENT_TYPE, title: input.name }),
     ...(containerId ? { container_id: containerId } : {}),
-  });
+  }));
 }
 
 // update name/description
-export function updateCollection(
+export async function updateCollection(
   id: string,
   input: CollectionUpdate
 ): Promise<CollectionResponse> {
-  return patch(`/artifacts/${id}`, input);
+  // A rename sets the context's title too, which is what cards and pickers show. The whole client
+  // context is sent: an update replaces the client's keys, so it is read first.
+  if (input.name === undefined) return titled(await patch<CollectionResponse>(`/artifacts/${id}`, input));
+  const current = await get<CollectionResponse>(`/artifacts/${id}`);
+  const context = stringifyArtifactContext({ ...safeParseArtifactContext(current.context), title: input.name });
+  return titled(await patch<CollectionResponse>(`/artifacts/${id}`, { ...input, context }));
 }
 
 // delete collection
@@ -98,6 +109,11 @@ export function updateGrant(
 
 export function deleteGrant(grantId: string): Promise<void> {
   return del(`/grants/${grantId}`);
+}
+
+// A pending invite sent again, with a new link; the one sent before stops working.
+export function resendInvite(grantId: string): Promise<GrantResponse> {
+  return post(`/grants/${grantId}/resend`, {});
 }
 
 export function getGrant(grantId: string): Promise<GrantResponse> {

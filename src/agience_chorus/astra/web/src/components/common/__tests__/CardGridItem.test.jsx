@@ -69,6 +69,19 @@ describe('CardGridItem', () => {
       expect(screen.getByText('Test Artifact Title')).toBeInTheDocument();
     });
 
+    // 2026-10-23, a tester renamed an upload and its card kept the filename.
+    it('shows a renamed upload by its title, not its filename', () => {
+      const artifact = mockArtifact({
+        id: '1',
+        state: 'live',
+        context: JSON.stringify({ title: 'Test plan', filename: 'regression-test-plan.md' }),
+      });
+      render(<CardGridItem artifact={artifact} />);
+
+      expect(screen.getByText('Test plan')).toBeInTheDocument();
+      expect(screen.queryByText('regression-test-plan.md')).not.toBeInTheDocument();
+    });
+
     it('renders artifact with description when no title', () => {
       const artifact = mockArtifact({ 
         id: '1', 

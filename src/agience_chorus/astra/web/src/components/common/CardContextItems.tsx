@@ -12,7 +12,7 @@
  * The action `id` string is passed to `onAction`; hosts map it to the correct
  * async operation (dangerConfirm + service call).
  */
-import React from 'react';
+import React, { useContext } from 'react';
 import {
   FiTrash2 as TrashIcon,
   FiArrowDownRight as RemoveIcon,
@@ -21,7 +21,7 @@ import {
   FiEye as OpenIcon,
   FiPlus as AddIcon,
   FiFolder as CollectionIcon,
-  FiEdit2 as EditIcon,
+  FiExternalLink as TabIcon,
 } from 'react-icons/fi';
 import {
   ContextMenuItem,
@@ -33,13 +33,16 @@ import { isArtifactActionBlocked } from '@/utils/artifact-visual-helpers';
 import { canDeleteArtifact } from '@/utils/artifact-permissions';
 import { normalizeArtifactState } from '@/utils/artifactState';
 import { useCurrentUserId } from '@/hooks/useCurrentUserId';
+import { WorkspacesContext } from '@/context/workspaces/WorkspacesContext';
+import { safeParseArtifactContext } from '@/utils/artifactContext';
+import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /** Well-known action IDs understood by all artifact hosts. */
 export type CardActionId =
   | 'open'
-  | 'edit'
+  | 'open-tab'
   | 'delete'
   | 'remove'
   | 'archive'
@@ -73,14 +76,19 @@ interface DefaultAction {
   /** Artifact states where this action is available. Empty = all. */
   states: string[];
   /** Offered only when this also holds. */
-  when?: (artifact: Artifact, userId: string | null, deleteEnabled: boolean) => boolean;
+  when?: (artifact: Artifact, userId: string | null, deleteEnabled: boolean, canOpenTab: boolean) => boolean;
   destructive?: boolean;
   separator?: 'before';
 }
 
 const DEFAULT_ACTIONS: DefaultAction[] = [
+  // No separate Edit: Open puts the card in an editable window. 2026-10-23, a tester: Edit here only
+  // selected the card, for an inline editor that is gone, so it did nothing visible.
   { id: 'open',    label: 'Open',            icon: OpenIcon,      states: [] },
-  { id: 'edit',    label: 'Edit',            icon: EditIcon,      states: ['live'] },
+  // A workspace shown as a card (in another workspace, or a card window) opens as a main tab, where
+  // it can be shared. 2026-10-23, a tester found no way to share a workspace made as a card.
+  { id: 'open-tab', label: 'Open as tab',    icon: TabIcon,       states: ['live'],
+    when: (artifact, _userId, _deleteEnabled, canOpenTab) => canOpenTab && isWorkspaceCard(artifact) },
   { id: 'assign-collections', label: 'Assign to collections…', icon: CollectionIcon, states: [] },
   { id: 'archive', label: 'Archive',         icon: ArchiveIcon,   states: ['live'], separator: 'before' },
   { id: 'restore', label: 'Restore',         icon: RestoreIcon,   states: ['archived'] },
@@ -95,6 +103,12 @@ const SEARCH_RESULT_ACTIONS: DefaultAction[] = [
   { id: 'assign-collections', label: 'Assign to collections…', icon: CollectionIcon, states: [] },
 ];
 
+function isWorkspaceCard(artifact: Artifact): boolean {
+  const declared = (artifact as { content_type?: string }).content_type
+    ?? safeParseArtifactContext(artifact.context).content_type;
+  return declared === WORKSPACE_CONTENT_TYPE;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function CardContextItems({
@@ -107,6 +121,13 @@ export function CardContextItems({
 }: CardContextItemsProps) {
   const state = normalizeArtifactState(artifact.state);
   const userId = useCurrentUserId();
+  // Opening a tab is the workspaces' own act, not a host's, so it is taken here when offered.
+  const tabs = useContext(WorkspacesContext);
+  const canOpenTab = Boolean(tabs?.workspaces.some((w) => w.id === String(artifact.id)));
+  const act = (actionId: CardActionId | string) => {
+    if (actionId === 'open-tab' && tabs) tabs.openWorkspaceTab(String(artifact.id));
+    else onAction(actionId, artifact);
+  };
 
   // A content type's declared actions take precedence when present; otherwise the
   // state-based defaults below apply.
@@ -148,7 +169,7 @@ export function CardContextItems({
   const pool = isSearchResult ? SEARCH_RESULT_ACTIONS : DEFAULT_ACTIONS;
 
   const applicable = pool.filter((a) => {
-    if (a.when && !a.when(artifact, userId, deleteEnabled)) return false;
+    if (a.when && !a.when(artifact, userId, deleteEnabled, canOpenTab)) return false;
     if ((!a.states || a.states.length === 0) && !isArtifactActionBlocked(artifact, a.id)) return true;
     return a.states.includes(state) && !isArtifactActionBlocked(artifact, a.id);
   });
@@ -164,7 +185,7 @@ export function CardContextItems({
         key={action.id}
         onClick={(e) => {
           e.stopPropagation();
-          onAction(action.id, artifact);
+          act(action.id);
         }}
         className={action.destructive ? 'text-red-600 focus:text-red-600' : undefined}
       >

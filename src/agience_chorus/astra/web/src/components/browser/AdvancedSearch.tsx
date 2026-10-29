@@ -67,6 +67,10 @@ export default function AdvancedSearch({
   const [exactWords, setExactWords] = useState(false);
   const [searchArchived, setSearchArchived] = useState(false);
   const [notice, setNotice] = useState('');
+  // Why Apply did not search, said inside the panel, which stays open. 2026-10-23, a tester applied
+  // a tag with no search text and saw nothing: the notice under the box was hidden by the row below.
+  const [panelNotice, setPanelNotice] = useState('');
+  useEffect(() => { setPanelNotice(''); }, [query, tagFilter, typeGroup]);
   // What was sent and what the server applied, shown under the box when the panel shaped the query.
   const [sentQuery, setSentQuery] = useState('');
   const [appliedFilters, setAppliedFilters] = useState<string[]>([]);
@@ -358,7 +362,9 @@ export default function AdvancedSearch({
         {/* Advanced Search Panel - Drops down from search bar */}
         {showAdvanced && (
           <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-50 p-5">
-            <div className="grid grid-cols-2 gap-6">
+            {/* One column in the sidebar (compact), whose width it shares: two there put the tag
+                field over the match options. */}
+            <div className={compact ? 'grid grid-cols-1 gap-4' : 'grid grid-cols-2 gap-6'}>
               {/* Left Column */}
               <div className="space-y-4">
                 {/* Tags Filter */}
@@ -377,10 +383,12 @@ export default function AdvancedSearch({
                       aria-label="Tag match"
                       value={tagExact ? 'exact' : 'is'}
                       onChange={(e) => setTagExact(e.target.value === 'exact')}
-                      className="w-28 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      className="w-32 shrink-0 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
                     >
-                      <option value="is">is like</option>
-                      <option value="exact">exact</option>
+                      {/* `tag:v` matches the whole tag in any case, a comma meaning any of;
+                          `tag:="v"` matches it with case and commas kept. Neither matches part of a tag. */}
+                      <option value="is" title="The whole tag, in any case. Separate tags with commas to match any of them.">is (any case)</option>
+                      <option value="exact" title="The whole tag, exactly as typed, including case and commas.">is exactly</option>
                     </select>
                   </div>
                 </div>
@@ -442,6 +450,10 @@ export default function AdvancedSearch({
               </div>
             </div>
             
+            {panelNotice && (
+              <div role="status" className="mt-4 text-xs text-amber-700">{panelNotice}</div>
+            )}
+
             {/* Bottom Actions */}
             <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
               <button
@@ -463,6 +475,14 @@ export default function AdvancedSearch({
                 </button>
                 <button
                   onClick={() => {
+                    const composed = composeRecallQuery({
+                      text: query, exact: exactWords, tag: tagFilter, tagExact, typeGroup,
+                    });
+                    if ('error' in composed && composed.error) {
+                      setPanelNotice(composed.error);
+                      return;
+                    }
+                    setPanelNotice('');
                     setShowAdvanced(false);
                     executeSearch(query);
                   }}

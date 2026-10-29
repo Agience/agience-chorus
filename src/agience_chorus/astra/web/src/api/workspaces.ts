@@ -11,30 +11,37 @@ import {
   WorkspaceUpdate,
 } from './types/workspace';
 import { ArtifactResponse, ArtifactCreate, ArtifactUpdate } from './types/artifact';
+import { titled } from '@/utils/untitled';
+import { stringifyArtifactContext } from '@/utils/artifactContext';
 
 // list all workspaces accessible to the caller
-export function listWorkspaces(): Promise<WorkspaceResponse[]> {
-  return getList('/artifacts/visible?content_type=' + encodeURIComponent('application/vnd.agience.workspace+json'));
+// Each is `titled`: its `name` is the title it is shown by.
+export async function listWorkspaces(): Promise<WorkspaceResponse[]> {
+  const list = await getList<WorkspaceResponse>('/artifacts/visible?content_type=' + encodeURIComponent('application/vnd.agience.workspace+json'));
+  return list.map(titled);
 }
 
 // get one workspace
-export function getWorkspace(id: string): Promise<WorkspaceResponse> {
-  return get(`/artifacts/${id}`);
+export async function getWorkspace(id: string): Promise<WorkspaceResponse> {
+  return titled(await get<WorkspaceResponse>(`/artifacts/${id}`));
 }
 
 // create new workspace
-export function createWorkspace(
+export async function createWorkspace(
   input: WorkspaceCreate
 ): Promise<WorkspaceResponse> {
-  return post('/artifacts', { ...input, content_type: WORKSPACE_CONTENT_TYPE });
+  // The title is content and lives in the context; `name` is kept beside it for older readers.
+  return titled(await post<WorkspaceResponse>('/artifacts', {
+    ...input, content_type: WORKSPACE_CONTENT_TYPE, context: stringifyArtifactContext({ content_type: WORKSPACE_CONTENT_TYPE, title: input.name }),
+  }));
 }
 
-// update name/description
-export function updateWorkspace(
+// update name/description (and, with them, the context that holds the title)
+export async function updateWorkspace(
   id: string,
   input: WorkspaceUpdate
 ): Promise<WorkspaceResponse> {
-  return patch(`/artifacts/${id}`, input);
+  return titled(await patch<WorkspaceResponse>(`/artifacts/${id}`, input));
 }
 
 // delete workspace

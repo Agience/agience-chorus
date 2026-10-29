@@ -20,6 +20,8 @@ export interface CollectionResponse {
   created_by: string;
   created_time: string;   // ISO datetime
   modified_time: string;  // ISO datetime
+  /** Holds the title (`context.title`); `name` is set from it on the way in (`titled`). */
+  context?: unknown;
 }
 
 export interface CollectionCommitResponse {

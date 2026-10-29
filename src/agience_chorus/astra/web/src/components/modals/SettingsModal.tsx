@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
-import { FiX, FiDatabase, FiLoader, FiUser, FiKey, FiCreditCard, FiLink, FiMinusCircle } from 'react-icons/fi';
+import { FiX, FiLoader, FiUser, FiKey, FiCreditCard, FiLink, FiMinusCircle } from 'react-icons/fi';
 import { FcGoogle } from 'react-icons/fc';
 import { toast } from 'sonner';
-import { loadDemoData } from '../../api/agent';
-// This modal covers profile, general, billing, and demo-data settings.
+// This modal covers profile and billing settings.
 // BYOK provider keys and a model picker are omitted because the platform
 // does not expose model selection to the user.
 import McpSettingsFrame from '../settings/McpSettingsFrame';
@@ -23,7 +22,7 @@ interface SettingsModalProps {
   onArtifactCreated?: (artifact: Artifact, options?: ArtifactOpenOptions) => void;
 }
 
-type SettingsSection = 'profile' | 'billing' | 'demo-data';
+type SettingsSection = 'profile' | 'billing';
 
 interface SettingsSectionConfig {
   id: SettingsSection;
@@ -34,12 +33,10 @@ interface SettingsSectionConfig {
 const SETTINGS_SECTIONS: SettingsSectionConfig[] = [
   { id: 'profile', label: 'Profile', icon: FiUser },
   { id: 'billing', label: 'Billing', icon: FiCreditCard },
-  { id: 'demo-data', label: 'Demo Data', icon: FiDatabase },
 ];
 
 export default function SettingsModal({ isOpen, onClose, initialSection }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection || 'profile');
-  const [isGenerating, setIsGenerating] = useState(false);
 
   // Update active section when initialSection changes
   useEffect(() => {
@@ -47,46 +44,7 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
       setActiveSection(initialSection);
     }
   }, [initialSection]);
-  const [numWorkspaces, setNumWorkspaces] = useState(3);
-  const [artifactsPerWorkspace, setArtifactsPerWorkspace] = useState(5);
-  const [includeAgienceGuide, setIncludeAgienceGuide] = useState(true);
-  const [customTopics, setCustomTopics] = useState('');
-
   if (!isOpen) return null;
-
-  const handleGenerateDemoData = async () => {
-    setIsGenerating(true);
-    try {
-      const topics = customTopics.trim()
-        ? customTopics.split(',').map(t => t.trim()).filter(Boolean)
-        : undefined;
-
-      const result = await loadDemoData({
-        topics,
-        num_workspaces: numWorkspaces,
-        artifacts_per_workspace: artifactsPerWorkspace,
-        include_agience_guide: includeAgienceGuide,
-      });
-
-      toast.success(
-        `Created ${result.workspaces_created} workspaces with ${result.workspace_artifacts_created} artifacts!${result.agience_guide_added ? ' Agience Guide added.' : ''}`,
-        { duration: 5000 }
-      );
-
-      // Reload the page to show new data
-      setTimeout(() => {
-        window.location.reload();
-      }, 1500);
-    } catch (error: unknown) {
-      console.error('Failed to generate demo data:', error);
-      const errorMessage = error instanceof Error && 'response' in error && error.response
-        ? (error.response as { data?: { detail?: string } }).data?.detail || 'Failed to generate demo data'
-        : 'Failed to generate demo data';
-      toast.error(errorMessage);
-    } finally {
-      setIsGenerating(false);
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -117,7 +75,7 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
                     onClick={() => setActiveSection(section.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                       isActive
-                        ? 'bg-primary-100 text-primary-700'
+                        ? 'bg-primary/15 text-primary'
                         : 'text-gray-700 hover:bg-gray-100'
                     }`}
                   >
@@ -132,20 +90,6 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
           {/* Content Panel - Fixed size, scrollable content */}
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-6">
-              {activeSection === 'demo-data' && (
-                <DemoDataSettings
-                  isGenerating={isGenerating}
-                  numWorkspaces={numWorkspaces}
-                  setNumWorkspaces={setNumWorkspaces}
-                  artifactsPerWorkspace={artifactsPerWorkspace}
-                  setArtifactsPerWorkspace={setArtifactsPerWorkspace}
-                  customTopics={customTopics}
-                  setCustomTopics={setCustomTopics}
-                  includeAgienceGuide={includeAgienceGuide}
-                  setIncludeAgienceGuide={setIncludeAgienceGuide}
-                  onGenerate={handleGenerateDemoData}
-                />
-              )}
               {activeSection === 'profile' && <ProfileSettings />}
               {activeSection === 'billing' && (
                 <McpSettingsFrame
@@ -209,8 +153,8 @@ function ProfileSettings() {
             className="w-12 h-12 rounded-full object-cover"
           />
         ) : (
-          <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center">
-            <FiUser className="w-6 h-6 text-primary-600" />
+          <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center">
+            <FiUser className="w-6 h-6 text-primary" />
           </div>
         )}
         <div>
@@ -264,7 +208,7 @@ function ProfileSettings() {
               {canLink && (
                 <button
                   onClick={() => startLinkProvider('google')}
-                  className="flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-700 border border-primary-200 hover:bg-primary-50 rounded px-2 py-1 transition-colors"
+                  className="flex items-center gap-1.5 text-xs text-primary hover:text-primary border border-primary/30 hover:bg-primary/10 rounded px-2 py-1 transition-colors"
                 >
                   <FiLink className="w-3 h-3" />
                   Link account
@@ -278,135 +222,4 @@ function ProfileSettings() {
   );
 }
 
-// Demo Data Settings Section
-interface DemoDataSettingsProps {
-  isGenerating: boolean;
-  numWorkspaces: number;
-  setNumWorkspaces: (value: number) => void;
-  artifactsPerWorkspace: number;
-  setArtifactsPerWorkspace: (value: number) => void;
-  customTopics: string;
-  setCustomTopics: (value: string) => void;
-  includeAgienceGuide: boolean;
-  setIncludeAgienceGuide: (value: boolean) => void;
-  onGenerate: () => void;
-}
-
-function DemoDataSettings({
-  isGenerating,
-  numWorkspaces,
-  setNumWorkspaces,
-  artifactsPerWorkspace,
-  setArtifactsPerWorkspace,
-  customTopics,
-  setCustomTopics,
-  includeAgienceGuide,
-  setIncludeAgienceGuide,
-  onGenerate,
-}: DemoDataSettingsProps) {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">Generate Demo Data</h3>
-        <p className="text-sm text-gray-600">
-          Create AI-generated workspace artifacts for testing and experimentation
-        </p>
-      </div>
-
-      {/* Topics Input */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Topics (Optional)
-        </label>
-        <input
-          type="text"
-          value={customTopics}
-          onChange={(e) => setCustomTopics(e.target.value)}
-          placeholder="AI, Marketing, Product Strategy (comma-separated)"
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        />
-        <p className="mt-1 text-xs text-gray-500">
-          Leave blank for diverse default topics
-        </p>
-      </div>
-
-      {/* Workspace generation */}
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Number of Workspaces: {numWorkspaces}
-          </label>
-          <input
-            type="range"
-            min="1"
-            max="5"
-            value={numWorkspaces}
-            onChange={(e) => setNumWorkspaces(parseInt(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
-          />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>1</span>
-            <span>5</span>
-          </div>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Artifacts per Workspace: {artifactsPerWorkspace}
-          </label>
-          <input
-            type="range"
-            min="1"
-            max="10"
-            value={artifactsPerWorkspace}
-            onChange={(e) => setArtifactsPerWorkspace(parseInt(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
-          />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>1</span>
-            <span>10</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Include Agience Guide */}
-      <div className="flex items-center gap-3">
-        <input
-          id="include-guide"
-          type="checkbox"
-          checked={includeAgienceGuide}
-          onChange={(e) => setIncludeAgienceGuide(e.target.checked)}
-        />
-        <label htmlFor="include-guide" className="text-sm text-gray-700">Include Agience Guide Collection</label>
-      </div>
-
-      {/* Warning */}
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <p className="text-sm text-yellow-800">
-          <strong>Note:</strong> This will create new workspaces and artifacts. The page will reload after generation.
-        </p>
-      </div>
-
-      {/* Generate Button */}
-      <div className="flex justify-end">
-        <button
-          onClick={onGenerate}
-          disabled={isGenerating}
-          className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-        >
-          {isGenerating ? (
-            <>
-              <FiLoader className="w-4 h-4 animate-spin" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <FiDatabase className="w-4 h-4" />
-              Generate Demo Data
-            </>
-          )}
-        </button>
-      </div>
-    </div>
-  );
-}
 
