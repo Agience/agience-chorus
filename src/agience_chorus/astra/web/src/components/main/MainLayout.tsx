@@ -15,12 +15,6 @@ import type { Artifact } from "../../context/workspace/workspace.types";
 import FloatingCardWindow from "../windows/FloatingCardWindow";
 import { getContentType } from "@/registry/content-types";
 import { resolveSearchHitsToArtifacts } from "../../utils/resolveSearchHits";
-import { isUntouchedNewCard, newCardTitle, takeNewCard } from "@/utils/untitled";
-import { getArtifact } from "@/api/artifacts";
-
-/** How long after a new card's window closes it is judged: its editors save on close, and the
- * saves are applied to the store at once, so this only has to outlast a render. */
-const DISCARD_UNTOUCHED_AFTER_MS = 1000;
 
 function MainLayout() {
   const [activeSource, setActiveSource] = useState<ActiveSource>(null);
@@ -47,16 +41,10 @@ function MainLayout() {
   // Get workspace context
   const {
     artifacts,
-    displayedArtifacts = [],
-    openedArtifacts,
     keepOpenedArtifact,
     unselectAllArtifacts,
     addExistingArtifact,
-    discardArtifact,
   } = useWorkspace();
-  // The cards as they are now, for a check that runs after a window has closed.
-  const latestArtifactsRef = useRef<Artifact[]>([]);
-  latestArtifactsRef.current = [...artifacts, ...openedArtifacts, ...displayedArtifacts];
   const { activeWorkspaceId } = useWorkspaces();
 
   // Panel widths for header coordination
@@ -111,32 +99,12 @@ function MainLayout() {
     }
   }, []);
 
+  // Closing a window only closes it. A created card is kept, typed into or not (John, 2026-10-31):
+  // an empty new card closed at once was discarded, and read as a card that disappeared.
   const closeArtifactWindow = useCallback((windowId: string) => {
     setOpenArtifactWindowIds((prev) => prev.filter((id) => id !== windowId));
     setArtifactWindowEditIds((prev) => prev.filter((id) => id !== windowId));
-    // A new card closed as it was created (no content, its default title) is discarded: it was a
-    // click, not an artifact. 2026-10-13, a tester found such cards piling up.
-    const artifactId = windowId.startsWith('artifact:') ? windowId.slice('artifact:'.length) : windowId;
-    // Still marked new until the delay ends: an edit saved as the window closes takes it out
-    // (`updateArtifact`), and the card is kept. 2026-10-29, in production: a card typed into and
-    // closed disappeared seconds later, because the close had already taken it out and the server,
-    // asked before the edit reached it, still held the card as created.
-    const defaultTitle = newCardTitle(artifactId);
-    if (defaultTitle === undefined) return;
-    window.setTimeout(() => {
-      if (takeNewCard(artifactId) === undefined) return;
-      const card = latestArtifactsRef.current.find((a) => String(a.id) === artifactId);
-      if (!card || !isUntouchedNewCard(card, defaultTitle)) return;
-      // Deleted for good, not moved to Trash, so the store's own copy decides: a card is discarded
-      // only if the server still holds it empty under its default title. 2026-10-17, on staging:
-      // a card edited just before its window closed was deleted from a stale local copy.
-      void getArtifact(artifactId)
-        .then((stored) => {
-          if (stored && isUntouchedNewCard(stored, defaultTitle)) void discardArtifact(artifactId);
-        })
-        .catch(() => { /* unread is not untouched: keep it */ });
-    }, DISCARD_UNTOUCHED_AFTER_MS);
-  }, [discardArtifact]);
+  }, []);
 
   const focusArtifactWindow = useCallback((windowId: string) => {
     setOpenArtifactWindowIds((prev) => {

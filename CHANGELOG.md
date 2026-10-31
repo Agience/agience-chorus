@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-10-30
+
+### Changed
+- A created card is always kept. Closing a new card's window without typing into it no longer discards it a second later, which read as a card that disappeared.
+
 ## [0.2.7] - 2026-10-30
 
 ### Changed

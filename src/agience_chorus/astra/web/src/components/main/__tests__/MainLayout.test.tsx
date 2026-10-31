@@ -214,7 +214,6 @@ vi.mock('../MainFooter', () => ({
 }));
 
 import MainLayout from '../MainLayout';
-import { markNewCard, takeNewCard } from '@/utils/untitled';
 
 afterEach(() => {
   cleanup();
@@ -224,62 +223,16 @@ afterEach(() => {
 });
 
 describe('MainLayout', () => {
-  // 2026-10-13, a tester: new cards opened and closed without a change stayed behind.
-  it.each([
-    ['discards a new card closed untouched', '', 'Untitled Text', true],
-    ['keeps a new card that was given content', 'notes', 'Untitled Text', false],
-    ['keeps a new card that was renamed', '', 'Plan', false],
-  ])('%s', async (_name, content, title, discarded) => {
-    markNewCard('new-artifact-1', 'Untitled Text');
-    const card = { id: 'new-artifact-1', content, context: JSON.stringify({ title }), state: 'live' } as Artifact;
+  // John, 2026-10-31: a created card is always kept. A new card closed untouched was discarded a
+  // second later, and read in production as a card that disappeared.
+  it('keeps a new card closed without a change', async () => {
+    const card = { id: 'new-artifact-1', content: '', context: JSON.stringify({ title: 'Untitled Text' }), state: 'live' } as Artifact;
     STORE_ARTIFACTS.push(card);
     getArtifactMock.mockResolvedValue(card);
     render(<MainLayout />);
     await screen.findByTestId('header');
     fireEvent.click(screen.getByTestId('create-artifact'));
     fireEvent.click(await screen.findByText('close new-artifact-1'));
-    if (discarded) {
-      await waitFor(() => expect(discardArtifactMock).toHaveBeenCalledWith('new-artifact-1'), { timeout: 2000 });
-    } else {
-      await new Promise((r) => setTimeout(r, 1300));
-      expect(discardArtifactMock).not.toHaveBeenCalled();
-    }
-  });
-
-  // 2026-10-17, on staging: a card edited just before its window closed was deleted from a stale
-  // local copy. The server's copy decides.
-  it.each([
-    ['keeps a card the server holds with content', { content: 'typed just before closing' }],
-    ['keeps a card the server holds renamed', { context: JSON.stringify({ title: 'Plan' }) }],
-    ['keeps a card the server cannot be asked about', null],
-  ])('%s', async (_name, server) => {
-    markNewCard('new-artifact-1', 'Untitled Text');
-    const local = { id: 'new-artifact-1', content: '', context: JSON.stringify({ title: 'Untitled Text' }), state: 'live' } as Artifact;
-    STORE_ARTIFACTS.push(local);
-    if (server) getArtifactMock.mockResolvedValue({ ...local, ...server });
-    else getArtifactMock.mockRejectedValue(new Error('offline'));
-    render(<MainLayout />);
-    await screen.findByTestId('header');
-    fireEvent.click(screen.getByTestId('create-artifact'));
-    fireEvent.click(await screen.findByText('close new-artifact-1'));
-    await new Promise((r) => setTimeout(r, 1300));
-    expect(getArtifactMock).toHaveBeenCalledWith('new-artifact-1');
-    expect(discardArtifactMock).not.toHaveBeenCalled();
-  });
-
-  // 2026-10-29, in production: a card typed into and closed disappeared seconds later. Its edit is
-  // sent as the window closes and was still on its way when the server was asked, which answered
-  // with the card as created.
-  it('keeps a card whose edit was sent as its window closed', async () => {
-    markNewCard('new-artifact-1', 'Untitled Text');
-    const untouched = { id: 'new-artifact-1', content: '', context: JSON.stringify({ title: 'Untitled Text' }), state: 'live' } as Artifact;
-    STORE_ARTIFACTS.push(untouched);
-    getArtifactMock.mockResolvedValue(untouched);
-    render(<MainLayout />);
-    await screen.findByTestId('header');
-    fireEvent.click(screen.getByTestId('create-artifact'));
-    fireEvent.click(await screen.findByText('close new-artifact-1'));
-    takeNewCard('new-artifact-1');     // what updateArtifact does with the edit saved on close
     await new Promise((r) => setTimeout(r, 1300));
     expect(discardArtifactMock).not.toHaveBeenCalled();
   });

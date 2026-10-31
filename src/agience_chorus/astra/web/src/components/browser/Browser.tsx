@@ -41,7 +41,7 @@ import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 import { AGIENCE_DRAG_CONTENT_TYPE, getDroppedArtifactIds } from '@/dnd/agienceDrag';
 import { toast } from 'sonner';
 import { errorDetail } from '../../utils/errorDetail';
-import { artifactTitle, markNewCard, nextUntitledTitle } from '@/utils/untitled';
+import { artifactTitle, nextUntitledTitle } from '@/utils/untitled';
 import { announceRemoval } from '@/utils/removal';
 import { removeWorkspaceArtifact } from '@/api/workspaces';
 import { removeArtifactFromCollection } from '@/api/collections';
@@ -1275,7 +1275,6 @@ export default function Browser({
       context: stringifyArtifactContext({ title }),
     });
     if (!created) return;
-    if (created.id) markNewCard(String(created.id), title);
     const startInEditMode = Boolean(type?.states.includes('edit'));
     onOpenArtifact?.(created, startInEditMode ? { startInEditMode: true } : undefined);
   }, [artifacts, createArtifact, onOpenArtifact, sourceArtifacts]);

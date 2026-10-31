@@ -18,7 +18,7 @@ import { getContentTypeById } from '@/registry/content-types';
 import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
 import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 import { errorDetail } from '@/utils/errorDetail';
-import { artifactTitle, markNewCard, nextUntitledTitle } from '@/utils/untitled';
+import { artifactTitle, nextUntitledTitle } from '@/utils/untitled';
 import { announceRemoval } from '@/utils/removal';
 
 type CollectionViewMode = 'grid' | 'list';
@@ -267,7 +267,6 @@ export default function CollectionArtifactViewer({
         content_type: contentType,
         context: stringifyArtifactContext({ title }),
       }) as Artifact;
-      if (created.id) markNewCard(String(created.id), title);
       await reloadArtifacts();
       onOpenArtifact?.(created);
     } catch (err) {

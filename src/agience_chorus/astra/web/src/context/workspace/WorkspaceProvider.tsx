@@ -23,7 +23,6 @@ import { errorDetail, refusedWriteDetail } from '../../utils/errorDetail';
 import { announceRemoval } from '../../utils/removal';
 import { addArtifactToCollection } from '../../api/collections';
 import { trashArtifact, untrashArtifact } from '../../api/artifacts';
-import { takeNewCard } from '../../utils/untitled';
 import { normalizeArtifactState } from '../../utils/artifactState';
 import { COLLECTION_CONTENT_TYPE, WORKSPACE_CONTENT_TYPE } from '../../utils/content-type';
 import { OPEN_TRASH_EVENT, TRASH_RETENTION_DAYS, announceArtifactChange } from '../../constants/strings';
@@ -316,11 +315,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         return;
       }
       const archiving = patchIn.state === 'archived' && current?.state !== 'archived';
-      // An edited card is no longer a new card: closing its window must never discard it.
-      if (typeof patchIn.context !== 'undefined' || typeof patchIn.content !== 'undefined') {
-        takeNewCard(String(patchIn.id));
-      }
-
       // Optimistic update
       const optimistic = (prev: Artifact[]) =>
         prev.map(c =>

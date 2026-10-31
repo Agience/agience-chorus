@@ -35,34 +35,6 @@ export function nextUntitledTitle(base: string, existing: Iterable<string>): str
   return n === 1 ? base : `${base} ${n}`;
 }
 
-/** A new card still as it was created: no content, and the title it was given. */
-export function isUntouchedNewCard(artifact: Pick<Artifact, 'content' | 'context'>, defaultTitle: string): boolean {
-  const content = typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content ?? '');
-  return (content === '' || content === '""') && artifactTitle(artifact) === defaultTitle;
-}
-
-// New cards created in this tab and not yet closed: artifact id -> the default title it was given.
-// A create path records its card here; closing the card's window takes it back out and, when the
-// card is still untouched, discards it. Kept beside the rule rather than threaded through every
-// open callback, which pass an artifact and nothing else.
-const newCards = new Map<string, string>();
-
-export function markNewCard(id: string, defaultTitle: string): void {
-  newCards.set(String(id), defaultTitle);
-}
-
-/** The default title `id` was created with, if it is still a new card. */
-export function newCardTitle(id: string): string | undefined {
-  return newCards.get(String(id));
-}
-
-/** The default title `id` was created with, if it is a new card; it is no longer one after this. */
-export function takeNewCard(id: string): string | undefined {
-  const title = newCards.get(String(id));
-  newCards.delete(String(id));
-  return title;
-}
-
 /** The title to store when one is saved: what was typed, or, when that is blank, the first line of
  * the content, else the title it had. A card always keeps a name it can be told apart by. */
 export function titleOrFallback(typed: string, content: unknown, previous: string): string {

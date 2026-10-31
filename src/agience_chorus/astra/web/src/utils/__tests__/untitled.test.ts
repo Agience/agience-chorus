@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isUntouchedNewCard, nextUntitledTitle } from '../untitled';
+import { nextUntitledTitle } from '../untitled';
 
 describe('nextUntitledTitle', () => {
   it('takes the base when it is free, else the first free number', () => {
@@ -8,17 +8,6 @@ describe('nextUntitledTitle', () => {
     expect(nextUntitledTitle('Untitled Search', ['Untitled Search', 'Untitled Search 3'])).toBe('Untitled Search 2');
     expect(nextUntitledTitle('Untitled Search', ['Untitled Search 2'])).toBe('Untitled Search');
     expect(nextUntitledTitle('Untitled Search', ['Untitled Searches', 'Other'])).toBe('Untitled Search');
-  });
-});
-
-describe('isUntouchedNewCard', () => {
-  const card = (content: string, title: string) => ({ content, context: JSON.stringify({ title }) });
-  it('is untouched with no content and its default title', () => {
-    expect(isUntouchedNewCard(card('', 'Untitled Text 2'), 'Untitled Text 2')).toBe(true);
-  });
-  it('is in use once it has content or another title', () => {
-    expect(isUntouchedNewCard(card('x', 'Untitled Text 2'), 'Untitled Text 2')).toBe(false);
-    expect(isUntouchedNewCard(card('', 'Plan'), 'Untitled Text 2')).toBe(false);
   });
 });
 
