@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-10-30
+
+### Changed
+- The corpus index mirror (`corpus_fts`, `corpus_stats`) holds keyed tokens, never words, as ember's does: sage's content search matches tokens of the query's stems. Requires `agience-mantle>=0.1.9`.
+
 ## [0.2.6] - 2026-10-29
 
 ### Added
