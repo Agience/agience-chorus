@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-10-31
+
+### Changed
+- The corpus index mirror (`corpus_fts`) keeps sealed rows out, as ember's does, so sage's content search covers the public corpus only.
+
 ## [0.2.8] - 2026-10-30
 
 ### Changed
