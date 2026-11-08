@@ -179,42 +179,20 @@ def test_remember_is_private_owner_scoped():
     assert access.can_read(s, a, "someone-else") is False
 
 
-def test_share_requires_consent_then_stakes():
+def test_ember_shares_nothing():
+    """Ember shares nothing (John, 2026-11-02, review 11): sharing happens only in the person's own
+    session. A memory stays private whatever `share` is asked, with or without consent."""
     s = _FakeStore()
     g.bootstrap(s)
     mid = g.remember(s, "a claim I might share", principal="author@example.com")["id"]
     from mantle.db import access
-    # without confirm: nothing shared, nothing changes — still gated by the owner's grant
-    r1 = g.share(s, mid, principal="author@example.com")
-    assert r1["shared"] is False and r1["reason"] == "consent required"
-    assert access.is_public(s, s.artifacts.get_artifact(mid)) is False
-    # a non-owner cannot consent
-    assert g.share(s, mid, principal="someone-else", confirm=True)["shared"] is False
-    # #2 make public: owner consents with a stake → the same artifact is made public by a grant to the
-    # public entity (no copy, no re-key). It now reads public to everyone and carries the staked claim.
-    r2 = g.share(s, mid, principal="author@example.com", confirm=True, stake=2.0)
-    assert r2["shared"] and r2["staked"] == 2.0 and r2["mode"] == "public" and r2["id"] == mid
+    for kw in ({}, {"confirm": True}, {"confirm": True, "to_public": True, "stake": 2.0},
+               {"confirm": True, "to_principal": "ada"}):
+        r = g.share(s, mid, principal="author@example.com", **kw)
+        assert r["shared"] is False and "own session" in r["reason"]
     a = s.artifacts.get_artifact(mid)
-    assert access.is_public(s, a) is True               # made public — readable by all + meshes out
-    assert access.can_read(s, a, "anyone-at-all") is True
-    assert a["staked_claim"]["by"] == "author@example.com" and a["staked_claim"]["stake"] == 2.0
-    assert "subjects" in a["collections"]
-
-
-def test_share_with_a_person_grants_read_without_making_public():
-    """#1 — sharing with a person is a Read grant: their light-cone reaches this artifact, it stays
-    private (not public), and only they gain access — not everyone."""
-    s = _FakeStore()
-    g.bootstrap(s)
-    from mantle.db import access
-    mid = g.remember(s, "for ada only", principal="author@example.com")["id"]
-    assert access.can_read(s, s.artifacts.get_artifact(mid), "ada") is False   # ada cannot yet
-    r = g.share(s, mid, to_principal="ada", principal="author@example.com", confirm=True)
-    assert r["shared"] and r["mode"] == "grant" and r["with"] == "ada"
-    a = s.artifacts.get_artifact(mid)
-    assert access.can_read(s, a, "ada") is True         # ada's light-cone now reaches this artifact
-    assert access.is_public(s, a) is False              # still NOT public
-    assert access.can_read(s, a, "eve") is False        # and only ada, not everyone
+    assert access.is_public(s, a) is False
+    assert access.can_read(s, a, "ada") is False
 
 
 def test_nearvdup_never_consolidates_private():

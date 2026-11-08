@@ -61,6 +61,33 @@ export interface SecretCreateRequest {
   label: string;
   value: string;
   is_default?: boolean;
+  /**
+   * Where the secret may be sent (review 11): https URLs, no query, fragment or credentials. Fixed
+   * when the credential is written and sealed with the secret; a credential that names none is
+   * sent nowhere.
+   */
+  allowed_endpoints?: string[];
+}
+
+/** The endpoints, checked as Mantle checks them, so nothing malformed is written. */
+function checkedEndpoints(endpoints: string[] | undefined): string[] {
+  const out: string[] = [];
+  for (const raw of endpoints ?? []) {
+    const e = String(raw ?? '').trim();
+    let u: URL;
+    try {
+      u = new URL(e);
+    } catch {
+      throw new Error(`allowed endpoint ${JSON.stringify(raw)} is not a URL`);
+    }
+    if (u.protocol !== 'https:' || !u.hostname || u.search || u.hash || u.username || u.password) {
+      throw new Error(`allowed endpoint ${e} must be an https URL with no query, fragment or ` +
+        'credentials');
+    }
+    out.push(e);
+  }
+  if (out.length > 32) throw new Error('a credential names at most 32 endpoints');
+  return out;
 }
 
 /**
@@ -95,6 +122,7 @@ export async function listSecrets(
 export async function addSecret(
   request: SecretCreateRequest
 ): Promise<SecretResponse[]> {
+  const endpoints = checkedEndpoints(request.allowed_endpoints);
   await api.post('/artifacts', {
     content_type: CREDENTIAL_CONTENT_TYPE,
     // The value is the artifact's content and nothing else holds it — that is what puts it under
@@ -105,9 +133,24 @@ export async function addSecret(
       kind: request.type,
       provider: request.provider,
       label: request.label,
+      allowed_endpoints: endpoints,
     }),
     name: request.label,
   });
+  return listSecrets(request.type);
+}
+
+/**
+ * Rewrite an older credential with the endpoints it may be sent to: an older one names none, and
+ * a credential's endpoints are fixed when it is written. Its Admin writes it again, value and
+ * endpoints, and removes the old one. Returns the list.
+ */
+export async function rewriteSecret(
+  oldSecretId: string,
+  request: SecretCreateRequest
+): Promise<SecretResponse[]> {
+  await addSecret(request);
+  await api.delete(`/artifacts/${oldSecretId}`);
   return listSecrets(request.type);
 }
 

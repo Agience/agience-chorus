@@ -126,9 +126,18 @@ class Store:
                     return MockResponse({}, 403)
                 from prism.trust import sealing
                 content = doc["content"] if isinstance(doc["content"], str) else _json.dumps(doc["content"])
-                return MockResponse({"id": secret, "sealed": sealing.seal(
-                    content.encode(), LUMEN_KEY.public_key(), kid="lumen-1",
-                    context=f"{secret}|{(json or {}).get('for')}")})
+                from agience_chorus.lumen.connection import PROVIDERS
+                eps = sorted(PROVIDERS.values())       # the credential names its provider
+                copy = sealing.seal(
+                    _json.dumps({"material": content, "endpoints": eps}).encode(),
+                    LUMEN_KEY.public_key(), kid="lumen-1",
+                    context=str(secret))  # as Mantle seals it: the credential's id
+                # Origin's verdict for this use, on Lumen's own delegation, naming the writer's
+                # copy and list and this use's nonce (reviews 21 and 22).
+                return MockResponse({"id": secret, "endpoints": eps, "sealed": copy,
+                    "verdict": _ORIGIN["issuer"].verdict(
+                        "lumen", _ORIGIN["dlg"], secret, (json or {}).get("for"), sealed=copy,
+                        endpoints=eps, nonce=(json or {}).get("nonce"))})
         return _C
 
 
@@ -138,12 +147,18 @@ import json as _json  # noqa: E402
 LUMEN_KEY = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 
+#: Origin's issuers and Lumen's own delegation for the test in progress (review 21).
+_ORIGIN = {}
+
+
 @pytest.fixture
-def person(monkeypatch):
+def person(monkeypatch, origin_issuer):
     from prism.trust import service_identity
     monkeypatch.setattr(service_identity, "load_persona_identity", lambda name: service_identity.ServiceIdentity(
         name=name, kid=f"{name}-1", private_key=LUMEN_KEY) if name == "lumen" else None)
-    tok = L._auth.request_user_token.set("delegation-for-me")
+    dlg = origin_issuer.delegation("lumen", "person-1")
+    _ORIGIN.update(issuer=origin_issuer, dlg=dlg)
+    tok = L._auth.request_user_token.set(dlg)
     try:
         yield
     finally:
@@ -166,7 +181,7 @@ async def test_invoking_the_card_sends_the_conversation_with_its_key_and_returns
     assert out["text"] == "Four." and out["connection_id"] == "conn-1" and out["provider"] == "anthropic"
     assert sent["url"] == C.PROVIDERS["anthropic"] and sent["headers"]["x-api-key"] == "sk-secret"
     assert sent["body"]["messages"] == [{"role": "user", "content": "2+2?"}]
-    assert all(h["Authorization"] == "Bearer delegation-for-me" for _, h in store.calls), \
+    assert all(h["Authorization"] == f"Bearer {_ORIGIN['dlg']}" for _, h in store.calls), \
         "the card and its key are reached on the caller's own grant"
     assert store.calls[-1][0].endswith("/artifacts/sec-1/use"), "the key is released for use, not read"
     assert "sk-secret" not in json.dumps(out), "the key never returns to the caller"

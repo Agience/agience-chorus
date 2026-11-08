@@ -18,16 +18,9 @@ vi.mock('../../api/api', () => ({
   get: vi.fn(async () => ({ providers: [], password: true, otp: false })),
   post: vi.fn(),
 }));
-vi.mock('../../api/setup', () => ({
-  getPasskeyLoginOptions: vi.fn(),
-  completePasskeyLogin: vi.fn(),
-  requestOTP: vi.fn(),
-  verifyOTP: vi.fn(),
-}));
 vi.mock('../../components/layout/AuthLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
-vi.mock('../../components/auth/CreateAccountForm', () => ({ default: () => null }));
 
 const HANDOFF_LOG = '[Login] existing Origin session — returning token to the SP';
 

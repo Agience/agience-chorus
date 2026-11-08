@@ -7,6 +7,7 @@
 // endpoints operate on the same underlying artifacts and grants.
 
 import { get, getList, post, patch, del } from './api';
+import { changeGrant, revokeGrant, type GrantInput } from './authority';
 import type { ArtifactResponse } from './types/artifact';
 import type { GrantResponse } from './types/grant';
 import type { SearchResponse } from './types/search';
@@ -127,48 +128,29 @@ export function searchArtifacts(
 // Grant management
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Create a grant on a resource (collection, workspace, or artifact). */
-export function createGrant(
-  resourceId: string,
-  granteeType: string,
-  permissions: Record<string, boolean>,
-  options?: {
-    targetEntity?: string;
-    targetEntityType?: string;
-    maxClaims?: number;
-  },
-): Promise<GrantResponse> {
-  return post(`/grants`, {
-    resource_id: resourceId,
-    grantee_type: granteeType,
-    ...permissions,
-    target_entity: options?.targetEntity,
-    target_entity_type: options?.targetEntityType,
-    max_claims: options?.maxClaims,
-  });
-}
-
 /** Get a single grant by ID. */
 export function getGrant(grantId: string): Promise<GrantResponse> {
   return get(`/grants/${grantId}`);
 }
 
-/** Update a grant (partial patch). */
+/** Change a grant: restated at Origin, in the person's Origin session (review 12). */
 export function updateGrant(
-  grantId: string,
+  grant: GrantResponse,
   updates: Record<string, unknown>,
 ): Promise<GrantResponse> {
-  return patch(`/grants/${grantId}`, updates);
+  return changeGrant(grant, updates as GrantInput & { state?: string });
 }
 
-/** Delete a grant. */
-export function deleteGrant(grantId: string): Promise<void> {
-  return del(`/grants/${grantId}`);
+/** Revoke a grant at Origin. */
+export function deleteGrant(grant: GrantResponse): Promise<void> {
+  return revokeGrant(grant);
 }
 
 /** Claim an invite grant using its token. */
-export function claimInvite(token: string): Promise<GrantResponse> {
-  return post(`/grants/claim`, { token });
+/** Claim an invite: at Origin, in the claimant's Origin session (review 12), never at Mantle. */
+export async function claimInvite(token: string): Promise<GrantResponse> {
+  const { claimInviteAtOrigin } = await import('./authority');
+  return (await claimInviteAtOrigin(token)) as unknown as GrantResponse;
 }
 
 /** Accept a grant that requires explicit acceptance. */

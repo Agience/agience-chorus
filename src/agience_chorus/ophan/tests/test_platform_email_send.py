@@ -63,9 +63,17 @@ class _FakeClient:
 
     async def get(self, url, headers=None, timeout=None):
         self.calls.append(("GET", url, None, headers))
-        if "/internal/persons/" in url:
-            return _FakeResp({"email": self._email} if self._email else {})
+        if "/internal/billing-recipients/" in url:
+            # Origin answers a billed person's address only (review 21), else 404.
+            return _FakeResp({"email": self._email} if self._email else {"detail": "none"},
+                             status=200 if self._email else 404)
         raise AssertionError(f"unexpected GET {url}")
+
+    async def put(self, url, headers=None, json=None, timeout=None):
+        self.calls.append(("PUT", url, json, headers))
+        if "/internal/billing-recipients/" in url:
+            return _FakeResp({"active": json.get("active")})
+        raise AssertionError(f"unexpected PUT {url}")
 
     async def post(self, url, headers=None, json=None, timeout=None):
         self.calls.append(("POST", url, json, headers))
@@ -93,7 +101,8 @@ async def test_send_account_email_asks_iris_as_a_platform_service(monkeypatch):
     await ophan._send_account_email("person-1", "Hi", "<p>x</p>")
 
     urls = [c[1] for c in calls]
-    assert any("/internal/persons/person-1" in u for u in urls)      # recipient resolved
+    assert any("/internal/billing-recipients/person-1" in u for u in urls)  # a billed address
+    assert not any("/internal/persons/" in u for u in urls), "no person record is read"
     assert not any("/internal/system-delegation" in u for u in urls), "Iris obtains its own"
     send = next(c for c in calls if c[1].endswith("/iris/platform-mail"))
     assert send[1] == f"{ophan.CHORUS_PUBLIC_URI}/iris/platform-mail"
@@ -129,3 +138,20 @@ async def test_send_account_email_noop_without_person(monkeypatch):
     monkeypatch.setattr(ophan.httpx, "AsyncClient", lambda *a, **k: _FakeClient(calls))
     await ophan._send_account_email("", "Hi", "<p>x</p>")
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_billing_change_is_recorded_at_origin(monkeypatch):
+    """An activation records the person as billed at Origin, and a change to the free plan ends
+    that record (review 21), so Ophan reads an address only for someone it bills."""
+    calls: list = []
+    monkeypatch.setattr(ophan, "_origin_headers", _platform_headers)
+    monkeypatch.setattr(ophan.httpx, "AsyncClient", lambda *a, **k: _FakeClient(calls))
+
+    await ophan._record_billing("person-1", active=True, plan="pro")
+    await ophan._record_billing("person-1", active=False, plan="free")
+
+    puts = [c for c in calls if c[0] == "PUT"]
+    assert [(c[1].rsplit("/", 1)[-1], c[2]) for c in puts] == [
+        ("person-1", {"active": True, "plan": "pro"}), ("person-1", {"active": False, "plan": "free"})]
+    assert all(c[3] == {"Authorization": "Bearer platform"} for c in puts)

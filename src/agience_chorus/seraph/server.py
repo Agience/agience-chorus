@@ -161,6 +161,13 @@ async def _fetch_and_decrypt_secret(
     silently resolved, because guessing which credential a caller meant is how the wrong one gets
     handed out.
     """
+    # A grant key is Mantle's own bearer secret (review 21, F1): a Mantle that is taken over can
+    # present one and answer the read itself. A credential is read only on Origin's delegation.
+    from prism.trust.server_auth import is_grant_key
+    if is_grant_key(_auth.request_user_token.get("")):
+        log.warning("a credential read on a grant key is refused: a credential is read only on a "
+                    "delegation Origin issued")
+        return None
     if not secret_id:
         log.error("a credential read needs a concrete secret_id; got authorizer_id=%r type=%r "
                   "provider=%r. Selecting by (type, provider) is not implemented and must not be "
@@ -935,8 +942,8 @@ async def verify_token(
     API keys are not accepted here — they are not JWTs, are checked by a different mechanism, and
     treating them as tokens would blur two authorization paths.
     """
+    # Only Origin signs a delegation (review 19, H2): one Mantle signed is no class at all.
     checks = (
-        ("delegation", _auth.verify_delegation_jwt),
         ("origin_delegation", _auth.verify_origin_delegation),
         ("user", _auth.verify_user_jwt),
     )
@@ -951,7 +958,7 @@ async def verify_token(
         "valid": False,
         "token_class": None,
         "detail": "did not verify as an access token of any known class "
-                  "(delegation | origin_delegation | user)",
+                  "(origin_delegation | user)",
     })
 
 

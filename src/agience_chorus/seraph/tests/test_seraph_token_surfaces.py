@@ -31,7 +31,6 @@ _CLAIMS = {"sub": "person-1", "aud": "client-1", "email": "p@example.com", "exp"
 def verifiers(monkeypatch):
     """Every verifier refuses unless the test sets what `user` returns."""
     answer = {}
-    monkeypatch.setattr(server._auth, "verify_delegation_jwt", lambda t: None)
     monkeypatch.setattr(server._auth, "verify_origin_delegation", lambda t: None)
     monkeypatch.setattr(server._auth, "verify_user_jwt", lambda t: answer.get("user"))
     monkeypatch.setattr(server._auth, "verify_core_jwt", lambda t: answer.get("user"))
@@ -40,6 +39,13 @@ def verifiers(monkeypatch):
 
 def _verify(token="t"):
     return json.loads(asyncio.run(server.verify_token(token)))
+
+
+def test_no_check_takes_a_delegation_mantle_signed():
+    """Review 19, H2: only Origin signs a delegation; Seraph lists no Mantle class."""
+    assert not hasattr(server._auth, "verify_delegation_jwt")
+    src = inspect.getsource(server.verify_token)
+    assert "verify_delegation_jwt" not in src and "origin_delegation" in src
 
 
 def test_an_access_token_verifies_with_its_class_and_no_claims(verifiers):

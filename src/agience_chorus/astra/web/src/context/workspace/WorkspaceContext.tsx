@@ -36,7 +36,7 @@ export interface WorkspaceContextType {
   /** Delete the artifact for good. Resolves false when the server refuses. */
   discardArtifact: (id: string) => Promise<boolean>;
   refreshArtifacts: (workspaceId: string) => Promise<void>;
-  selectArtifact: (id: string, event: MouseEvent) => void;
+  selectArtifact: (id: string, event: MouseEvent, shownIds?: string[]) => void;
   orderArtifacts: (orderedIds: string[]) => Promise<void>;
   /** Import collection-root artifacts into the active workspace and insert at a drop index */
   importArtifactsByRootIds: (rootIds: string[], insertIndex: number) => Promise<void>;

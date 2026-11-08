@@ -1,6 +1,9 @@
 // api/collections.ts
 
 import { get, getList, post, postList, patch, del } from './api';
+import {
+  changeGrant, listGrantsAtOrigin, makeGrant, revokeGrant, type GrantInput,
+} from './authority';
 import type { RemoveResult } from '../utils/removal';
 import { COLLECTION_CONTENT_TYPE } from '@/utils/content-type';
 import { subscribeEvents, type BusEvent } from './events';
@@ -88,33 +91,34 @@ export function deleteCollection(id: string): Promise<void> {
   return del(`/artifacts/${id}`);
 }
 
-// grants, via the /grants endpoints
+// The grants on a resource, as Origin's own record holds them, read in the person's Origin session
+// (round 13). Mantle's listing is never the source of a change.
 export function listGrants(collectionId: string): Promise<GrantResponse[]> {
-  return get(`/grants?resource_id=${encodeURIComponent(collectionId)}`);
+  return listGrantsAtOrigin(collectionId);
 }
 
+// A grant, an invite, a change or a revocation is made at Origin, in the person's Origin session
+// (review 12): the token Mantle holds changes no authority. Mantle lists them once it has applied
+// Origin's entries from the feed.
 export function createGrant(
   collectionId: string,
   input: Omit<GrantCreate, 'resource_id'>
 ): Promise<GrantResponse> {
-  return post('/grants', { resource_id: collectionId, ...input });
+  return makeGrant(collectionId, input as GrantInput);
 }
 
 export function updateGrant(
-  grantId: string,
+  grant: GrantResponse,
   input: GrantUpdate
 ): Promise<GrantResponse> {
-  return patch(`/grants/${grantId}`, input);
+  return changeGrant(grant, input as GrantInput & { state?: string });
 }
 
-export function deleteGrant(grantId: string): Promise<void> {
-  return del(`/grants/${grantId}`);
+export function deleteGrant(grant: GrantResponse): Promise<void> {
+  return revokeGrant(grant);
 }
 
-// A pending invite sent again, with a new link; the one sent before stops working.
-export function resendInvite(grantId: string): Promise<GrantResponse> {
-  return post(`/grants/${grantId}/resend`, {});
-}
+
 
 export function getGrant(grantId: string): Promise<GrantResponse> {
   return get(`/grants/${grantId}`);

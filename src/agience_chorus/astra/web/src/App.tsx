@@ -18,6 +18,7 @@ import { WorkspaceProvider } from './context/workspace/WorkspaceProvider';
 import { CollectionsProvider } from './context/collections/CollectionsProvider';
 import { ShortcutsProvider } from './context/shortcuts/ShortcutsProvider';
 import KeyboardShortcutsDialog from './components/modals/KeyboardShortcutsDialog';
+import OriginSessionNotice from './components/auth/OriginSessionNotice';
 import { DialogProvider } from './context/dialog/DialogProvider';
 
 import { getSetupStatus } from './api/setup';
@@ -166,20 +167,9 @@ function AppRoutes() {
           </Suspense>
         } />
 
-        <Route path="/" element={
-          <LoginProtected>
-            <ContentTypesProvider>
-              <CollectionsProvider>
-                <WorkspacesProvider>
-                  <WorkspaceProvider>
-                      <WorkspacePage />
-                    </WorkspaceProvider>
-                </WorkspacesProvider>
-              </CollectionsProvider>
-            </ContentTypesProvider>
-          </LoginProtected>
-        } />
-        <Route path="/:artifactId" element={
+        {/* One route for `/` and `/:artifactId`, so opening a workspace (which puts its id in
+            the route) keeps the workspace tree mounted. */}
+        <Route path="/:artifactId?" element={
           <LoginProtected>
             <ContentTypesProvider>
               <CollectionsProvider>
@@ -245,6 +235,7 @@ export default function App() {
             <BrowserRouter>
               <GrantKeyCapture />
               <Toaster />
+              <OriginSessionNotice />
               <KeyboardShortcutsDialog />
               <Suspense fallback={<Spinner />}>
                 <AppRoutes />

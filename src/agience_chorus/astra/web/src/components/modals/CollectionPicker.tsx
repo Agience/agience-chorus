@@ -1,7 +1,7 @@
 ﻿// components/modals/CollectionPicker.tsx
 import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
-import { FolderOpen, Plus, Search, Check } from 'lucide-react';
+import { FolderOpen, Plus, Search, Check, Minus } from 'lucide-react';
 import { listCollections, createCollection } from '../../api/collections';
 import { CollectionResponse } from '../../api/types';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
@@ -12,10 +12,13 @@ interface CollectionPickerProps {
   open: boolean;
   /** Callback when dialog closes */
   onClose: () => void;
-  /** Callback when collections are selected */
-  onSelect: (collectionIds: string[]) => void;
+  /** Called with the collections checked, and the mixed ones the person cleared (bulk only). */
+  onSelect: (collectionIds: string[], clearedPartialIds: string[]) => void;
   /** Pre-selected collection IDs */
   selectedCollectionIds?: string[];
+  /** Collections only some of a bulk selection belong to. They show a dash and are left alone
+   *  unless changed: a click cycles some -> all -> none -> some. */
+  partialCollectionIds?: string[];
   /** Allow multiple selection */
   multiple?: boolean;
   /** Dialog title */
@@ -46,6 +49,7 @@ export function CollectionPicker({
   onClose,
   onSelect,
   selectedCollectionIds = [],
+  partialCollectionIds = [],
   multiple = false,
   title = 'Select Collection',
 }: CollectionPickerProps) {
@@ -53,6 +57,9 @@ export function CollectionPicker({
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set(selectedCollectionIds));
+  // Mixed collections the person set to "none": removed from the selection's members on confirm.
+  const [cleared, setCleared] = useState<Set<string>>(new Set());
+  const partial = useMemo(() => new Set(partialCollectionIds), [partialCollectionIds]);
   const [isCreating, setIsCreating] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const { activeWorkspaceId } = useWorkspaces();
@@ -62,6 +69,7 @@ export function CollectionPicker({
     if (open) {
       loadCollections();
       setSelected(new Set(selectedCollectionIds));
+      setCleared(new Set());
       setSearchQuery('');
       setIsCreating(false);
       setNewCollectionName('');
@@ -101,7 +109,22 @@ export function CollectionPicker({
       // Single select: clear others and select this one
       setSelected(new Set([collectionId]));
     } else {
-      // Multi-select: toggle
+      // Multi-select: toggle; a mixed collection cycles some -> all -> none -> some.
+      if (partial.has(collectionId)) {
+        const nextSelected = new Set(selected);
+        const nextCleared = new Set(cleared);
+        if (nextSelected.has(collectionId)) {
+          nextSelected.delete(collectionId);
+          nextCleared.add(collectionId);
+        } else if (nextCleared.has(collectionId)) {
+          nextCleared.delete(collectionId);
+        } else {
+          nextSelected.add(collectionId);
+        }
+        setSelected(nextSelected);
+        setCleared(nextCleared);
+        return;
+      }
       const newSelected = new Set(selected);
       if (newSelected.has(collectionId)) {
         newSelected.delete(collectionId);
@@ -140,7 +163,7 @@ export function CollectionPicker({
 
   // Confirm selection
   const handleConfirm = () => {
-    onSelect(Array.from(selected));
+    onSelect(Array.from(selected), Array.from(cleared));
     onClose();
   };
 
@@ -192,9 +215,12 @@ export function CollectionPicker({
             <div className="divide-y divide-gray-200">
               {filteredCollections.map((collection) => {
                 const isSelected = selected.has(collection.id);
+                const isSome = !isSelected && partial.has(collection.id) && !cleared.has(collection.id);
                 return (
                   <button
                     key={collection.id}
+                    data-membership={isSelected ? 'all' : isSome ? 'some' : 'none'}
+                    title={isSome ? 'Some of the selected artifacts are in this collection' : undefined}
                     onClick={() => toggleSelection(collection.id)}
                     className={`w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors ${
                       isSelected ? 'bg-blue-50' : ''
@@ -206,6 +232,10 @@ export function CollectionPicker({
                           {isSelected ? (
                             <div className="w-5 h-5 bg-blue-600 rounded flex items-center justify-center">
                               <Check className="w-3 h-3 text-white" />
+                            </div>
+                          ) : isSome ? (
+                            <div className="w-5 h-5 border-2 border-blue-600 rounded flex items-center justify-center">
+                              <Minus className="w-3 h-3 text-blue-600" />
                             </div>
                           ) : (
                             <div className="w-5 h-5 border-2 border-gray-300 rounded" />
@@ -294,9 +324,9 @@ export function CollectionPicker({
               </button>
               <button
                 onClick={handleConfirm}
-                disabled={selected.size === 0}
+                disabled={!multiple && selected.size === 0}
                 className={`px-4 py-2 rounded transition-colors ${
-                  selected.size === 0
+                  !multiple && selected.size === 0
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     : 'bg-blue-600 text-white hover:bg-blue-700'
                 }`}

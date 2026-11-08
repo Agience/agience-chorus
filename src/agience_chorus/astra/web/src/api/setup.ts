@@ -77,65 +77,8 @@ export async function completeSetup(
   )
 }
 
-// ---------------------------------------------------------------------------
-//  Passkey auth
-// ---------------------------------------------------------------------------
-
-export type PasskeyLoginOptions = {
-  options: Record<string, unknown> | null
-  has_passkeys: boolean
-}
-
-export async function getPasskeyLoginOptions(email: string): Promise<PasskeyLoginOptions> {
-  return post<PasskeyLoginOptions>('/auth/passkey/login-options', { email })
-}
-
-/**
- * `challenge` is echoed back purely as a lookup key for the challenge the server
- * issued and recorded; the server derives both the expected challenge and the
- * user from its own stored row. The client never names which account it is
- * authenticating as.
- */
-export async function completePasskeyLogin(
-  credential: Record<string, unknown>,
-  challenge: string
-): Promise<{ access_token: string; refresh_token: string }> {
-  return post('/auth/passkey/login-complete', {
-    credential,
-    challenge,
-  })
-}
-
-export async function getPasskeyRegisterOptions(): Promise<{ options: Record<string, unknown> }> {
-  return post('/auth/passkey/register-options', {})
-}
-
-export async function completePasskeyRegistration(
-  credential: Record<string, unknown>,
-  challenge: string,
-  deviceName?: string
-): Promise<{ credential_id: string }> {
-  return post('/auth/passkey/register-complete', {
-    credential,
-    challenge,
-    device_name: deviceName,
-  })
-}
-
-// ---------------------------------------------------------------------------
-//  OTP auth
-// ---------------------------------------------------------------------------
-
-export async function requestOTP(email: string): Promise<{ sent: boolean }> {
-  return post('/auth/otp/request', { email })
-}
-
-export async function verifyOTP(
-  email: string,
-  code: string
-): Promise<{ access_token: string; refresh_token: string }> {
-  return post('/auth/otp/verify', { email, code })
-}
+// Signing in (a password, a mailed code, a passkey, a new account) happens only on Origin's own
+// pages, never in this app (`pages/Login.tsx`, `auth/originSignIn.ts`).
 
 // Platform settings API lives in `api/platform.ts`. Use
 // `getPlatformSettings` / `updatePlatformSettings` from there.

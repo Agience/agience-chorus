@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   Dialog,
   DialogContent,
@@ -7,8 +8,9 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { post } from '@/api/api';
-import { deleteGrant, listGrants, resendInvite } from '@/api/collections';
+import { describeGrantee, describeItem, describeParent, previewAtOrigin, resendInviteAtOrigin, type OriginPreview } from '@/api/authority';
+import { createGrant } from '@/api/collections';
+import { deleteGrant, listGrants } from '@/api/collections';
 import type { GrantResponse } from '@/api/types/grant';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -26,6 +28,8 @@ const ROLES = [
   { value: 'collaborator', label: 'Collaborator' },
   { value: 'admin', label: 'Admin' },
 ];
+
+
 
 // Role -> CRUDEASIO bit bundle. Must match backend Grant.ROLE_PRESETS.
 const ROLE_BITS: Record<string, Record<string, boolean>> = {
@@ -69,6 +73,17 @@ function errorDetailOf(err: unknown, fallback: string): string {
   return (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback;
 }
 
+// Origin's preview, in words, for a confirmation the owner answers (review 15).
+function previewText(p: OriginPreview, to: string): string {
+  const where = p.parents.length
+    ? `inside ${p.parents.map((id) => describeParent(p, id)).join(' <- ')}` : 'as a top-level item';
+  const who = p.grantees.length
+    ? p.grantees.map((g) => `${describeGrantee(g)} `
+        + `(${g.effect === 'deny' ? 'denied ' : ''}${g.actions.join(', ')} on ${g.resource_id})`).join('; ')
+    : 'no one';
+  return `Invite ${to} to ${p.resource_id}?\n\nOrigin holds it ${where}.\nAlready shared with: ${who}.`;
+}
+
 function copy(text: string) {
   navigator.clipboard.writeText(text).then(
     () => toast.success('Link copied to clipboard'),
@@ -79,10 +94,18 @@ function copy(text: string) {
 export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: ShareDialogProps) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('viewer');
-  const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  // An invite whose mail did not go: its link, for the owner to pass on.
-  const [unsent, setUnsent] = useState<{ to: string; url: string } | null>(null);
+  // What Origin said it sent, for the last invite: the item and the address. Facet never holds an
+  // invite's link.
+  const [sentTo, setSentTo] = useState<{ email: string; resource_id?: string;
+                                         resource_name?: string } | null>(null);
+  // An invite the owner has asked for and not yet confirmed (review 14, M4).
+  const [pendingTo, setPendingTo] = useState<string | null>(null);
+  const [routeMismatch, setRouteMismatch] = useState(false);
+  // What Origin holds about the item, for the owner to confirm (review 15, L4).
+  const [preview, setPreview] = useState<OriginPreview | null>(null);
+  // The item is the one open in the route, never an id handed from Mantle's object (review 14).
+  const { artifactId: routeId } = useParams<{ artifactId?: string }>();
   const [grants, setGrants] = useState<GrantResponse[] | 'loading' | 'hidden'>('loading');
   const [busy, setBusy] = useState<string | null>(null);
   const { user } = useAuth();
@@ -102,7 +125,10 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
 
   useEffect(() => {
     if (!open) return;
-    setUnsent(null);
+    setSentTo(null);
+    setPendingTo(null);
+    setRouteMismatch(false);
+    setPreview(null);
     setGrants('loading');
     return loadGrants();
   }, [open, loadGrants]);
@@ -110,7 +136,7 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
   const handleRevoke = useCallback(async (grant: GrantResponse, what: string) => {
     setBusy(grant.id);
     try {
-      await deleteGrant(grant.id);
+      await deleteGrant(grant);
       toast.success(what);
       loadGrants();
     } catch (err: unknown) {
@@ -121,65 +147,96 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
   }, [loadGrants]);
 
   const handleResend = useCallback(async (grant: GrantResponse) => {
-    const to = grant.target_entity || 'the invitee';
+    // Origin keeps only a digest of the address it mailed, so the owner names it again.
+    const to = (grant.target_entity
+      || window.prompt('Send this invite again to which email address?') || '').trim();
+    if (!to) return;
     setBusy(grant.id);
     try {
-      const again = await resendInvite(grant.id);
-      if (again.email_sent) {
-        setUnsent(null);
-        toast.success(`Invite sent again to ${to}`, { description: 'The link sent before no longer works.' });
-      } else if (again.claim_url) {
-        setUnsent({ to, url: again.claim_url });
-      }
+      // The owner confirms Origin's preview of the item again (review 15).
+      const seen = await previewAtOrigin(grant.resource_id || workspaceId);
+      if (!window.confirm(previewText(seen, to))) return;
+      // A new invite for the same address, made and mailed by Origin, and the old one revoked
+      // there (round 13). Facet never holds the link.
+      await resendInviteAtOrigin(grant, to, seen.preview);
+      setSentTo({ email: to });
       loadGrants();
     } catch (err: unknown) {
       toast.error(errorDetailOf(err, 'Could not resend the invite'));
     } finally {
       setBusy(null);
     }
-  }, [loadGrants]);
+  }, [loadGrants, workspaceId]);
 
-  const handleInvite = useCallback(async () => {
+  // The first step: check the route names this item, then ask the owner to confirm it by name.
+  const handleInvite = useCallback(() => {
     if (!email.trim()) {
       toast.error('Please enter an email address');
       return;
     }
+    if (!routeId || routeId !== workspaceId) {
+      setRouteMismatch(true);
+      toast.error('Open this workspace before sharing it: the page and the workspace differ');
+      return;
+    }
+    setRouteMismatch(false);
+    setPreview(null);
+    setPendingTo(email.trim().toLowerCase());
+    previewAtOrigin(routeId)
+      .then(setPreview)
+      .catch((err: unknown) => {
+        setPendingTo(null);
+        toast.error(errorDetailOf(err, 'Origin could not show what it holds about this'));
+      });
+  }, [email, routeId, workspaceId]);
+
+  const handleConfirm = useCallback(async () => {
+    const to = pendingTo;
+    if (!to || !routeId || routeId !== workspaceId) {
+      setRouteMismatch(true);
+      return;
+    }
+    if (!preview || preview.resource_id !== routeId) return;
     setSending(true);
-    const to = email.trim().toLowerCase();
     try {
-      const made = await post<GrantResponse>('/grants', {
-        resource_id: workspaceId,
+      // Made at Origin, in the person's Origin session, for this one address (round 13): Origin
+      // makes the link and mails it there; the claimant must sign in with that address. The item
+      // is the one open in the route, named as the owner confirmed it; Origin echoes both and puts
+      // them in its mail (review 14). Facet never holds the link.
+      const made = await createGrant(routeId, {
         grantee_type: 'invite',
         target_entity: to,
         target_entity_type: 'email',
-        max_claims: 1,
-        // Named role is the source of truth; the backend derives CRUDEASIO
-        // bits from Grant.ROLE_PRESETS.
-        role,
-        message: message.trim() || null,
-        // CRUDEASIO bits are included for legacy servers that don't
-        // support the `role` parameter.
+        resource_name: workspaceName || undefined,
+        preview: preview.preview,
         ...ROLE_BITS[role],
       });
       setEmail('');
-      setMessage('');
-      // Said as it happened: "sent" only when the mail went, else the link to pass on.
-      if (made.email_sent) {
-        setUnsent(null);
-        toast.success(`Invite sent to ${to}`);
-      } else if (made.claim_url) {
-        setUnsent({ to, url: made.claim_url });
-      }
+      setPendingTo(null);
+      setPreview(null);
+      const echo = made.invite_echo;
+      setSentTo({ email: echo?.email || to, resource_id: echo?.resource_id,
+                  resource_name: echo?.resource_name });
       loadGrants();
     } catch (err: unknown) {
-      toast.error(errorDetailOf(err, 'Failed to create invite'));
+      toast.error(errorDetailOf(err, (err as Error)?.message || 'Failed to create invite'));
     } finally {
       setSending(false);
     }
-  }, [email, role, workspaceId, message, loadGrants]);
+  }, [pendingTo, routeId, workspaceId, workspaceName, role, loadGrants, preview]);
 
+  // Origin lists a resource's grants only to someone who may share it, so a refused listing means
+  // this person cannot invite either (2026-10-31, a tester: a Viewer got an enabled Send invite form
+  // that Origin then refused).
+  const mayNotShare = grants === 'hidden';
+
+  // An invite whose claims are spent is not waiting on anyone: whoever accepted it is listed as a
+  // member, by the grant the claim made.
+  const spent = (g: GrantResponse) => g.grantee_type === 'invite' && g.max_claims != null
+    && (g.claims_count ?? 0) >= g.max_claims;
   const members = Array.isArray(grants)
-    ? grants.filter((g) => g.state === 'active' && (g.grantee_type === 'user' || g.grantee_type === 'invite'))
+    ? grants.filter((g) => g.state === 'active' && !spent(g)
+        && (g.grantee_type === 'user' || g.grantee_type === 'invite'))
     : [];
 
   return (
@@ -199,12 +256,14 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@example.com"
+                disabled={mayNotShare}
                 className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900"
                 onKeyDown={(e) => e.key === 'Enter' && handleInvite()}
               />
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
+                disabled={mayNotShare}
                 className="w-32 shrink-0 px-2 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900"
               >
                 {ROLES.map((r) => (
@@ -212,32 +271,58 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
                 ))}
               </select>
             </div>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Add a message (optional)"
-              rows={2}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 resize-none"
-            />
             <button
               onClick={handleInvite}
-              disabled={sending || !email.trim()}
+              disabled={mayNotShare || sending || !email.trim()}
               className="w-full bg-gray-900 text-white py-2 px-4 rounded-md hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
             >
               {sending ? 'Sending...' : 'Send invite'}
             </button>
-            {unsent && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-2" data-testid="invite-unsent">
-                <p className="text-xs text-amber-900">
-                  The invite for {unsent.to} is ready, but it could not be emailed. Send them this link yourself:
+            {mayNotShare && (
+              <p className="text-xs text-gray-600" data-testid="invite-not-permitted">
+                You can open this workspace but not share it. Ask someone who manages it to invite people.
+              </p>
+            )}
+            {routeMismatch && (
+              <p className="text-xs text-red-600" data-testid="invite-route-mismatch">
+                The open page is not this workspace. Open it, then share it.
+              </p>
+            )}
+            {pendingTo && (
+              <div className="text-xs text-gray-700 border border-gray-200 rounded p-2 space-y-2"
+                data-testid="invite-confirm">
+                <p>
+                  Invite {pendingTo} to &ldquo;{workspaceName || 'this workspace'}&rdquo; ({routeId})?
                 </p>
+                {preview ? (
+                  <div data-testid="invite-preview" className="space-y-1">
+                    <p>Origin holds {describeItem(preview)}.</p>
+                    <p>Origin holds it {preview.parents.length
+                      ? <>inside {preview.parents.map((id) => describeParent(preview, id)).join(' \u2190 ')}</>
+                      : <>as a top-level item</>}.</p>
+                    <p>Already shared with: {preview.grantees.length
+                      ? preview.grantees.map((g) => describeGrantee(g)
+                          + ` (${g.effect === 'deny' ? 'denied ' : ''}${g.actions.join(', ')} on ${g.resource_id})`).join('; ')
+                      : 'no one'}.</p>
+                  </div>
+                ) : <p className="text-gray-400">Reading what Origin holds\u2026</p>}
                 <div className="flex gap-2">
-                  <input type="text" readOnly value={unsent.url} aria-label="Invite link"
-                    className="flex-1 min-w-0 px-2 py-1 text-xs bg-white border border-amber-200 rounded text-gray-700" />
-                  <button onClick={() => copy(unsent.url)}
-                    className="px-3 py-1 text-xs border border-amber-300 rounded hover:bg-amber-100">Copy</button>
+                  <button onClick={() => { void handleConfirm(); }} disabled={sending || !preview}
+                    className="px-2 py-1 bg-gray-900 text-white rounded disabled:opacity-50">
+                    Confirm and send
+                  </button>
+                  <button onClick={() => setPendingTo(null)} disabled={sending}
+                    className="px-2 py-1 border border-gray-300 rounded">Cancel</button>
                 </div>
               </div>
+            )}
+            {sentTo && (
+              <p className="text-xs text-gray-600" data-testid="invite-sent">
+                {sentTo.resource_id
+                  ? <>Origin sent an invite to &ldquo;{sentTo.resource_name || 'a shared item'}&rdquo; ({sentTo.resource_id}) to {sentTo.email}.</>
+                  : <>Invite sent to {sentTo.email}.</>}
+                {' '}They sign in with that address to accept it.
+              </p>
             )}
           </div>
 
@@ -254,7 +339,7 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
                     const pending = g.grantee_type === 'invite';
                     const you = !pending && g.grantee_id === user?.id;
                     const who = pending
-                      ? (g.target_entity || g.name || 'Anyone with the link')
+                      ? (g.target_entity || 'An invite sent by email')
                       : you ? 'You' : (g.name || `Someone (${String(g.grantee_id).slice(0, 8)})`);
                     return (
                       <li key={g.id} className="flex items-center gap-2 px-3 py-2 text-xs">

@@ -5,7 +5,10 @@ import { User } from './auth.types';
 import { AuthContext } from './AuthContext';
 import { consumeSpState } from '../../auth/spState';
 
-const { originUri: ORIGIN_URI, clientId: CLIENT_ID } = getRuntimeConfig();
+const { originUri, clientId: CLIENT_ID } = getRuntimeConfig();
+// Without a trailing slash: in local development `originUri` is `/` (Origin through the dev server),
+// and `//auth/authorize` would name a host called "auth".
+const ORIGIN_URI = originUri.replace(/\/+$/, '');
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(null);
@@ -96,7 +99,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser(null);      // clear stale user
   };
 
-  const login = async (provider: string = 'google', setupOperatorToken?: string) => {
+  // With no provider named, Origin shows its own chooser: every method this node has.
+  const login = async (provider: string = 'local', setupOperatorToken?: string) => {
     const state = crypto.randomUUID();
     const codeVerifier = Array.from(crypto.getRandomValues(new Uint8Array(32)))
       .map(b => b.toString(16).padStart(2, '0'))

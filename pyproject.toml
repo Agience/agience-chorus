@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agience-chorus"
-version = "0.2.9"
+version = "0.2.10"
 description = "Agience Chorus — the tekton standard library: operators by domain, and the host that serves them."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -44,7 +44,7 @@ dependencies = [
     "cryptography>=42.0",
     "python-jose[cryptography]>=3.3",
     "pydantic>=2.0",        # explicit: fastapi pulls it, but chorus imports it directly
-    "agience-prism[wire,trust]>=0.1.5",  # 0.1.5: a persona carries a grant key to the store (timers, agents)
+    "agience-prism[wire,trust]>=0.1.9",  # 0.1.9: the trust symbols this release reads (review 31)
     "agience-crystal[ontology,service]>=0.1.0",
     "agience-mantle>=0.1.9",  # 0.1.9: `mantle.db.node_seal`, the keyed tokens of the lexical index
 ]

@@ -26,7 +26,7 @@ export interface PlatformUser {
   created_time: string | null;
 }
 
-/** One page of person cards. `total` counts the whole People collection, so a
+/** One page of the people Origin knows. `total` counts all of them, so a
  *  caller can tell whether another page follows without asking for it. */
 export interface PlatformUserPage {
   users: PlatformUser[];

@@ -18,7 +18,6 @@ function firstExisting(paths: Array<string | undefined>): string | undefined {
 // the 8081 that mantle and crystal each declare as their own developer default — that port serves
 // nothing under this installer.
 const DEV_ORIGIN = process.env.VITE_DEV_ORIGIN ?? 'http://127.0.0.1:8080'
-const DEV_MANTLE = process.env.VITE_DEV_MANTLE ?? 'http://127.0.0.1:8082'
 
 // ⭐ FACET VERSIONS ON ITS OWN CADENCE, AND `package.json` IS THE ONE PLACE THAT NUMBER IS WRITTEN
 // [John, 2026-09-13]. This tree ships inside agience-chorus but does not follow chorus's release
@@ -136,47 +135,34 @@ export default defineConfig({
   server: {
     host: true,  // bind to 0.0.0.0 so home.agience.ai (→ 127.0.0.1) is reachable
 
-    // ⭐ THE DEV SERVER PROXIES WHAT CADDY PROXIES, AND FOR THE SAME REASON.
-    // `_fleet/conf.d/my.agience.ai.caddy` keeps `originUri` and `mantleUri` on the app's own host
-    // and proxies outward, so the browser never makes a cross-origin request and no service needs
-    // CORS. Without the same arrangement here the browser talks straight to 8080 and 8082 and is
-    // refused: measured 2026-09-13, a fresh `/login` issued four requests and the browser blocked
-    // all four — "No 'Access-Control-Allow-Origin' header is present" — while still rendering a
-    // plausible login form, because the fallback for "cannot reach /auth/providers" looks like a
-    // working page.
+    // ⭐ ORIGIN IS REACHED THROUGH THE DEV SERVER, SAME-ORIGIN. `public/config.js` sets
+    // `originUri: '/'` for local development, so the web app's calls to Origin, and Origin's own
+    // pages (sign-in, passkeys, the account page) with the assets they load from `/web/`, all go
+    // through this proxy, and Origin's session cookie lands on this host. Deployed, Origin has a
+    // host of its own (`origin.<base>`), and the app's host serves none of these paths.
     //
-    // ⚠ THE RULES BELOW MIRROR THAT CADDY BLOCK AND MUST KEEP MIRRORING IT. `/api` strips its
-    // prefix and everything else does not, exactly as `handle_path` and `handle` do there. A dev
-    // proxy that routes differently from production is a dev environment that cannot reproduce a
-    // production bug — and worse, one that manufactures bugs of its own.
+    // ⛔ EVERY KEY IS A REGEX, AND THE ANCHORS ARE LOAD-BEARING. A plain string key is a PREFIX
+    // match, so `'/setup'` would also capture the SPA's own `/setup` route and hand it to Origin.
+    // The web app keeps `/setup`, `/auth/callback` (where Origin returns its sign-in code to this
+    // app), `/reset-password` and `/verify-email`; `/login` is Origin's sign-in page, and the web
+    // app's own sign-in route is reached by in-app navigation.
     //
     // ⚠ `/auth/authorizer/*` IS NOT EXCEPTED HERE, and must not be. Facet's own client decides that
     // split before the request leaves the browser (`src/api/api.ts:isOriginAuthPath`), so such a
-    // call is already addressed to `/api/…` and never matches `/auth`. The Caddy block carries this
-    // same warning: an exception here would be a second, silently diverging copy of the rule.
-    // ⛔ EVERY KEY IS A REGEX, AND THE TRAILING SLASH IN IT IS LOAD-BEARING. A plain string key is
-    // a PREFIX match, so `'/setup'` also captures the SPA's own `/setup` route and hands it to
-    // Origin, which answers 404 — measured here 2026-09-13, the wizard route died the moment the
-    // proxy was added. Caddy's `handle /setup/*` does not match bare `/setup`, so the app keeps it;
-    // these anchored patterns reproduce that, and `/version` is exact because Caddy's `handle
-    // /version` is exact.
+    // call is already addressed elsewhere.
     proxy: {
-      '^/auth/': { target: DEV_ORIGIN, changeOrigin: true },
+      '^/auth/(?!callback(?:$|[/?]))': { target: DEV_ORIGIN, changeOrigin: true },
       '^/setup/': { target: DEV_ORIGIN, changeOrigin: true },
-      // ⭐ `/system/*` AT THE ROOT IS ORIGIN'S HALF OF IT. Both services serve `/system/*`, which
-      // is why `api.ts` exports `onOrigin`/`onMantle` instead of deriving it from the path — but
-      // once both are reached through one host the distinction survives anyway: mantle's half
-      // arrives under `/api/system/…` and is handled by the rule below, so anything still at the
-      // root is origin's. Measured 2026-09-13: without this, `GET /system/settings` answered 200
-      // with `index.html`, and the deployed block has the same gap.
+      // Both services serve `/system/*`; Mantle's half is reached at Mantle's own address
+      // (`onMantle` in `api.ts`), so anything at this host's root is Origin's.
       '^/system/': { target: DEV_ORIGIN, changeOrigin: true },
-      '^/\\.well-known/': { target: DEV_ORIGIN, changeOrigin: true },
+      '^/\\.well-known/':{ target: DEV_ORIGIN, changeOrigin: true },
       '^/version$': { target: DEV_ORIGIN, changeOrigin: true },
-      '^/api/': {
-        target: DEV_MANTLE,
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/api/, ''),
-      },
+      // Origin's own pages and their assets.
+      '^/web/': { target: DEV_ORIGIN, changeOrigin: true },
+      '^/(?:login|passkey|account|logout)(?:$|[/?])': { target: DEV_ORIGIN, changeOrigin: true },
+      // No `/api` rule: Mantle is reached at its own address (`public/config.js`), deployed and
+      // here alike, and answers this origin cross-origin (`MANTLE_CORS_ORIGINS`; review 7, F1).
     },
 
     watch: {

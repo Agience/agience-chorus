@@ -19,3 +19,4 @@ if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
 from agience_chorus._chorus_identity import _chorus_test_identity  # noqa: F401,E402  (autouse, session-scoped)
+from agience_chorus.tests._origin_for_tests import origin_issuer  # noqa: F401,E402  (Origin's issuers, review 21)

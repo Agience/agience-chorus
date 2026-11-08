@@ -88,6 +88,7 @@ del _os, _Path, _sys, _probe
 # The fixture body lives in `_chorus_identity.py` so it has one home and can be registered by more
 # than one conftest.
 from agience_chorus._chorus_identity import _chorus_test_identity  # noqa: F401  (registers the fixture here)
+from agience_chorus.tests._origin_for_tests import origin_issuer  # noqa: F401,E402  (Origin's issuers, review 21)
 
 # ── this test process is the host, and says so ──────────────────────────────────────────────────
 # Persona modules declare `ember.{ontology.match, ontology.activation, signal.projection,

@@ -1,6 +1,5 @@
 import { toast } from 'sonner';
 import { useState, useEffect, useCallback } from 'react';
-import { Eye, EyeOff, Copy } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,6 +31,7 @@ import {
   updateGrant,
   deleteGrant,
 } from '../../api/collections';
+import { describeGrantee, describeItem, describeParent, previewAtOrigin, type OriginPreview } from '../../api/authority';
 
 interface NewCollectionInput {
   name: string;
@@ -58,11 +58,15 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
   const [grantName, setGrantName] = useState('');
   const [showGrantDeleteConfirm, setShowGrantDeleteConfirm] = useState(false);
   const [grantToDelete, setGrantToDelete] = useState<Grant | null>(null);
-  const [visibleGrantKeys, setVisibleGrantKeys] = useState<Record<string, boolean>>({});
   const [read, setRead] = useState(true);
   const [write, setWrite] = useState(true);
-  const [readRequiresIdentity, setReadRequiresIdentity] = useState(true);
-  const [writeRequiresIdentity, setWriteRequiresIdentity] = useState(true);
+  // An invite asked for and not yet confirmed, and what Origin echoed for the last one sent
+  // (review 14, M4).
+  const [confirmingInvite, setConfirmingInvite] = useState(false);
+  // What Origin holds about the collection, for the owner to confirm (review 15, L4).
+  const [invitePreview, setInvitePreview] = useState<OriginPreview | null>(null);
+  const [inviteEcho, setInviteEcho] = useState<
+    { resource_id: string; resource_name: string; email: string } | null>(null);
 
   const selectedCollectionData = collections.find(c => c.id === selectedCollection) || null;
   const collectionCreatedBy = selectedCollectionData?.created_by;
@@ -129,15 +133,12 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
       setGrantName(editingGrant.name || '');
       setRead(editingGrant.can_read);
       setWrite(editingGrant.can_update);
-      setReadRequiresIdentity(editingGrant.read_requires_identity ?? editingGrant.requires_identity);
-      setWriteRequiresIdentity(editingGrant.write_requires_identity ?? editingGrant.requires_identity);
     } else {
       setGrantName('');
       setRead(true);
       setWrite(true);
-      setReadRequiresIdentity(true);
-      setWriteRequiresIdentity(true);
     }
+    setConfirmingInvite(false);
   }, [editingGrant, selectedCollection]);
 
   const handleUpdateCollection = async () => {
@@ -169,8 +170,10 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
 
 
   const handleRemoveGrant = async (grantId: string) => {
+    const grant = grants.find(s => s.id === grantId);
+    if (!grant) return;
     try {
-      await deleteGrant(grantId);
+      await deleteGrant(grant as never);
       setGrants(prev => prev.filter(s => s.id !== grantId));
       toast.success('Grant removed');
     } catch (err) {
@@ -179,10 +182,6 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
     }
   };
 
-
-  const toggleKeyVisibility = (grantId: string) => {
-    setVisibleGrantKeys(prev => ({ ...prev, [grantId]: !prev[grantId] }));
-  };
 
   if (!open) return null;
 
@@ -292,16 +291,21 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                           }}
                           disabled={!isOwner}
                         >
-                          New
+                          Invite
                         </Button>
                       </div>
+                      {inviteEcho && (
+                        <p className="px-4 py-2 text-xs text-gray-600" data-testid="grant-invite-echo">
+                          Origin sent an invite to &ldquo;{inviteEcho.resource_name || 'a shared item'}&rdquo; ({inviteEcho.resource_id}) to {inviteEcho.email}.
+                        </p>
+                      )}
                       <div className="rounded-md border">
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Name</TableHead>
+                              <TableHead>Who</TableHead>
                               <TableHead>Permissions</TableHead>
-                              <TableHead>Key</TableHead>
+                              <TableHead>Invite</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -309,48 +313,23 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                             {grants.length > 0 ? (
                               grants.map((grant) => (
                                 <TableRow key={grant.id}>
-                                  <TableCell className="font-medium">{grant.name}</TableCell>
+                                  <TableCell className="font-medium">{grant.target_entity || grant.name || grant.grantee_id}</TableCell>
                                   <TableCell>
                                     {[
-                                      grant.can_read
-                                        ? grant.read_requires_identity ?? grant.requires_identity
-                                          ? 'Read (Identified)'
-                                          : 'Read (Unidentified)'
-                                        : null,
-                                      grant.can_update
-                                        ? grant.write_requires_identity ?? grant.requires_identity
-                                          ? 'Write (Identified)'
-                                          : 'Write (Unidentified)'
-                                        : null,
+                                      grant.can_read ? 'Read' : null,
+                                      grant.can_update ? 'Write' : null,
                                     ]
                                       .filter(Boolean)
                                       .join(', ')}
                                   </TableCell>
                                   <TableCell>
-                                    <div className="flex items-center space-x-2">
-                                      <code className="text-xs bg-gray-100 px-2 py-1 rounded">
-                                        {visibleGrantKeys[grant.id] ? grant.claim_token || '' : '••••••••••••'}
-                                      </code>
-                                      <Button 
-                                        variant="ghost" 
-                                        size="icon" 
-                                        onClick={() => toggleKeyVisibility(grant.id)} 
-                                        className="h-7 w-7"
-                                      >
-                                        {visibleGrantKeys[grant.id] ? <EyeOff size={14} /> : <Eye size={14} />}
-                                      </Button>
-                                      <Button 
-                                        variant="ghost" 
-                                        size="icon" 
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(grant.claim_token || '');
-                                          toast.success('Copied');
-                                        }} 
-                                        className="h-7 w-7"
-                                      >
-                                        <Copy size={14} />
-                                      </Button>
-                                    </div>
+                                    {/* Origin mails an invite to its one address; no link or key is shown (round 13). */}
+                                    <span className="text-xs text-gray-600">
+                                      {grant.grantee_type !== 'invite' ? '—'
+                                        : grant.max_claims != null && (grant.claims_count ?? 0) >= grant.max_claims
+                                          ? 'Accepted'
+                                          : `Sent to ${grant.target_entity || 'its address'}`}
+                                    </span>
                                   </TableCell>
                                   <TableCell className="text-right">
                                     <div className="flex justify-end space-x-2">
@@ -412,19 +391,19 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
           }}>
             <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
-                <DialogTitle>{editingGrant ? 'Edit Grant' : 'New Grant'}</DialogTitle>
+                <DialogTitle>{editingGrant ? 'Edit access' : 'Invite someone'}</DialogTitle>
                 <DialogDescription>
-                  {editingGrant 
-                    ? 'Update grant permissions and settings.'
-                    : 'Create a new grant key to provide access to this collection.'}
+                  {editingGrant
+                    ? 'Change what this person may do.'
+                    : 'Origin emails the invite to this address. They sign in with it to accept.'}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium leading-none">Name</label>
+                  <label className="text-sm font-medium leading-none">Email</label>
                   <input
-                    type="text"
-                    placeholder="Enter grant name"
+                    type="email"
+                    placeholder="Their email address"
                     value={grantName}
                     onChange={e => setGrantName(e.target.value)}
                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -454,28 +433,25 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                       />
                       <span>Write Access</span>
                     </label>
-                    <label className="flex items-center space-x-2 text-sm text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        checked={readRequiresIdentity}
-                        onChange={() => setReadRequiresIdentity(!readRequiresIdentity)}
-                        className="h-4 w-4 rounded border-gray-300"
-                        disabled={!isOwner || !read}
-                      />
-                      <span>Require Identity (Read)</span>
-                    </label>
-                    <label className="flex items-center space-x-2 text-sm text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        checked={writeRequiresIdentity}
-                        onChange={() => setWriteRequiresIdentity(!writeRequiresIdentity)}
-                        className="h-4 w-4 rounded border-gray-300"
-                        disabled={!isOwner || !write}
-                      />
-                      <span>Require Identity (Write)</span>
-                    </label>
                   </div>
                 </div>
+                {confirmingInvite && selectedCollectionData && (
+                  <p className="text-sm text-gray-700 border border-gray-200 rounded p-2"
+                    data-testid="grant-invite-confirm">
+                    Invite {grantName.trim().toLowerCase()} to &ldquo;{selectedCollectionData.name}&rdquo; ({selectedCollectionData.id})?
+                    {invitePreview ? (
+                      <span className="block" data-testid="grant-invite-preview">
+                        Origin holds {describeItem(invitePreview)}.{' '}
+                        Origin holds it {invitePreview.parents.length
+                          ? <>inside {invitePreview.parents.map((id) => describeParent(invitePreview, id)).join(' \u2190 ')}</> : <>as a top-level item</>}.
+                        {' '}Already shared with: {invitePreview.grantees.length
+                          ? invitePreview.grantees.map((g) => describeGrantee(g)
+                              + ` (${g.effect === 'deny' ? 'denied ' : ''}${g.actions.join(', ')} on ${g.resource_id})`).join('; ')
+                          : 'no one'}.
+                      </span>
+                    ) : <span className="block text-gray-400">Reading what Origin holds\u2026</span>}
+                  </p>
+                )}
               </div>
               <DialogFooter>
                 <Button
@@ -491,38 +467,65 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                 <Button
                   onClick={async () => {
                     if (!selectedCollection) return;
-                    if (!grantName.trim()) {
-                      toast.error('Name is required');
+                    if (!editingGrant && !grantName.trim()) {
+                      toast.error('An email address is required');
+                      return;
+                    }
+                    // An invite is sent only once the owner has confirmed the item by the name
+                    // and id shown (review 14, M4).
+                    if (!editingGrant && !confirmingInvite) {
+                      setConfirmingInvite(true);
+                      setInvitePreview(null);
+                      try {
+                        setInvitePreview(await previewAtOrigin(selectedCollection));
+                      } catch (err) {
+                        setConfirmingInvite(false);
+                        toast.error((err as Error)?.message || 'Origin could not show what it holds about this');
+                      }
+                      return;
+                    }
+                    if (!editingGrant && (!invitePreview || invitePreview.resource_id !== selectedCollection)) {
+                      return;
+                    }
+                    if (!editingGrant && selectedCollectionData?.id !== selectedCollection) {
+                      toast.error('The selected collection changed: confirm it again');
+                      setConfirmingInvite(false);
                       return;
                     }
                     const basePayload = {
-                      name: grantName.trim(),
                       can_read: read,
                       can_update: write,
                     };
                     try {
                       let updatedGrant: Grant;
                       if (editingGrant) {
-                        updatedGrant = await updateGrant(editingGrant.id, basePayload);
-                        setGrants(prev =>
-                          prev.map(s => (s.id === editingGrant.id ? { ...updatedGrant, claim_token: s.claim_token } : s))
-                        );
+                        updatedGrant = await updateGrant(editingGrant as never, basePayload);
+                        setGrants(prev => prev.map(s => (s.id === editingGrant.id ? updatedGrant : s)));
                       } else {
-                        updatedGrant = await createGrant(selectedCollection, { ...basePayload, requires_identity: readRequiresIdentity });
-                        setGrants(prev => [...prev, { ...updatedGrant, claim_token: updatedGrant.claim_token || undefined }]);
+                        // Made at Origin for this one address, which Origin mails (round 13), named
+                        // as the owner confirmed it; Origin echoes the item and address (review 14).
+                        updatedGrant = await createGrant(selectedCollection, {
+                          ...basePayload, grantee_type: 'invite', target_entity: grantName.trim().toLowerCase(),
+                          target_entity_type: 'email', resource_name: selectedCollectionData?.name,
+                          preview: invitePreview?.preview,
+                        });
+                        setGrants(prev => [...prev, updatedGrant]);
+                        setInviteEcho(updatedGrant.invite_echo ?? null);
                       }
                       setShowGrantModal(false);
                       setEditingGrant(null);
                       setGrantName('');
-                      toast.success(editingGrant ? 'Grant updated' : 'Grant created');
+                      setConfirmingInvite(false);
+                      setInvitePreview(null);
+                      toast.success(editingGrant ? 'Access updated' : `Invite sent to ${grantName.trim()}`);
                     } catch (err) {
                       console.error('Failed to create/edit grant:', err);
-                      toast.error('Failed to save grant');
+                      toast.error((err as Error)?.message || 'Failed to save grant');
                     }
                   }}
                   disabled={!isOwner}
                 >
-                  {editingGrant ? 'Save' : 'Create'}
+                  {editingGrant ? 'Save' : confirmingInvite ? 'Confirm and send' : 'Send invite'}
                 </Button>
               </DialogFooter>
             </DialogContent>

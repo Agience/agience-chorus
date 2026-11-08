@@ -1,4 +1,4 @@
-import { FiX, FiTag, FiFolder, FiTrash2, FiArchive, FiLogOut } from 'react-icons/fi';
+import { FiX, FiTag, FiFolder, FiTrash2, FiArchive, FiLogOut, FiRotateCcw } from 'react-icons/fi';
 
 interface MultiCardToolbarProps {
   selectedCount: number;
@@ -15,6 +15,9 @@ interface MultiCardToolbarProps {
   canDelete: boolean;
   /** Selection includes at least one card that is not archived. */
   hasLive: boolean;
+  /** Selection includes at least one archived card; shows Restore. */
+  hasArchived?: boolean;
+  onRestore?: () => void;
 }
 
 export default function MultiCardToolbar({
@@ -29,6 +32,8 @@ export default function MultiCardToolbar({
   onClear,
   canDelete,
   hasLive,
+  hasArchived = false,
+  onRestore,
 }: MultiCardToolbarProps) {
   return (
     <div className="fixed bottom-6 inset-x-0 flex justify-center z-50 pointer-events-none">
@@ -46,6 +51,16 @@ export default function MultiCardToolbar({
           >
             <FiArchive className="w-4 h-4" />
             Archive
+          </button>
+        )}
+
+        {hasArchived && onRestore && (
+          <button
+            onClick={onRestore}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
+          >
+            <FiRotateCcw className="w-4 h-4" />
+            Restore
           </button>
         )}
 

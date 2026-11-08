@@ -137,19 +137,36 @@ def _require_user_headers() -> dict[str, str]:
 
 
 def _require_caller_headers() -> dict[str, str]:
-    """Headers for a call to ANOTHER persona through Crystal: the caller's own token — a person's
-    access token, which that persona exchanges for a delegation of its own, or a grant key.
+    """Headers for a call to ANOTHER persona through Crystal: a grant key the caller sent, and
+    nothing else.
 
-    Lumen's delegation is addressed to Lumen and every other persona refuses it, so it is never
-    sent there (2026-10-18: every cross-persona workflow step answered 401 for that reason). Fails
-    closed when the caller sent a delegation, which cannot be passed on.
+    Lumen never receives or forwards a person's own token (review 11, H3): a person reaches each
+    persona only through the delegation Origin narrows to that persona, which the facet obtains.
+    Lumen's own delegation is addressed to Lumen and every other persona refuses it. So for a
+    person's request, a call to another persona fails closed here.
     """
     token = _auth.request_caller_token.get("")
     if not token:
         raise MissingDelegationError(
-            "this request carries no credential that another persona accepts (a delegation is "
-            "addressed to lumen alone); call with a person's token or a grant key")
+            "a person's request is not passed on to another persona: each persona takes only the "
+            "delegation Origin narrows to it, which the facet obtains; call with a grant key to "
+            "run a cross-persona workflow")
     return {"Authorization": f"Bearer {token}"}
+
+
+async def _caller_headers_to(server: str) -> dict[str, str]:
+    """Headers for a call to persona `server` through Crystal: a grant key the caller sent, or, for
+    a person, the delegation Origin narrows to `server` by a per-hop exchange of Lumen's own
+    (review 12; Origin allows Lumen to Sage). Nothing else, and never a person's own token."""
+    if _auth.request_caller_token.get(""):
+        return _require_caller_headers()
+    from agience_chorus import _hop
+    tok = await _hop.exchange(_auth, ORIGIN_URI, str(server).strip())
+    if not tok:
+        raise MissingDelegationError(
+            f"a person's request reaches {server} only by a hop Origin allows (Lumen to Sage); "
+            f"none was made; call with a grant key to run a cross-persona workflow")
+    return {"Authorization": f"Bearer {tok}"}
 
 
 def _delegation_token() -> str:
@@ -208,7 +225,7 @@ async def _retrieve_on_sage(query: str, findings: list[str]) -> list[dict]:
     """op.retrieve on sage (`sage.server.retrieve`) through Crystal. Fail-soft: why it found nothing
     is recorded in `findings`."""
     try:
-        headers = _require_caller_headers()
+        headers = await _caller_headers_to("sage")
     except MissingDelegationError as exc:
         findings.append(f"op.retrieve on sage skipped: {exc}")
         return []
@@ -479,7 +496,7 @@ async def _call_server_tool(client: httpx.AsyncClient, server: str, tool: str, a
     """
     resp = await client.post(
         f"{CRYSTAL_URI.rstrip('/')}/personas/{quote(str(server).strip(), safe='')}/tools/call",
-        headers=headers or _require_caller_headers(),
+        headers=headers or await _caller_headers_to(server),
         json={"name": tool, "arguments": arguments or {}},
         timeout=timeout,
     )
@@ -1438,7 +1455,8 @@ async def invoke_connection(connection_id: str, messages: Any = None, input: Opt
                 return json.dumps({"error": "no such connection, or you cannot read it"})
             card = _connection.read_card(resp.json())
             system, turns = _connection.messages_of(messages, input)
-            key = await _use_secret(client, MANTLE_URI, card["secret_id"], connection_id, headers, "lumen")
+            key = await _use_secret(client, MANTLE_URI, card["secret_id"], connection_id, headers,
+                                    "lumen", endpoint=_connection.PROVIDERS[card["provider"]])
         req = _connection.build(card, key, system, turns, max_tokens)
     except (_connection.ConnectionError_, _SecretUnavailable) as exc:
         return json.dumps({"error": str(exc)})
@@ -2414,8 +2432,10 @@ async def prompt_viewer_html() -> str:
 # ---------------------------------------------------------------------------
 
 def create_server_app():
-    """Return the Lumen ASGI app with verified middleware and startup hooks."""
-    return _auth.create_app(mcp)
+    """Return the Lumen ASGI app with verified middleware and startup hooks. The outer layer keeps
+    the delegation Origin narrowed to Lumen, for a per-hop exchange (`agience_chorus._hop`)."""
+    from agience_chorus import _hop
+    return _hop.KeepNarrowed(_auth.create_app(mcp), _auth)
 
 
 async def server_startup() -> None:

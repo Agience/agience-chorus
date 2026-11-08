@@ -9,7 +9,7 @@ Endpoints:
   POST /stream/publish      — SRS on_publish webhook
   POST /stream/unpublish    — SRS on_unpublish webhook
   GET  /stream/session      — Resolve stream key to active session
-  GET  /stream/sessions     — List one source's active sessions (Bearer token that reads it)
+  GET  /stream/sessions     — List one source's active sessions (the stream's own key that reads it)
 """
 
 from __future__ import annotations
@@ -554,8 +554,9 @@ def get_session(stream: str):
 async def list_sessions(request: Request, source_artifact_id: Optional[str] = None):
     """List the active stream sessions of one source (the stream viewer's live-status check).
 
-    Authenticated as the caller: the request's Bearer token must read ``source_artifact_id`` at
-    Mantle, and only that source's sessions are listed. With no token the answer is 401; a source
+    Authenticated by the stream's own key (``agc_...``), which must read ``source_artifact_id`` at
+    Mantle; only that source's sessions are listed. A person's own token is refused and never
+    forwarded to Mantle. With no token the answer is 401; a source
     the token cannot read answers 404 whether or not it exists. There is no unfiltered listing —
     it would enumerate every live stream's workspace and artifact ids across tenants.
     """
@@ -564,6 +565,11 @@ async def list_sessions(request: Request, source_artifact_id: Optional[str] = No
     bearer = bearer.strip()
     if scheme.lower() != "bearer" or not bearer:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentication required",
+                            headers={"WWW-Authenticate": "Bearer"})
+    # Only the stream's own key reads here (review 12). Astra holds no narrowed audience of its
+    # own, so a person's token (the web app's) is never forwarded to Mantle from this route.
+    if not bearer.startswith("agc_"):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "The stream's own key is required",
                             headers={"WWW-Authenticate": "Bearer"})
     if not source_artifact_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "source_artifact_id is required")

@@ -1,5 +1,6 @@
 // Tests for upload utility functions
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+vi.mock('../../auth/mantleToken', () => ({ mantleTokenFor: vi.fn(async () => 'for-mantle') }));
 import { uploadWithProgress, withUploadProgress } from '../upload';
 import * as workspacesApi from '../../api/workspaces';
 
@@ -145,16 +146,18 @@ describe('uploadWithProgress', () => {
   // `Cache-Control`, so deleting the Authorization line leaves this suite entirely green while
   // every upload in the product fails. That is the whole reason these two exist.
 
-  it('sends the bearer token, because the PUT goes to Mantle and not to a presigned link', async () => {
+  it('sends the token for Mantle, because the PUT goes to Mantle and not to a presigned link', async () => {
     localStorage.setItem('access_token', 'a-test-token');
     const file = new File(['x'], 'probe.txt', { type: 'text/plain' });
     mockXHR.status = 200;
 
     const promise = uploadWithProgress('workspace-1', 'upload-1', 'https://example.com/u', file);
+    await vi.waitFor(() => expect(mockXHR.onload).toBeTruthy());   // after the token is issued
     if (mockXHR.onload) mockXHR.onload();
     await promise;
 
-    expect(mockXHR.setRequestHeader).toHaveBeenCalledWith('Authorization', 'Bearer a-test-token');
+    // The token Origin addresses to Mantle, never the person's own (review 23).
+    expect(mockXHR.setRequestHeader).toHaveBeenCalledWith('Authorization', 'Bearer for-mantle');
   });
 
   it('sends no Authorization header when there is no token, rather than an empty bearer', async () => {

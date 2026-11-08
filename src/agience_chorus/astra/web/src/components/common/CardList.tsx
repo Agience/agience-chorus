@@ -37,7 +37,8 @@ interface CardListProps {
   /** What to call the container in labels; defaults to "collection" or "workspace". */
   containerNoun?: string;
   /** Callback for artifact clicks (e.g., single-select or multi-select with Shift/Cmd) */
-  onArtifactMouseDown?: (id: string, e: React.MouseEvent | React.DragEvent) => void;
+  /** `shownIds` is the list's displayed order, so a shift-click range runs over what is on screen. */
+  onArtifactMouseDown?: (id: string, e: React.MouseEvent | React.DragEvent, shownIds?: string[]) => void;
   /** Returns whether an artifact is currently selected */
   isSelected?: (id: string) => boolean;
   /** Called when an artifact is dragged to a new position (index-based) */
@@ -250,6 +251,13 @@ export default function CardList({
       });
   }, [artifacts, isSelected, isShowingSearchResults]);
 
+  const shownIds = useMemo(
+    () => artifacts
+      .map((c) => getArtifactListId(c, isShowingSearchResults))
+      .filter((id): id is string => !!id),
+    [artifacts, isShowingSearchResults],
+  );
+
   // Memoize artifact list
   const artifactElements = useMemo(() => {
     const elements: React.ReactNode[] = [];
@@ -315,7 +323,7 @@ export default function CardList({
             inPanel={inPanel}
             isSelected={isSelected?.(id) ?? false}
             forceHover={forceHoverIndex === index}
-            onMouseDown={(e) => onArtifactMouseDown?.(id, e)}
+            onMouseDown={(e) => onArtifactMouseDown?.(id, e, shownIds)}
             onEdit={() => handleEdit(artifact)}
             onOpen={onOpenArtifact ? () => onOpenArtifact(artifact) : undefined}
             onRemove={(mode) => (mode === 'delete' ? handleDeleteViaRemove(artifact) : handleRemove(artifact))}
@@ -345,6 +353,7 @@ export default function CardList({
     inPanel,
     isSelected,
     selectedIdsForDrag,
+    shownIds,
     forceHoverIndex,
     dragOverIndex,
     dragAfter,

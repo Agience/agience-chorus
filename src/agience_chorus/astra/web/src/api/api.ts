@@ -2,6 +2,8 @@
 import axios from 'axios';
 import { getRuntimeConfig } from '../config/runtime';
 import { isArtifactEndpoint, normalizeArtifactStates } from '../utils/artifactState';
+import { crystalAudience, narrowedFor } from '../auth/narrowed';
+import { mantleTokenFor } from '../auth/mantleToken';
 
 // Base URLs. Origin owns identity; Mantle owns artifacts. A single axios
 // instance is kept, and the request interceptor below rewrites baseURL to
@@ -89,15 +91,25 @@ function isCrystalOpPath(url: string): boolean {
 // dispatch), else Mantle (the axios instance default). A call that named its
 // service through `onOrigin` / `onMantle` arrives with that baseURL already
 // merged in and matches no rule here, so it keeps it.
-api.interceptors.request.use(config => {
+api.interceptors.request.use(async config => {
   const url = config.url || '';
+  const toCrystal = !isOriginAuthPath(url) &&
+    (isCrystalOpPath(url) || isCrystalTypePath(url) || isCrystalPersonaPath(url));
   if (isOriginAuthPath(url)) {
     config.baseURL = ORIGIN_URI;
-  } else if (isCrystalOpPath(url) || isCrystalTypePath(url) || isCrystalPersonaPath(url)) {
+  } else if (toCrystal) {
     config.baseURL = CRYSTAL_URI;
   }
   const token = localStorage.getItem('access_token');
-  if (token && config.headers) config.headers.Authorization = `Bearer ${token}`;
+  if (token && config.headers) {
+    // The person's own token goes to Origin's own routes alone. Crystal and the personas get a
+    // delegation narrowed to the persona called, or to Crystal (review 11, H3); Mantle gets the
+    // token Origin addresses to it (review 23, H1). Both are issued in the person's Origin session.
+    const toOrigin = (config.baseURL || '') === ORIGIN_URI;
+    const bearer = toCrystal ? await narrowedFor(token, crystalAudience(url), ORIGIN_URI)
+      : toOrigin ? token : await mantleTokenFor(token, ORIGIN_URI);
+    config.headers.Authorization = `Bearer ${bearer}`;
+  }
   return config;
 });
 
@@ -165,7 +177,9 @@ api.interceptors.response.use(
       if (!isAuthEndpoint) {
         originalRequest._retry = true;
         localStorage.removeItem('access_token');
-        window.location.href = '/login';
+        // The app's root, signed out, routes to the sign-in page in the app (`LoginProtected`).
+        // A full load of `/login` reaches Origin's own page instead, where it is Origin's host.
+        window.location.href = '/';
       }
     }
     // On 402 (Payment Required), dispatch upgrade prompt event
@@ -280,7 +294,8 @@ export async function postForm<T>(
   body: URLSearchParams
 ): Promise<T> {
   const baseUri = isOriginAuthPath(url) ? ORIGIN_URI : MANTLE_URI;
-  const res = await fetch(`${baseUri}${url}`, {
+  // `originUri` is `/` in local development (Origin through the dev server): no doubled slash.
+  const res = await fetch(`${baseUri.replace(/\/+$/, '')}${url}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',

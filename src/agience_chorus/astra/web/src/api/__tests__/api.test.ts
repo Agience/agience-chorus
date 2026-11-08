@@ -1,4 +1,7 @@
 ﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// The token Mantle-bound calls carry is issued in the person's Origin session (review 23); its own
+// test is `auth/__tests__/aBearerAloneNeverNarrows.test.ts`.
+vi.mock('../../auth/mantleToken', () => ({ mantleTokenFor: vi.fn(async () => 'for-mantle') }));
 import type { RecordedRequest } from './requestRecorder';
 import { recordRequests } from './requestRecorder';
 

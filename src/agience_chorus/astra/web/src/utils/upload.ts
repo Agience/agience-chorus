@@ -14,6 +14,8 @@
 // Upload utility functions for file handling
 
 import { updateUploadStatus } from '../api/workspaces';
+import { mantleTokenFor } from '../auth/mantleToken';
+import { getRuntimeConfig } from '../config/runtime';
 
 /**
  * An artifact context string with `upload` set to uploading at `progress` (0 to 1), for the
@@ -45,6 +47,10 @@ export async function uploadWithProgress(
   file: File,
   onProgress?: (progress: number) => void
 ): Promise<void> {
+  // Mantle takes the token Origin addresses to it, issued in the person's Origin session
+  // (review 23, H1), never the person's own.
+  const person = localStorage.getItem("access_token");
+  const bearer = person ? await mantleTokenFor(person, getRuntimeConfig().originUri) : null;
   return new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
@@ -56,8 +62,7 @@ export async function uploadWithProgress(
     // answers 401 without a token. This is raw XHR — it does not pass through the axios instance,
     // so the request interceptor that attaches the header never sees it. Measured 2026-09-13: the
     // proxied PUT returned 401 until this was added.
-    const token = localStorage.getItem("access_token");
-    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    if (bearer) xhr.setRequestHeader("Authorization", `Bearer ${bearer}`);
     
     // Send progress updates to backend
     xhr.upload.onprogress = (e) => {

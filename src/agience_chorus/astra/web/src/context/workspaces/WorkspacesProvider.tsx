@@ -1,5 +1,5 @@
 import { ReactNode, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   listWorkspaces,
@@ -123,6 +123,18 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     writeLastTab(user?.id, activeWorkspaceId);
   }, [activeWorkspaceId, user?.id]);
+
+  // The route names the open workspace. A tab click, the selection on load, a create or a close
+  // changes `activeWorkspaceId` alone, and the Share dialog takes the item it shares from the
+  // route (review 14), so the route follows. Not while a link in the route is still being
+  // resolved: the deep-link effect below opens it, or says it cannot.
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    if ((urlWorkspaceId || urlArtifactId) && !deepLinkApplied.current) return;
+    if (urlArtifactId === activeWorkspaceId && !urlWorkspaceId) return;
+    navigate(`/${encodeURIComponent(activeWorkspaceId)}`, { replace: true });
+  }, [activeWorkspaceId, urlArtifactId, urlWorkspaceId, navigate]);
 
   // Open a workspace as a tab: dock it when the tabs are an explicit list, then select it.
   const openWorkspaceTab = useCallback((id: string) => {

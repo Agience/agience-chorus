@@ -5,7 +5,8 @@ read the source artifact at Mantle as itself before astra looks the source up wi
 token, and every failure — wrong key, missing artifact, incomplete artifact — answers the same 401,
 so the route is not an oracle for which artifact ids exist.
 
-`GET /stream/sessions` needs a Bearer token that reads the source whose sessions it lists.
+`GET /stream/sessions` needs the stream's own key (`agc_...`) that reads the source whose sessions it
+lists; a person's own token is refused and never forwarded to Mantle (review 12).
 
 Mantle is a recorder standing in for `httpx.AsyncClient`: the key `agc_good` and the user token
 `user-token` read `src-1` and `src-incomplete`; the platform token (what `_sign_platform_token`
@@ -135,24 +136,36 @@ def test_sessions_needs_a_token(mantle):
 def test_there_is_no_unfiltered_listing(mantle):
     client, _m = mantle
     _live(client)
-    r = client.get("/stream/sessions", headers={"Authorization": "Bearer user-token"})
+    r = client.get("/stream/sessions", headers={"Authorization": "Bearer agc_good"})
     assert r.status_code == 400
     assert "session-1" not in r.text
 
 
-def test_a_source_the_token_cannot_read_lists_nothing(mantle):
+def test_a_source_the_key_cannot_read_lists_nothing(mantle):
     client, _m = mantle
     _live(client)
     r = client.get("/stream/sessions", params={"source_artifact_id": "src-1"},
-                   headers={"Authorization": "Bearer someone-else"})
+                   headers={"Authorization": "Bearer agc_someone-else"})
     assert r.status_code == 404
     assert "session-1" not in r.text
 
 
-def test_a_reader_sees_its_sources_sessions(mantle):
+def test_the_stream_s_key_sees_its_source_s_sessions(mantle):
     client, _m = mantle
     _live(client)
     r = client.get("/stream/sessions", params={"source_artifact_id": "src-1"},
-                   headers={"Authorization": "Bearer user-token"})
+                   headers={"Authorization": "Bearer agc_good"})
     assert r.status_code == 200
     assert [s["artifact_id"] for s in r.json()["sessions"]] == ["session-1"]
+
+
+def test_a_person_s_token_is_refused_and_never_forwarded_to_mantle(mantle):
+    """Review 12: Astra is not a persona and holds no narrowed audience, so a person's own token
+    (the web app's) is never forwarded to Mantle from here: only the stream's own key reads."""
+    client, m = mantle
+    _live(client)
+    before = len(m.calls)
+    r = client.get("/stream/sessions", params={"source_artifact_id": "src-1"},
+                   headers={"Authorization": "Bearer user-token"})
+    assert r.status_code == 401
+    assert not [c for c in m.calls[before:] if c[2] == "user-token"]

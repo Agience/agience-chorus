@@ -100,24 +100,26 @@ describe('api/collections', () => {
   });
 
   // Grants CRUD
-  it('createGrant calls POST /grants with resource_id', async () => {
-    post.mockResolvedValueOnce({ id: 's1', name: 'Grant', can_read: true });
-    const res = await createGrant('c1', {
-      name: 'Grant',
-      can_read: true,
-    });
-    expect(post).toHaveBeenCalledWith('/grants', expect.objectContaining({
-      resource_id: 'c1',
-      name: 'Grant',
-    }));
-    expect(res.id).toBe('s1');
+  // Review 12: grants are made, changed and revoked at Origin (`authorityGoesToOrigin.test.ts`).
+  it('createGrant sends nothing to Mantle', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await createGrant('c1', { grantee_type: 'user', grantee_id: 'u-1', can_read: true });
+    expect(post).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
   });
 
-  it('listGrants calls GET /grants?resource_id=...', async () => {
-    get.mockResolvedValueOnce([{ id: 's1', name: 'Grant 1' }]);
+  it('listGrants reads Origin\'s own record, never Mantle\'s /grants (round 13)', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ grants: [
+      { grant_id: 's1', grantee_id: 'u-1', grantee_type: 'user', actions: ['read'] }] }),
+      { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
     const res = await listGrants('c1');
-    expect(get).toHaveBeenCalledWith('/grants?resource_id=c1');
-    expect(res).toEqual([{ id: 's1', name: 'Grant 1' }]);
+    expect(get).not.toHaveBeenCalled();
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/auth\/me\/authority\/grants\?resource_id=c1$/);
+    expect(res.map((g) => g.id)).toEqual(['s1']);
+    vi.unstubAllGlobals();
   });
 
   it('getGrant calls GET /grants/:id', async () => {
@@ -127,17 +129,16 @@ describe('api/collections', () => {
     expect(res.id).toBe('s1');
   });
 
-  it('updateGrant calls PATCH /grants/:id', async () => {
-    patch.mockResolvedValueOnce({ id: 's1', name: 'Updated Grant', can_read: true });
-    const res = await updateGrant('s1', { name: 'Updated Grant' });
-    expect(patch).toHaveBeenCalledWith('/grants/s1', { name: 'Updated Grant' });
-    expect(res.id).toBe('s1');
-  });
-
-  it('deleteGrant calls DELETE /grants/:id', async () => {
-    del.mockResolvedValueOnce(undefined);
-    await deleteGrant('s1');
-    expect(del).toHaveBeenCalledWith('/grants/s1');
+  it('updateGrant and deleteGrant refuse a row Mantle listed and send nothing (round 13)', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const prior = { id: 's1', resource_id: 'c1', grantee_type: 'user', grantee_id: 'u-1', can_read: true };
+    await expect(updateGrant(prior, { can_update: true })).rejects.toThrow(/Origin/);
+    await expect(deleteGrant(prior)).rejects.toThrow(/Origin/);
+    expect(patch).not.toHaveBeenCalled();
+    expect(del).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   // Collection artifacts

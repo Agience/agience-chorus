@@ -239,12 +239,14 @@ describe('CardGrid', () => {
       expect(onArtifactMouseDown).toHaveBeenNthCalledWith(
         1,
         'root-1',
-        expect.objectContaining({ shiftKey: false, metaKey: false, ctrlKey: false })
+        expect.objectContaining({ shiftKey: false, metaKey: false, ctrlKey: false }),
+        ['root-1', 'root-2']
       );
       expect(onArtifactMouseDown).toHaveBeenNthCalledWith(
         2,
         'root-2',
-        expect.objectContaining({ shiftKey: false, metaKey: false, ctrlKey: false })
+        expect.objectContaining({ shiftKey: false, metaKey: false, ctrlKey: false }),
+        ['root-1', 'root-2']
       );
     });
 

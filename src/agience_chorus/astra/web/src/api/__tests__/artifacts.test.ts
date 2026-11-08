@@ -21,7 +21,6 @@ import {
   addItemToContainer,
   invokeArtifact,
   searchArtifacts,
-  createGrant,
   getGrant,
   updateGrant,
   deleteGrant,
@@ -233,45 +232,14 @@ describe('api/artifacts', () => {
   // Grant management
   // ─────────────────────────────────────────────────────────────────────────────
 
-  describe('createGrant', () => {
-    it('POSTs to /grants with resource_id, grantee_type, and permissions', async () => {
-      const grant = { id: 'g-1', resource_id: 'col-1' };
-      mockPost.mockResolvedValueOnce(grant);
-
-      const result = await createGrant('col-1', 'user', { can_read: true, can_write: false });
-
-      expect(mockPost).toHaveBeenCalledWith('/grants', expect.objectContaining({
-        resource_id: 'col-1',
-        grantee_type: 'user',
-        can_read: true,
-        can_write: false,
-      }));
-      expect(result).toEqual(grant);
-    });
-
-    it('includes optional target_entity and max_claims when provided', async () => {
-      mockPost.mockResolvedValueOnce({ id: 'g-2' });
-
-      await createGrant('col-1', 'user', { can_read: true }, {
-        targetEntity: 'user-99',
-        targetEntityType: 'person',
-        maxClaims: 5,
-      });
-
-      const [, body] = mockPost.mock.calls[0];
-      expect(body.target_entity).toBe('user-99');
-      expect(body.target_entity_type).toBe('person');
-      expect(body.max_claims).toBe(5);
-    });
-
-    it('sends undefined optional fields when not provided', async () => {
-      mockPost.mockResolvedValueOnce({ id: 'g-3' });
-
-      await createGrant('col-1', 'user', { can_read: true });
-
-      const [, body] = mockPost.mock.calls[0];
-      expect(body.target_entity).toBeUndefined();
-      expect(body.max_claims).toBeUndefined();
+  // Review 15: every invite or grant is made through `collections.createGrant`, naming Origin's
+  // preview the owner confirmed. No wrapper here makes one without it.
+  describe('no legacy grant wrapper', () => {
+    it('artifacts makes no grant, and collections resends no invite, without a preview', async () => {
+      const artifacts = await import('../artifacts');
+      const collections = await import('../collections');
+      expect('createGrant' in artifacts).toBe(false);
+      expect('resendInvite' in collections).toBe(false);
     });
   });
 
@@ -287,37 +255,35 @@ describe('api/artifacts', () => {
     });
   });
 
-  describe('updateGrant', () => {
-    it('PATCHes /grants/{id} with updates', async () => {
-      const updated = { id: 'g-1', can_write: true };
-      mockPatch.mockResolvedValueOnce(updated);
-
-      const result = await updateGrant('g-1', { can_write: true });
-
-      expect(mockPatch).toHaveBeenCalledWith('/grants/g-1', { can_write: true });
-      expect(result).toEqual(updated);
-    });
-  });
-
-  describe('deleteGrant', () => {
-    it('DELETEs /grants/{id}', async () => {
-      mockDel.mockResolvedValueOnce(undefined);
-
-      await deleteGrant('g-1');
-
-      expect(mockDel).toHaveBeenCalledWith('/grants/g-1');
+  describe('updateGrant and deleteGrant', () => {
+    it('refuse a row Mantle listed, sending nothing anywhere (round 13)', async () => {
+      const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+      const prior = { id: 'g-1', resource_id: 'col-1', grantee_type: 'user', grantee_id: 'u-1',
+                      can_read: true } as never;
+      await expect(updateGrant(prior, { can_update: true })).rejects.toThrow(/Origin/);
+      await expect(deleteGrant(prior)).rejects.toThrow(/Origin/);
+      expect(mockPatch).not.toHaveBeenCalled();
+      expect(mockDel).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
     });
   });
 
   describe('claimInvite', () => {
-    it('POSTs to /grants/claim with the token', async () => {
-      const grant = { id: 'g-5', claimed: true };
-      mockPost.mockResolvedValueOnce(grant);
-
+    it('claims at Origin, never through Mantle (review 12)', async () => {
+      const sent: string[] = [];
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+        sent.push(url);
+        return new Response(JSON.stringify({ outcome: 'appended', resource_id: 'r-1' }),
+                            { status: 200 });
+      }));
       const result = await claimInvite('invite-token-abc');
-
-      expect(mockPost).toHaveBeenCalledWith('/grants/claim', { token: 'invite-token-abc' });
-      expect(result).toEqual(grant);
+      expect(mockPost).not.toHaveBeenCalled();
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatch(/\/auth\/me\/authority\/claim$/);
+      expect(result.resource_id).toBe('r-1');
+      vi.unstubAllGlobals();
     });
   });
 

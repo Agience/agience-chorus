@@ -53,7 +53,8 @@ interface CardGridProps {
   isSelected?: (id: string) => boolean;
   activeSource?: { type: string; id: string; noun?: string } | null;
   isShowingSearchResults?: boolean;
-  onArtifactMouseDown?: (id: string, e: React.MouseEvent) => void;
+  /** `shownIds` is the grid's displayed order, so a shift-click range runs over what is on screen. */
+  onArtifactMouseDown?: (id: string, e: React.MouseEvent, shownIds?: string[]) => void;
   onOpenArtifact?: (artifact: Artifact) => void;
   onRemove?: (artifact: Artifact, mode?: CardRemoveMode) => void;
   /** The host destroys the artifact on `onRemove(artifact, 'delete')`; without it Delete is not offered. */
@@ -795,7 +796,7 @@ export default function CardGrid({
                   forceHover={forceHoverIndex === index}
                   activeSource={activeSource ?? undefined}
                   isShowingSearchResults={isShowingSearchResults}
-                  onMouseDown={(e) => onArtifactMouseDown?.(id, e)}
+                  onMouseDown={(e) => onArtifactMouseDown?.(id, e, orderedArtifacts.map(getId).filter(Boolean) as string[])}
                   onEdit={(c) => handleEdit(c)}
                   onOpen={onOpenArtifact}
                   onRemove={(c, mode) => (mode === 'delete' ? handleDeleteViaRemove(c) : handleRemove(c))}

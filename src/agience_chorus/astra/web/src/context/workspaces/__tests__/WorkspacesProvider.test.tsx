@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 
 import { WorkspacesProvider } from '../WorkspacesProvider';
 import { useWorkspaces } from '../WorkspacesContext';
@@ -228,5 +228,56 @@ describe('WorkspacesProvider follows changes saved elsewhere', () => {
     announceArtifactChange({ id: 'note-1', context: '{"content_type":"text/plain"}' });
     await new Promise((r) => setTimeout(r, 50));
     expect(listWorkspacesMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// 2026-11-08, the local check: a workspace opened by its tab left the route at `/`, so Share in
+// the header refused ("The open page is not this workspace"). Opening a workspace by tab puts its
+// id in the route, which is where the Share dialog takes the shared item from (review 14).
+describe('WorkspacesProvider keeps the route on the open workspace', () => {
+  beforeEach(() => {
+    listWorkspacesMock.mockReset();
+    toastErrorMock.mockReset();
+    prefs.current = {};
+    prefs.update = () => {};
+    localStorage.clear();
+  });
+
+  function Probe() {
+    const { activeWorkspaceId, setActiveWorkspaceId } = useWorkspaces();
+    const loc = useLocation();
+    return (
+      <>
+        <div data-testid="active">{activeWorkspaceId ?? ''}</div>
+        <div data-testid="path">{loc.pathname}</div>
+        <button onClick={() => setActiveWorkspaceId('ws-b')}>tab b</button>
+      </>
+    );
+  }
+
+  function renderRouted(url: string) {
+    return render(
+      <MemoryRouter initialEntries={[url]}>
+        <Routes>
+          <Route path="/:artifactId?" element={<WorkspacesProvider><Probe /></WorkspacesProvider>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it('names the workspace selected on load in the route', async () => {
+    listWorkspacesMock.mockResolvedValue([{ id: 'ws-a', name: 'Inbox' }, { id: 'ws-b', name: 'B' }]);
+    renderRouted('/');
+    await waitFor(() => expect(screen.getByTestId('active')).toHaveTextContent('ws-a'));
+    await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/ws-a'));
+  });
+
+  it('puts a workspace opened by its tab in the route', async () => {
+    listWorkspacesMock.mockResolvedValue([{ id: 'ws-a', name: 'Inbox' }, { id: 'ws-b', name: 'B' }]);
+    renderRouted('/ws-a');
+    await waitFor(() => expect(screen.getByTestId('active')).toHaveTextContent('ws-a'));
+    fireEvent.click(screen.getByText('tab b'));
+    await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/ws-b'));
+    expect(screen.getByTestId('active')).toHaveTextContent('ws-b');
   });
 });

@@ -114,7 +114,7 @@ function UsersTab() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // The People collection is paged, so the list holds a window rather than
+  // The user list is paged at Origin, so the list holds a window rather than
   // everyone. `total` is what says whether more exist.
   const reload = useCallback(async (visible: number) => {
     const page = await listUsers(

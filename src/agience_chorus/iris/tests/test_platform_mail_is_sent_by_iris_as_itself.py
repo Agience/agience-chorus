@@ -41,8 +41,10 @@ class _Resp:
 class _World:
     """Origin, Mantle, Google and Gmail, as far as platform mail reaches them."""
 
-    def __init__(self):
-        self.calls = []
+    def __init__(self, origin):
+        self.calls, self.origin = [], origin
+        # The system delegation Origin issues Iris for platform mail (review 21: with a `jti`).
+        self.delegation = origin.system("iris", "platform.email.send", "sys-principal-1")
 
     def __call__(self, *a, **k):
         return self
@@ -63,13 +65,18 @@ class _World:
     async def post(self, url, headers=None, json=None, data=None, **k):
         self.calls.append(("POST", url, headers, json))
         if url.endswith("/internal/system-delegation"):
-            return _Resp({"token": "sys-delegation-for-iris", "scope": "platform.email.send"})
+            return _Resp({"token": self.delegation, "scope": "platform.email.send"})
         if url.endswith("/use"):
             from prism.trust import sealing
             secret = url.rsplit("/", 2)[-2]
-            return _Resp({"id": secret, "sealed": sealing.seal(
-                f"value-of-{secret}".encode(), IRIS_KEY.public_key(), kid="iris-1",
-                context=f"{secret}|{(json or {}).get('for')}")})
+            eps = ["https://oauth2.googleapis.com", "https://accounts.google.com"]          # the credential names Google's token endpoint
+            copy = sealing.seal(
+                __import__("json").dumps({"material": f"value-of-{secret}", "endpoints": eps}).encode(),
+                IRIS_KEY.public_key(), kid="iris-1", context=str(secret))  # the credential's id
+            return _Resp({"id": secret, "endpoints": eps, "sealed": copy,
+                "verdict": self.origin.verdict("iris", self.delegation, secret,
+                                               (json or {}).get("for"), sealed=copy,
+                                               endpoints=eps, nonce=(json or {}).get("nonce"))})
         if "gmail" in url:
             return _Resp({"id": "msg-1"})
         return _Resp({"access_token": "at-1"})
@@ -84,9 +91,9 @@ class _Request:
 
 
 @pytest.fixture
-def world(monkeypatch):
+def world(monkeypatch, origin_issuer):
     from prism.trust import service_identity
-    w = _World()
+    w = _World(origin_issuer)
     monkeypatch.setattr(server.httpx, "AsyncClient", w)
     monkeypatch.setattr(service_identity, "get_instance_namespace", lambda: NS)
     monkeypatch.setattr(service_identity, "load_persona_identity", lambda name: service_identity.ServiceIdentity(
@@ -113,10 +120,10 @@ def test_a_platform_service_has_iris_send_as_itself_with_secrets_sealed_to_it(wo
     asked = next(c for c in world.calls if c[1].endswith("/internal/system-delegation"))
     assert asked[2]["Authorization"] == "Bearer iris-signed" and asked[3] == {"purpose": "platform-mail"}
     mantle = [c for c in world.calls if "/artifacts/" in c[1]]
-    assert {c[2]["Authorization"] for c in mantle} == {"Bearer sys-delegation-for-iris"}
+    assert {c[2]["Authorization"] for c in mantle} == {f"Bearer {world.delegation}"}
     uses = [c for c in mantle if c[1].endswith("/use")]
     assert sorted(c[1].rsplit("/", 2)[-2] for c in uses) == ["cs-1", "rt-1"]
-    assert all(c[3] == {"for": AUTHZ} for c in uses), "released for the platform authorizer only"
+    assert all(c[3]["for"] == AUTHZ for c in uses), "released for the platform authorizer only"
 
 
 @pytest.mark.parametrize("caller", ["", "mantle", "crystal"])

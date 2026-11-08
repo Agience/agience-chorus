@@ -5,6 +5,92 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-11-08
+
+### Fixed (local check, 2026-11-08)
+- The web app's sign-in page sends people to Origin's own sign-in page (`/auth/authorize`: a password, a mailed code, a new account or a provider), which starts their Origin session; it posts no password or code itself. A waiting service provider is returned to after the sign-in.
+- With no Origin session, or one for another person, the app says so and offers to sign in again (`OriginSessionNotice`), rather than showing an empty workspace. A service-provider deployment (`idpUri` on another host, as in production) signs in again at the IdP's page.
+- One request for the token for Mantle is shared by every caller while it is in flight, and the token is kept until shortly before it expires. The request names the person signed in (`expect_sub`), and a token for anyone else, or Origin's 409, is refused: nothing is kept and the person is asked to sign in again.
+- Opening a workspace (by its tab, on load, by creating one) puts its id in the route, so Share in the header names the workspace that is open. `/` and `/:artifactId` are one route.
+- After an invite is accepted, the claim page says "Setting up access" until Mantle opens the item, then opens it. The wait stops when the page is left, and when Origin holds no session (the page then asks to sign in again).
+- The Share dialog drops an invite whose claims are spent, and names members and preview grantees by their display name at Origin, or "Someone" with the start of their id. The collection dialog shows a spent invite as accepted.
+- The claim page asks a person whose address is not verified to verify it first, with a button that sends the link, rather than saying the invite is for a different account.
+- The dev server proxies Origin's `/login`, `/passkey`, `/account`, `/logout` and `/web/*`, and leaves `/auth/callback` to the web app. A 401 from Mantle returns to the app's root, which routes to its sign-in page.
+- Sign-in with no provider named (the invite page's "Sign in to continue") goes to Origin's own chooser, not to Google. Origin's address is used without a trailing slash, so `originUri: '/'` in local development reaches `/auth/authorize` and `/auth/token` on this host.
+
+### Changed (review 31)
+- The `agience-prism[wire,trust]` floor is 0.1.9.
+
+### Changed (review 23)
+- The web app narrows every token in the person's Origin session (`auth/sessionToken.ts`), and calls Mantle, its events socket and uploads on the token Origin addresses to Mantle (`auth/mantleToken.ts`); the person's own token goes to Origin's routes alone.
+
+### Fixed (tester, 2026-10-31)
+- A shift-click selects the run between two artifacts as the grid or list shows them, in the archived view too.
+- The bulk toolbar offers Restore when the selection holds archived artifacts.
+- The Share dialog's invite controls are off, with the reason shown, for someone who may not share.
+- The bulk collection picker shows a collection some of the selection belongs to as mixed. A click cycles it through all, none and back to mixed, and a mixed collection left as is changes nothing.
+
+### Changed (review 22)
+- `use_secret` sends a fresh nonce in `/use` and opens the copy only when Origin's verdict names it, that copy's digest and the endpoint list's as Mantle served them.
+- Test fixture `origin_issuer.answer` builds Mantle's `/use` answer per request.
+
+### Changed (review 21)
+- A persona opens a sealed secret only on Origin's verdict (`prism.trust.use_verdict`), matched to the Origin delegation it acts on, proven as its own; a grant key uses no secret and Mantle is not asked (`_secrets.use_secret`). Seraph reads no credential on a grant key.
+- Ophan's billing mail reads a billed person's address through Origin's `/internal/billing-recipients/{id}`, and records billing there on activation and on a plan change.
+- Test fixture `origin_issuer` mints through Origin's own issuers under a throwaway key.
+
+### Changed (review 19)
+- Seraph's token check lists no Mantle-signed delegation class.
+
+### Changed (review 17)
+- The preview shows the item itself (who made it, when, and how many members and grants it has).
+
+### Changed (review 16)
+- Origin's preview shows each parent's creator and creation date beside its id.
+
+### Changed (review 15)
+- The unused `createGrant` in `api/artifacts.ts` and `resendInvite` in `api/collections.ts` are removed: every invite or grant goes through `collections.createGrant` with Origin's preview.
+- Before an invite or a grant is sent, Facet shows Origin's preview of the item (its parent chain and who already holds it). The owner confirms it, and the make names its digest. A resend confirms a fresh preview.
+
+### Changed (review 14)
+- The share dialog takes the item from the open route, never from Mantle's object, and refuses when they differ. The owner confirms the item by name and id before an invite is sent, Facet sends that name, and Facet shows Origin's echo of the item, name and address. An echo naming another item is refused.
+- The collection detail view confirms an invite the same way and shows Origin's echo.
+- The "Require Identity" checkboxes are removed from the grant dialog.
+
+### Changed (round 13)
+- Facet reads the grants on a resource from Origin's own record (`GET /auth/me/authority/grants`) and names only those in a change: a revocation or change goes to Origin by Origin's grant id, and Origin builds the entry from its own row. A row Mantle listed is refused before anything is sent, and a new grant's id is Origin's.
+- An invite is made at Origin for one email address, which Origin mails (`POST /auth/me/authority/invites`); Facet never holds the link and shows "Invite sent to <address>". No invite is made without an address. A resend asks the owner for the address again.
+- The claim page reads an invite's context from Origin in the person's Origin session (`POST /auth/me/authority/invite-context`); the token never reaches Mantle.
+
+- Facet claims an invite at Origin, in the claimant's Origin session, from its token alone (`POST /auth/me/authority/claim`), never through Mantle.
+
+### Changed (review 12)
+- Facet makes every grant, invite, change and revocation at Origin, in the person's Origin session (`api/authority.ts`: `POST {ORIGIN_URI}/auth/me/authority/entries`, `credentials: 'include'`, `X-Origin-Session`), never at Mantle's `/grants`. An invite's claim token is made in the browser and Origin holds only its digest; the share dialog gives the owner the link to pass on, and a new link is a new invite with the old one revoked.
+- Lumen reaches Sage for a person by a per-hop exchange at Origin (`agience_chorus._hop`): its own narrowed delegation exchanged (RFC 8693, `audience=sage`, its own key as client assertion) for one narrowed to Sage. It asks for no other hop.
+- Astra's `GET /stream/sessions` takes only the stream's own key; a person's token is refused and never forwarded to Mantle.
+- A credential's endpoint path is percent-decoded until stable (at most 8 rounds) before it is matched.
+
+### Changed (review 11)
+- Lumen never passes a person's request on to another persona: a person reaches each persona only through the delegation Origin narrows to it; a grant key still runs a cross-persona workflow.
+- A credential's endpoint is matched as the sender reaches it: the path is percent-decoded and its `.` and `..` segments resolved, and an endpoint with a user part, a backslash, whitespace, control characters or a host that is not plain ASCII is refused.
+- The web app exchanges the person's token at Origin before every call to Crystal or a persona (`auth/narrowed.ts`): a delegation narrowed to the persona called, or to Crystal. Its secrets API writes a credential with `allowed_endpoints` and rewrites an older one (written again with its endpoints, the old one removed).
+
+### Fixed (review 11)
+- Two tests asserted old behaviour or depended on run order: Ember's share test (Ember shares nothing now), and Lumen's grounding-budget test, which read a module an earlier test had loaded; it reads Lumen's source now. Neither was a product regression.
+
+### Changed (review 10)
+- A persona sends a credential's secret only to an endpoint the credential itself names (`_secrets.use_secret(..., endpoint=)`): the list is sealed with the secret and must equal the one Mantle's `/use` returns. Iris resolves an MCP server's endpoint before it asks for the secret; the Gmail exchange uses the token endpoint; Lumen the provider's own address. A credential that names no endpoint is sent nowhere.
+
+### Fixed
+- A persona opens the credential copy Mantle hands it under the credential's id, as it was sealed (`_secrets.use_secret`); it opened it under `<secret>|<card>`, which no copy was sealed under, so every use failed.
+
+### Changed (review 8)
+- Facet's sign-in hands a service provider other than the platform's own app (Ember at lumen.agience.ai, any persona page) only a delegation Origin narrows to it (RFC 8693 token exchange at `/auth/token`, `audience` `ember` or the page's origin), never the person's full token; if Origin issues none, the provider gets nothing.
+
+### Changed
+- Facet runs no passkey ceremony: "Sign in with passkey" sends the person to Origin's own sign-in page (`auth/originSignIn.ts`), and the app's passkey sign-in and registration helpers are gone. Origin verifies every WebAuthn assertion against its own address.
+- Facet reaches Mantle at Mantle's own address, deployed and in local development alike: the dev server no longer proxies `/api` to Mantle, and `public/config.js` names Mantle's port for local runs.
+
 ## [0.2.9] - 2026-10-31
 
 ### Changed

@@ -191,15 +191,33 @@ async def _obtain_system_delegation(client: httpx.AsyncClient, purpose: str = "p
 
 
 async def _resolve_person_email(client: httpx.AsyncClient, person_id: str) -> str:
-    """Look up a person's email via Origin's internal person endpoint (platform-gated)."""
+    """A billed person's address, from Origin's billing-recipient route (review 21, F4): the
+    address and nothing else, only while Ophan's record of their subscription is active, and
+    each read recorded at Origin. The webhook path holds no person's token, so it never reads
+    a person record (`/internal/persons/{id}`)."""
     resp = await client.get(
-        f"{ORIGIN_URI}/internal/persons/{person_id}",
+        f"{ORIGIN_URI}/internal/billing-recipients/{person_id}",
         headers=await _origin_headers(),
         timeout=15,
     )
     if resp.status_code != 200:
         return ""
     return (resp.json() or {}).get("email", "")
+
+
+async def _record_billing(person_id: str, *, active: bool, plan: str) -> None:
+    """Record at Origin whether `person_id` is billed (review 21, F4), from the payment
+    provider's verified event. Best-effort: a failure is logged and the webhook goes on, and the
+    person simply gets no billing mail until a later event records them."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.put(
+                f"{ORIGIN_URI}/internal/billing-recipients/{person_id}",
+                headers=await _origin_headers(), json={"active": active, "plan": plan},
+                timeout=15)
+            resp.raise_for_status()
+    except Exception:
+        log.warning("billing record not written for person %s", person_id, exc_info=True)
 
 
 def _receipt_html(plan: str) -> str:
@@ -2189,6 +2207,8 @@ async def activate_subscription(
 
     # 4. Sync limits to Core
     await _sync_limits_to_core(person_id, plan)
+    # 5. Origin's record that this person is billed: what lets billing mail read their address.
+    await _record_billing(person_id, active=True, plan=plan)
 
     return _json_result({"status": "activated", "person_id": person_id, "plan": plan})
 
@@ -2215,6 +2235,7 @@ async def update_subscription(
     }
     await _create_workspace_artifact(person_id, event_context, f"Subscription updated to {new_plan}.")
     await _sync_limits_to_core(person_id, new_plan)
+    await _record_billing(person_id, active=new_plan != "free", plan=new_plan)
     return _json_result({"status": "updated", "person_id": person_id, "plan": new_plan})
 
 

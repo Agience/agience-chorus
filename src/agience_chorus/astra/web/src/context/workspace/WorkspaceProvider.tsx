@@ -623,8 +623,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setSelectedArtifactIds(artifacts.map(c => String(c.id)));
   }, [artifacts]);
 
+  // `shownIds` is the order the caller displays. A shift-click range runs over what the person sees;
+  // the provider's own list is in another order and holds artifacts the view filters out (2026-10-31,
+  // a tester: Shift between two adjacent cards selected eight scattered ones, and in the archived view
+  // fifteen with no visible borders).
   const selectArtifact = useCallback(
-    (id: string, event: MouseEvent) => {
+    (id: string, event: MouseEvent, shownIds?: string[]) => {
       const isShift = event.shiftKey;
       const isMeta = event.metaKey || event.ctrlKey;
 
@@ -639,7 +643,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
       setSelectedArtifactIds(prev => {
         if (isShift && anchorId) {
-          const ids = artifacts.map(c => String(c.id));
+          const ids = shownIds ?? artifacts.map(c => String(c.id));
           const start = ids.indexOf(anchorId);
           const end = ids.indexOf(id);
           if (start === -1 || end === -1) return prev;

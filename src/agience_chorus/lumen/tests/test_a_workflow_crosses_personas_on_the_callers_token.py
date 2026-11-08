@@ -52,7 +52,8 @@ def only_a_delegation():
 async def test_a_chain_from_a_delegation_alone_says_why_it_cannot_reach_another_persona(only_a_delegation):
     steps = json.dumps([{"server": "sage", "tool": "search", "arguments": {}}])
     out = json.loads(await L.chain_tasks(steps=steps))
-    assert "addressed to lumen" in out["error"]
+    # A person's request is never passed on to another persona (review 11, H3).
+    assert "not passed on to another persona" in out["error"]
 
 
 @pytest.mark.parametrize("result,failed", [

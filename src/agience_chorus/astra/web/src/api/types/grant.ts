@@ -26,6 +26,10 @@ export interface GrantCreate {
   notes?: string;
   expires_at?: string;
   state?: string;
+  // An invite's item, by the name the owner confirmed (review 14).
+  resource_name?: string;
+  // The digest of Origin's preview the owner confirmed (review 15).
+  preview?: string;
 }
 
 // Body you PATCH to /grants/{grant_id}
@@ -76,13 +80,14 @@ export interface GrantResponse {
   granted_at: string;
   expires_at?: string | null;
   revoked_at?: string | null;
+  // What Origin said it invited to, and whom: set on an invite Facet just made (review 14).
+  invite_echo?: { resource_id: string; resource_name: string; email: string };
   revoked_by?: string | null;
   accepted_at?: string | null;
   accepted_by?: string | null;
   created_time: string;
   modified_time: string;
   // Only present on an invite's creation or resend response
-  claim_token?: string;
   claim_url?: string;
   email_sent?: boolean;
 }

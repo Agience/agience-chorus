@@ -101,9 +101,16 @@ class _Recorder:
             # Mantle releases a secret sealed to Iris's key, for the card named in `for`.
             from prism.trust import sealing
             secret = url.rsplit("/", 2)[-2]
-            return _Resp({"id": secret, "sealed": sealing.seal(
-                json.dumps({"value": "secret-for-" + secret}).encode(), IRIS_KEY.public_key(),
-                kid="iris-1", context=f"{secret}|{(k.get('json') or {}).get('for')}")})
+            eps = ["https://oauth2.googleapis.com", "https://accounts.google.com"]          # the credential names Google's token endpoint
+            card = (k.get("json") or {}).get("for")
+            sealed_copy = sealing.seal(
+                json.dumps({"material": "secret-for-" + secret, "endpoints": eps}).encode(),
+                IRIS_KEY.public_key(), kid="iris-1", context=str(secret))  # the credential's id
+            return _Resp({"id": secret, "endpoints": eps, "sealed": sealed_copy,
+                # Origin's verdict for this use, on Iris's own delegation (review 21).
+                "verdict": _ORIGIN["issuer"].verdict(
+                    "iris", _ORIGIN["dlg"], secret, card, sealed=sealed_copy, endpoints=eps,
+                    nonce=(k.get("json") or {}).get("nonce"))})
         if "gmail" in url:
             return _Resp({"id": "msg-1"})
         return _Resp({"access_token": "at-1"})
@@ -121,10 +128,17 @@ from cryptography.hazmat.primitives.asymmetric import rsa as _rsa  # noqa: E402
 IRIS_KEY = _rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 
+#: Origin's issuers and Iris's own delegation for the test in progress (review 21).
+_ORIGIN = {}
+
+
 @pytest.fixture
-def delegated(monkeypatch):
+def delegated(monkeypatch, origin_issuer):
     from prism.trust import service_identity
-    monkeypatch.setattr(server, "_require_user_headers", lambda: {"Authorization": "Bearer d"})
+    dlg = origin_issuer.delegation("iris", "person-1")
+    _ORIGIN.update(issuer=origin_issuer, dlg=dlg)
+    monkeypatch.setattr(server, "_require_user_headers",
+                        lambda: {"Authorization": f"Bearer {dlg}"})
     monkeypatch.setattr(service_identity, "load_persona_identity", lambda name: service_identity.ServiceIdentity(
         name=name, kid=f"{name}-1", private_key=IRIS_KEY) if name == "iris" else None)
 

@@ -165,12 +165,26 @@ def test_the_grounding_budget_is_lumens_own_and_reads_the_same_env_vars(monkeypa
     """Lumen reads its own grounding-budget configuration rather than reaching into sage for it. The env
     vars are named `LUMEN_*`; the budget is lumen's finite context window. The env var is the single
     source, and both personas read the same name, so a real deployment cannot disagree."""
-    monkeypatch.setenv("LUMEN_GROUNDING_CHARS", "1234")
-    monkeypatch.setenv("LUMEN_GROUNDING_PER_DOC_CHARS", "56")
-    from agience_chorus import _persona
-    srv = _persona.load("server", __file__)
-    assert srv.GROUNDING_CHAR_BUDGET == 1234, "lumen does not read LUMEN_GROUNDING_CHARS itself"
-    assert srv.PER_DOC_CHAR_CAP == 56, "lumen does not read LUMEN_GROUNDING_PER_DOC_CHARS itself"
+    # Read from lumen's own source, not from a loaded module: the budget is read once, when the
+    # module loads, and an earlier test in the run may already have loaded it with other values
+    # (so setting the variable here proved nothing, and failed only in the full Chorus run).
+    import ast
+
+    tree = ast.parse((Path(__file__).resolve().parents[1] / "server.py").read_text(encoding="utf-8"))
+    reads = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            value, name = node.value, node.target.id
+        elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+            value, name = node.value, node.targets[0].id
+        else:
+            continue
+        for call in ast.walk(value) if value is not None else ():
+            if (isinstance(call, ast.Call) and getattr(call.func, "attr", "") == "getenv"
+                    and call.args and isinstance(call.args[0], ast.Constant)):
+                reads[name] = call.args[0].value
+    assert reads.get("GROUNDING_CHAR_BUDGET") == "LUMEN_GROUNDING_CHARS",         "lumen does not read LUMEN_GROUNDING_CHARS itself"
+    assert reads.get("PER_DOC_CHAR_CAP") == "LUMEN_GROUNDING_PER_DOC_CHARS",         "lumen does not read LUMEN_GROUNDING_PER_DOC_CHARS itself"
 
 
 def test_the_default_budget_matches_sages_copy():

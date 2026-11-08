@@ -1,79 +1,87 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { get, post } from '../api/api';
 import { claimInvite } from '../api/artifacts';
-import { get } from '../api/api';
+import { inviteContext } from '../api/authority';
+import { SessionTokenRefused } from '../auth/sessionToken';
 import { toast } from 'sonner';
 
-/** `GET /grants/invite-details`: what an invite grants, read without claiming it. */
+/** What an invite grants, as Origin reads it for this person (round 13), without claiming it. */
 type InviteDetails = {
   valid?: boolean;
   identity_mismatch?: boolean;
+  /** The signed-in address is not verified, which an invite needs before it can match. */
+  unverified?: boolean;
   resource_id?: string;
-  granted_by?: string;
-  name?: string;
+  actions?: string[];
 };
 
 /**
  * /invite/:token -- public invite claim page.
  *
- * PII rules:
+ * The token in the link is a secret: it goes to Origin only, in the person's Origin session, never
+ * to Mantle (round 13). Origin mailed the link to one address and takes the claim only from a
+ * person signed in with that verified address.
+ *
  * - Pre-auth: show only "You've been invited to collaborate." No inviter
  *   name, no resource name, no email hint.
- * - Post-auth: show what `/grants/invite-details` returns without claiming
- *   (the invite's name, the resource id, the granting user's id; or that the
- *   invite is addressed to someone else) and claim only on an explicit
- *   Accept click. Opening the link never claims anything by itself, so a
- *   crafted link cannot attach a grant to a signed-in account unasked.
+ * - Post-auth: show what Origin's invite context returns without claiming
+ *   (the resource id and what it grants; or that the invite is addressed to
+ *   someone else) and claim only on an explicit Accept click. Opening the
+ *   link never claims anything by itself.
  */
+/** How long the page waits for Mantle to open a claimed item, and how often it asks. Mantle reads
+ *  Origin's feed every 15 s; the wait covers two passes. */
+const ACCESS_WAIT_MS = 40_000;
+const ACCESS_POLL_MS = 1_000;
+
+/** `'open'` once Mantle opens `resourceId` for this person, or after `ACCESS_WAIT_MS` (the item's
+ *  page then says what it can); `'stopped'` when `stopped()` turns true (the page was left) or
+ *  Origin holds no session for this browser, where asking again would only be refused again. */
+async function waitForAccess(resourceId: string, stopped: () => boolean): Promise<'open' | 'stopped' | 'no_session'> {
+  const until = Date.now() + ACCESS_WAIT_MS;
+  for (;;) {
+    if (stopped()) return 'stopped';
+    try {
+      await get(`/artifacts/${encodeURIComponent(resourceId)}`);
+      return 'open';
+    } catch (err) {
+      if (err instanceof SessionTokenRefused) return 'no_session';
+      if (Date.now() >= until) return 'open';
+      await new Promise((r) => setTimeout(r, ACCESS_POLL_MS));
+    }
+  }
+}
+
 export default function InviteClaimPage() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
-  const { isAuthenticated, loading: authLoading, login } = useAuth();
+  const { isAuthenticated, loading: authLoading, login, user } = useAuth();
 
-  const [status, setStatus] = useState<'loading' | 'awaiting_auth' | 'confirm' | 'claiming' | 'success' | 'error'>('loading');
+  const [status, setStatus] = useState<'loading' | 'awaiting_auth' | 'confirm' | 'claiming' | 'setting_up' | 'success' | 'error'>('loading');
+  const [verifySent, setVerifySent] = useState(false);
   const [message, setMessage] = useState('');
-  const [inviteContext, setInviteContext] = useState<{
-    valid?: boolean;
-    has_target?: boolean;
-    target_type?: string;
-  } | null>(null);
   const [details, setDetails] = useState<InviteDetails | null>(null);
 
   const claimedRef = useRef(false);
+  // Set when the page is left, so a wait for access in flight stops asking Mantle.
+  const leftRef = useRef(false);
+  useEffect(() => {
+    leftRef.current = false;
+    return () => { leftRef.current = true; };
+  }, []);
   const detailsRequestedRef = useRef(false);
 
-  // Pre-auth: fetch non-PII invite context.
+  // Pre-auth: nothing is read; the person signs in first, at Origin.
   useEffect(() => {
     if (!token) {
       setStatus('error');
       setMessage('Invalid invite link.');
       return;
     }
-
-    get<{ valid?: boolean; has_target?: boolean; target_type?: string }>(
-      `/grants/invite-context?token=${encodeURIComponent(token)}`,
-    )
-      .then((ctx) => {
-        setInviteContext(ctx);
-        if (!ctx?.valid) {
-          setStatus('error');
-          setMessage('This invite is no longer valid.');
-        } else if (!isAuthenticated && !authLoading) {
-          setStatus('awaiting_auth');
-        }
-      })
-      .catch((err: unknown) => {
-        // 404/410 from the context endpoint = invalid invite.
-        const code = (err as { response?: { status?: number } })?.response?.status;
-        if (code === 404 || code === 410) {
-          setStatus('error');
-          setMessage('This invite is no longer valid.');
-        } else if (!isAuthenticated && !authLoading) {
-          setStatus('awaiting_auth');
-        }
-      });
-  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!isAuthenticated && !authLoading) setStatus('awaiting_auth');
+  }, [token, isAuthenticated, authLoading]);
 
   // Claim, only from the Accept button.
   const doClaim = useCallback(async () => {
@@ -84,14 +92,26 @@ export default function InviteClaimPage() {
     try {
       const result = await claimInvite(token);
       sessionStorage.removeItem('pending_invite_token');
-      setStatus('success');
       toast.success('Invite accepted!');
 
       const resourceId = result?.resource_id;
-      setTimeout(
-        () => navigate(resourceId ? `/${resourceId}` : '/', { replace: true }),
-        1200,
-      );
+      if (!resourceId) {
+        setStatus('success');
+        setTimeout(() => navigate('/', { replace: true }), 1200);
+        return;
+      }
+      // Origin made the grant; Mantle applies it from Origin's feed on its next pass. Until then
+      // the item would be refused, so the page waits for Mantle to open it, saying so.
+      setStatus('setting_up');
+      const access = await waitForAccess(resourceId, () => leftRef.current);
+      if (access === 'stopped') return;
+      if (access === 'no_session') {
+        setStatus('error');
+        setMessage('The invite is accepted. Sign in again to open it.');
+        return;
+      }
+      setStatus('success');
+      navigate(`/${resourceId}`, { replace: true });
     } catch (err: unknown) {
       setStatus('error');
       const detail =
@@ -106,13 +126,20 @@ export default function InviteClaimPage() {
   useEffect(() => {
     if (!isAuthenticated || authLoading || !token || status === 'error' || detailsRequestedRef.current) return;
     detailsRequestedRef.current = true;
-    get<InviteDetails>(`/grants/invite-details?token=${encodeURIComponent(token)}`)
-      .then((d) => {
-        setDetails(d ?? null);
+    inviteContext(token)
+      .then((c) => {
+        if (c?.state && c.state !== 'active') {
+          setStatus('error');
+          setMessage('This invite is no longer valid.');
+          return;
+        }
+        setDetails({ valid: true, identity_mismatch: c?.for_you === false,
+                     unverified: c?.for_you === false && c?.address_verified === false,
+                     resource_id: c?.resource_id, actions: c?.actions });
         setStatus('confirm');
       })
       .catch((err: unknown) => {
-        const code = (err as { response?: { status?: number } })?.response?.status;
+        const code = (err as { status?: number })?.status;
         if (code === 404 || code === 410) {
           setStatus('error');
           setMessage('This invite is no longer valid.');
@@ -122,6 +149,16 @@ export default function InviteClaimPage() {
         setStatus('confirm');
       });
   }, [isAuthenticated, authLoading, token, status]);
+
+  const sendVerification = useCallback(async () => {
+    if (!user?.email) return;
+    try {
+      await post('/auth/email/verify-request', { email: user.email });
+    } catch {
+      // Answered the same whether or not a link went; nothing more to say here.
+    }
+    setVerifySent(true);
+  }, [user?.email]);
 
   const cancel = useCallback(() => {
     try { sessionStorage.removeItem('pending_invite_token'); } catch { /* storage unavailable */ }
@@ -149,11 +186,9 @@ export default function InviteClaimPage() {
           <>
             <h2 className="text-xl font-semibold text-gray-900 mb-2">You've been invited</h2>
             <p className="text-gray-600 mb-6">Sign in to accept this invite and start collaborating.</p>
-            {inviteContext?.has_target && inviteContext.target_type === 'email' && (
-              <p className="text-sm text-gray-500 mb-4">
-                This invite is for a specific email address.
-              </p>
-            )}
+            <p className="text-sm text-gray-500 mb-4">
+              Sign in with the email address the invite was sent to.
+            </p>
             <button
               onClick={() => login()}
               className="w-full bg-gray-900 text-white py-2.5 px-4 rounded-md hover:bg-gray-800 transition-colors"
@@ -166,24 +201,38 @@ export default function InviteClaimPage() {
         {status === 'confirm' && (
           <>
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Accept this invite?</h2>
-            {details?.identity_mismatch ? (
+            {details?.unverified ? (
+              <div className="text-gray-600 mb-6 space-y-3">
+                <p>
+                  An invite is accepted only by a verified email address. Verify your email address
+                  first, then open this invite link again.
+                </p>
+                {verifySent ? (
+                  <p className="text-sm text-gray-500">If your address can be verified, a link is on its way.</p>
+                ) : (
+                  <button
+                    onClick={() => { void sendVerification(); }}
+                    className="text-gray-900 underline hover:text-gray-700 text-sm"
+                  >
+                    Send me a verification link
+                  </button>
+                )}
+              </div>
+            ) : details?.identity_mismatch ? (
               <p className="text-gray-600 mb-6">
                 This invite is addressed to a different account than the one you are signed in with.
               </p>
             ) : (
               <>
                 <p className="text-gray-600 mb-4">Accepting gives your account access to a shared resource.</p>
-                {details && (details.name || details.resource_id || details.granted_by) && (
+                {details && (details.resource_id || details.actions?.length) && (
                   <dl className="text-left text-sm text-gray-700 bg-gray-50 border rounded-md p-3 mb-6 space-y-1">
-                    {details.name && (
-                      <div><dt className="inline font-medium">Invite: </dt><dd className="inline">{details.name}</dd></div>
-                    )}
                     {details.resource_id && (
                       <div><dt className="inline font-medium">Resource: </dt><dd className="inline font-mono break-all">{details.resource_id}</dd></div>
                     )}
-                    {details.granted_by && (
-                      <div><dt className="inline font-medium">Shared by: </dt><dd className="inline font-mono break-all">{details.granted_by}</dd></div>
-                    )}
+                    {details.actions?.length ? (
+                      <div><dt className="inline font-medium">Access: </dt><dd className="inline">{details.actions.join(', ')}</dd></div>
+                    ) : null}
                   </dl>
                 )}
               </>
@@ -204,6 +253,13 @@ export default function InviteClaimPage() {
                 </button>
               )}
             </div>
+          </>
+        )}
+
+        {status === 'setting_up' && (
+          <>
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-gray-900 mx-auto mb-4" />
+            <p className="text-gray-600">Invite accepted. Setting up access…</p>
           </>
         )}
 

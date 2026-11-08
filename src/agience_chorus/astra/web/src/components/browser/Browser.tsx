@@ -771,16 +771,25 @@ export default function Browser({
     return [...first].filter(id => rest.every(s => s.has(id)));
   }, [assignCards]);
 
-  const handleBulkSelectCollections = useCallback(async (collectionIds: string[]) => {
+  // Collections some of the selection belongs to, but not all: the picker shows them as mixed and
+  // leaves them alone unless the person sets them (2026-10-31, a tester: they showed as unchecked).
+  const heldBySome = useMemo(() => {
+    const all = new Set(heldByAll);
+    const any = new Set(assignCards.flatMap(c => (c.committed_collection_ids ?? []).map(String)));
+    return [...any].filter(id => !all.has(id));
+  }, [assignCards, heldByAll]);
+
+  const handleBulkSelectCollections = useCallback(async (collectionIds: string[], clearedPartialIds: string[] = []) => {
     const ids = assignIds ?? selectedArtifactIds;
     const chosen = new Set(collectionIds.map(String));
-    const removed = heldByAll.filter(id => !chosen.has(id));
+    const removed = [...heldByAll.filter(id => !chosen.has(id)), ...clearedPartialIds.map(String)];
     for (const collectionId of chosen) {
       const outside = ids.filter(id => !assignCards.find(c => String(c.id) === id)?.committed_collection_ids?.map(String).includes(collectionId));
       if (outside.length) await addArtifactsToCollectionWithFeedback(collectionId, outside);
     }
     for (const collectionId of removed) {
       for (const card of assignCards) {
+        if (!(card.committed_collection_ids ?? []).map(String).includes(collectionId)) continue;
         try {
           await removeArtifactFromCollection(collectionId, String(card.root_id ?? card.id));
         } catch {
@@ -857,6 +866,18 @@ export default function Browser({
     unselectAllArtifacts();
   }, [bulkSelectedArtifacts, unselectAllArtifacts, updateArtifact, undockWorkspaceIfNeeded]);
 
+  // Restore the archived part of the selection. The toolbar and a card's menu share it (2026-10-31,
+  // a tester: the archived view's toolbar had no Restore, though the menu's did).
+  const handleBulkRestore = useCallback(async () => {
+    const items = bulkSelectedArtifacts.filter(a => a.state === 'archived');
+    if (items.length === 0) return;
+    for (const artifact of items) {
+      await updateArtifact({ id: String(artifact.id), state: 'live' });
+    }
+    reloadArchived();
+    unselectAllArtifacts();
+  }, [bulkSelectedArtifacts, reloadArchived, unselectAllArtifacts, updateArtifact]);
+
   // Remove the selection from the container on screen, the way a single card's Remove does. It
   // called the workspace store's remove, which unlinks from the active workspace even while a
   // collection is on screen. `handleBrowserRemove` is declared further down, so it is reached
@@ -905,18 +926,10 @@ export default function Browser({
       case 'remove': void handleBulkDrop(); return true;
       case 'archive': void handleBulkArchive(); return true;
       case 'assign-collections': handleBulkMove(); return true;
-      case 'restore':
-        void (async () => {
-          for (const a of bulkSelectedArtifacts.filter(c => c.state === 'archived')) {
-            await updateArtifact({ id: String(a.id), state: 'live' });
-          }
-          reloadArchived();
-          unselectAllArtifacts();
-        })();
-        return true;
+      case 'restore': void handleBulkRestore(); return true;
       default: return false;
     }
-  }, [selectedArtifactIds, bulkSelectedArtifacts, handleBulkDelete, handleBulkDrop, handleBulkArchive, handleBulkMove, updateArtifact, reloadArchived, unselectAllArtifacts]);
+  }, [selectedArtifactIds, handleBulkDelete, handleBulkDrop, handleBulkArchive, handleBulkMove, handleBulkRestore]);
 
   // Entire-workspace dropzone state
   const [, setDragDepth] = useState(0);
@@ -1631,8 +1644,8 @@ export default function Browser({
             isSelected={(id) => selectedArtifactIds.includes(id)}
             activeSource={namedSource}
             isShowingSearchResults={isShowingSearchResults}
-            onArtifactMouseDown={(id, e) => {
-              selectArtifact(id, e);
+            onArtifactMouseDown={(id, e, shownIds) => {
+              selectArtifact(id, e, shownIds);
               onArtifactSelect?.(id);
             }}
             onOpenArtifact={onOpenArtifact}
@@ -1664,8 +1677,8 @@ export default function Browser({
           selectable
           draggable={sectionKey === 'primary'}
           isSelected={(id) => selectedArtifactIds.includes(id)}
-          onArtifactMouseDown={(id, e) => {
-            selectArtifact(id, e);
+          onArtifactMouseDown={(id, e, shownIds) => {
+            selectArtifact(id, e as React.MouseEvent, shownIds);
             onArtifactSelect?.(id);
           }}
           onEditArtifactOpen={() => {
@@ -1867,6 +1880,8 @@ export default function Browser({
           moveLabel="Assign to Collections"
           canDelete={bulkCanDelete}
           hasLive={bulkHasLive}
+          hasArchived={bulkSelectedArtifacts.some(a => a.state === 'archived')}
+          onRestore={handleBulkRestore}
         />
       )}
 
@@ -1875,6 +1890,7 @@ export default function Browser({
         onClose={() => { setShowBulkCollectionPicker(false); setAssignIds(null); }}
         onSelect={handleBulkSelectCollections}
         selectedCollectionIds={heldByAll}
+        partialCollectionIds={heldBySome}
         multiple={true}
         title={(() => {
           const n = (assignIds ?? selectedArtifactIds).length;

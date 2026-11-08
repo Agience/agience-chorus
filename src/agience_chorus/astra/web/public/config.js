@@ -52,27 +52,19 @@
       favicon: '/favicon.png',
     };
   } else {
-    // Local dev: `npm run dev` on :5173, reaching the loopback services THROUGH the dev server's
-    // proxy rather than addressing them directly (`vite.config.ts` -> `server.proxy`).
+    // Local dev: `npm run dev` on :5173. Origin is reached THROUGH the dev server's proxy
+    // (`vite.config.ts` -> `server.proxy`), same-origin, so its sign-in page is the dev server's.
     //
-    // ⛔ THESE ARE SAME-ORIGIN ON PURPOSE, AND ABSOLUTE LOOPBACK URLS HERE DO NOT WORK.
-    // Measured 2026-09-13: with `originUri: 'http://localhost:8080'` the browser blocked every
-    // call the app makes on boot — `/setup/status` and `/auth/providers`, four requests, all
-    // "No 'Access-Control-Allow-Origin' header is present" — while `/login` still rendered a
-    // plausible sign-in form, because the fallback for "cannot reach /auth/providers" looks like
-    // a working page. Neither service sends CORS headers, and neither should have to: the
-    // deployed arrangement (`_fleet/conf.d/my.agience.ai.caddy`) keeps these URIs on the app's own
-    // host and proxies outward, so no cross-origin request is ever made. This mirrors it.
+    // Mantle is reached at its own address, never through this app's host: deployed, my.agience.ai
+    // no longer proxies `/api` to Mantle (review 7, F1), and Mantle answers the web app's origin
+    // cross-origin (`MANTLE_CORS_ORIGINS`, defaulting to `FACET_URI`, which is this dev server).
     //
-    // ⚠ `/api` IS MANTLE AND CARRIES ITS PREFIX; the proxy strips it, exactly as Caddy's
-    // `handle_path` does. Deployed, this same key reads `https://my.agience.ai/api`.
-    //
-    // ⚠ CRYSTAL IS DELIBERATELY NOT PROXIED, matching the deployed block, which has no route for
-    // it either. An op call fails at its own address instead of being quietly rerouted somewhere
-    // that would answer with the wrong thing — see the note above about a derived URI.
+    // ⚠ CRYSTAL IS DELIBERATELY NOT PROXIED. An op call fails at its own address instead of being
+    // quietly rerouted somewhere that would answer with the wrong thing — see the note above about
+    // a derived URI.
     config = {
       originUri: '/',
-      mantleUri: '/api',
+      mantleUri: 'http://localhost:8082',
       crystalUri: 'http://localhost:8085',
       clientId: CLIENT_ID,
       title: 'Agience',

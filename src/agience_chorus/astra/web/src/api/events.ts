@@ -8,6 +8,7 @@
 
 import { getRuntimeConfig } from '../config/runtime';
 import { normalizeArtifactStates } from '../utils/artifactState';
+import { mantleTokenFor } from '../auth/mantleToken';
 
 /** Server-side filter applied before an event is delivered to a subscriber. */
 export type EventFilter = {
@@ -105,7 +106,18 @@ class EventsClient {
     if (typeof window === 'undefined' || typeof WebSocket === 'undefined') return;
 
     this.state = 'connecting';
-    const token = localStorage.getItem('access_token') || '';
+    const person = localStorage.getItem('access_token') || '';
+    // Mantle takes the token Origin addresses to it, issued in the person's Origin session
+    // (review 23, H1), never the person's own.
+    mantleTokenFor(person, getRuntimeConfig().originUri)
+      .then((token) => this.open(token))
+      .catch(() => {
+        this.state = 'idle';
+        this.scheduleReconnect();
+      });
+  }
+
+  private open(token: string): void {
     // Browsers can't set Authorization headers on WebSocket — pass via query param.
     // The server accepts either header or ?access_token=.
     const url = `${buildWsUrl()}?access_token=${encodeURIComponent(token)}`;

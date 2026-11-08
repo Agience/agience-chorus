@@ -154,13 +154,13 @@ register_types_manifest(mcp, "iris", __file__)
 # ---------------------------------------------------------------------------
 
 async def _fetch_secret_material(client: httpx.AsyncClient, secret_artifact_id: str, card_id: str,
-                                 headers: Optional[dict] = None) -> str:
+                                 headers: Optional[dict] = None, *, endpoint: str) -> str:
     """A secret, released for `card_id` (the authorizer or MCP server card that names it) and
-    opened here with Iris's own key: Mantle seals it to Iris and to that card only
+    opened here with Iris's own key, for `endpoint` only: the credential itself must name it
     (`agience_chorus._secrets`). The caller needs `invoke` on the card and the secret, not `read`,
     and the secret never returns to them."""
     return await _use_secret(client, MANTLE_URI, secret_artifact_id, card_id,
-                             headers or _require_user_headers(), "iris")
+                             headers or _require_user_headers(), "iris", endpoint=endpoint)
 
 
 async def _gmail_access_token(client: httpx.AsyncClient, config: dict, authorizer_id: str,
@@ -176,8 +176,10 @@ async def _gmail_access_token(client: httpx.AsyncClient, config: dict, authorize
     token, and must only ever POST them to a known OAuth provider. Raises `EgressRefused`.
     """
     token_endpoint = _egress.require_token_endpoint(config.get("token_endpoint") or _GMAIL_TOKEN_URL)
-    client_secret = await _fetch_secret_material(client, config["client_secret_artifact_id"], authorizer_id, headers)
-    refresh_token = await _fetch_secret_material(client, config["refresh_token_artifact_id"], authorizer_id, headers)
+    client_secret = await _fetch_secret_material(client, config["client_secret_artifact_id"],
+                                                 authorizer_id, headers, endpoint=token_endpoint)
+    refresh_token = await _fetch_secret_material(client, config["refresh_token_artifact_id"],
+                                                 authorizer_id, headers, endpoint=token_endpoint)
     resp = await client.post(
         token_endpoint,
         data={
@@ -1318,15 +1320,23 @@ async def call_mcp_server(server_artifact_id: str, method: str, params: Optional
             if may.status_code != 200 or not may.json().get("allowed"):
                 return json.dumps({"error": "you may read this MCP server but not run it (invoke)", "status": 403})
         context = _as_dict(card.get("context"))
+        try:
+            endpoint = _server_endpoint(context)
+        except _egress.EgressRefused as exc:
+            return json.dumps({"error": str(exc), "status": 403})
+        except (_egress.EgressError, ValueError) as exc:
+            return json.dumps({"error": str(exc), "status": 503})
         auth = None
         secret_id = (context.get("transport") or {}).get("secret_id")
         if secret_id:
             try:
-                auth = await _fetch_secret_material(client, secret_id, server_artifact_id)
+                # The secret is for this endpoint only, and only if the credential names it: the
+                # caller wrote the card, not the credential (review 10, R1).
+                auth = await _fetch_secret_material(client, secret_id, server_artifact_id,
+                                                    endpoint=endpoint)
             except SecretUnavailable as exc:
                 return json.dumps({"error": str(exc), "status": 403})
     try:
-        endpoint = _server_endpoint(context)
         result = await asyncio.to_thread(_mcp_exchange, endpoint, method, params or {}, auth)
     except _egress.EgressRefused as exc:
         return json.dumps({"error": str(exc), "status": 403})

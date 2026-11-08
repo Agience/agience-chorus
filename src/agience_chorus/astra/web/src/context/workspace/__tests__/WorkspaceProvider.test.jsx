@@ -724,3 +724,29 @@ describe('A right-click', () => {
     expect(screen.getByTestId('selected')).toHaveTextContent(/^c$/);
   });
 });
+
+// 2026-10-31, a tester: clicking REG2-HYPH then Shift-clicking the visually adjacent REG3-HYPH selected
+// eight scattered cards, and in the archived view Shift reported 15 selected with no visible borders.
+// The range was read from the provider's own list, not from the order the grid shows.
+describe('A shift-click', () => {
+  function Ranging() {
+    const w = useWorkspace();
+    const shown = ['x', 'a', 'y', 'b', 'z'];
+    const at = (id, init) => w.selectArtifact(id, { shiftKey: false, metaKey: false, ctrlKey: false, button: 0, ...init }, shown);
+    return (
+      <div>
+        <div data-testid="selected">{w.selectedArtifactIds.join(',')}</div>
+        <button onClick={() => at('a')}>a</button>
+        <button onClick={() => at('b', { shiftKey: true })}>shift-b</button>
+      </div>
+    );
+  }
+
+  it('selects the run between the two artifacts as they are shown', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceProvider><Ranging /></WorkspaceProvider>);
+    await user.click(screen.getByText('a'));
+    await user.click(screen.getByText('shift-b'));
+    expect(screen.getByTestId('selected')).toHaveTextContent(/^a,y,b$/);
+  });
+});
