@@ -69,7 +69,12 @@ export async function mantleTokenFor(subject: string, originUri: string): Promis
   return pending
 }
 
-export function resetMantleTokenForTests(): void {
+/** Drops the held token for Mantle: the local session it was issued in has ended. */
+export function forgetMantleToken(): void {
   held = null
   asking = null
+}
+
+export function resetMantleTokenForTests(): void {
+  forgetMantleToken()
 }

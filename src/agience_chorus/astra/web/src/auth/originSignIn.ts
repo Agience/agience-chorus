@@ -9,11 +9,25 @@
 import { getRuntimeConfig } from '../config/runtime';
 import { issueSpState } from './spState';
 
-export function originSignInUrl(loginHint?: string): string {
+function loginUrl(): URL {
   const { originUri, idpUri } = getRuntimeConfig();
   const base = new URL((idpUri || originUri).replace(/\/$/, '') + '/login', window.location.href);
   base.searchParams.set('redirect_uri', `${window.location.origin}/`);
   base.searchParams.set('state', issueSpState());
+  return base;
+}
+
+export function originSignInUrl(loginHint?: string): string {
+  const base = loginUrl();
   if (loginHint) base.searchParams.set('login_hint', loginHint);
+  return base.toString();
+}
+
+/** Origin's sign-in page asked for a fresh sign-in (`prompt=login`, the OIDC way). Without it,
+ *  Origin's page hands back whatever token it still holds (silent SSO), even one whose Origin
+ *  session has ended, and "sign in again" would return that same token here. */
+export function originFreshSignInUrl(): string {
+  const base = loginUrl();
+  base.searchParams.set('prompt', 'login');
   return base.toString();
 }

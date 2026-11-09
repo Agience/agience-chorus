@@ -4,6 +4,8 @@ import { getRuntimeConfig } from '../../config/runtime';
 import { User } from './auth.types';
 import { AuthContext } from './AuthContext';
 import { consumeSpState } from '../../auth/spState';
+import { forgetMantleToken } from '../../auth/mantleToken';
+import { originFreshSignInUrl } from '../../auth/originSignIn';
 
 const { originUri, clientId: CLIENT_ID } = getRuntimeConfig();
 // Without a trailing slash: in local development `originUri` is `/` (Origin through the dev server),
@@ -15,9 +17,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
-  // Set while the page leaves for the IdP's `/logout`: the workspace is replaced at once, so it is
-  // not left on screen (and usable) while that navigation completes.
-  const [signingOut, setSigningOut] = useState(false);
+  // Set while the page leaves to sign out (the IdP's `/logout`) or to sign in again (Origin's
+  // form): the workspace is replaced at once, so it is not left on screen (and usable) while that
+  // navigation completes.
+  const [leaving, setLeaving] = useState<string | null>(null);
 
   useEffect(() => {
     // SP return path: Origin (the IdP) sends us back with the token in the URL
@@ -143,13 +146,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const { idpUri } = getRuntimeConfig();
     const idp = (idpUri || '').replace(/\/$/, '');
     if (idp && !idp.startsWith(window.location.origin)) {
-      setSigningOut(true);
+      setLeaving('Signing out…');
       window.location.assign(`${idp}/logout?return=${encodeURIComponent(`${window.location.origin}/`)}`);
       return;
     }
     setToken(null);
     setUser(null);
     setIsAuthenticated(false);
+  };
+
+  // Sign in again once Origin has refused the session (`ORIGIN_SESSION_REQUIRED`). Origin may still
+  // accept the stored token at `/auth/userinfo` after the session it was issued in has ended, so a
+  // reload alone brings back the same token and the same refusal. The local session ends first:
+  // the stored token, the held token for Mantle, and the cached person. Then a fresh sign-in starts
+  // at Origin: on a service-provider deployment its sign-in page with `prompt=login`, which shows
+  // the form rather than handing back the token Origin's page still holds; otherwise Origin's
+  // authorization form. A live Origin session may still answer at once with a new token; the
+  // stale one is gone either way.
+  const signInAgain = () => {
+    localStorage.removeItem('access_token');
+    forgetMantleToken();
+    setToken(null);
+    setUser(null);
+    setIsAuthenticated(false);
+    setLeaving('Signing in again…');
+    const { idpUri } = getRuntimeConfig();
+    const idp = (idpUri || '').replace(/\/$/, '');
+    if (idp && !idp.startsWith(window.location.origin)) {
+      window.location.assign(originFreshSignInUrl());
+      return;
+    }
+    void login('local');
   };
 
   // Force a fresh /userinfo fetch (e.g. after linking a provider)
@@ -200,11 +227,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   return (
     <AuthContext.Provider
-      value={{ isAuthenticated, user, login, startLinkProvider, unlinkProvider, logout, loading, setAuthData, refreshUser }}
+      value={{ isAuthenticated, user, login, startLinkProvider, unlinkProvider, logout, signInAgain, loading, setAuthData, refreshUser }}
     >
-      {signingOut ? (
+      {leaving ? (
         <div className="flex h-screen items-center justify-center text-sm text-gray-500" role="status">
-          Signing out…
+          {leaving}
         </div>
       ) : children}
     </AuthContext.Provider>

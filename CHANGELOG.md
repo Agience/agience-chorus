@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-11-09
+
+### Fixed
+- "Sign in again" (`OriginSessionNotice`) reaches Origin's sign-in form. Origin can still accept a stored token at `/auth/userinfo` after the session it was issued in has ended (the person was deactivated, or their Origin session ended first), while refusing `narrow` and `mantle-token` with 401. The button reloaded the app with that token, and on a service-provider deployment Origin's `/login` handed its own stale token straight back (silent SSO), so the same notice returned. Signing in again (`signInAgain` in the AuthProvider) now ends the local session first: the stored token, the held token for Mantle and the cached person. It then asks Origin's sign-in page for a fresh sign-in (`prompt=login`), or, on Origin's own deployment, goes to its authorization form. A live Origin session may still hand back a new token; the stale one is gone.
+
 ## [0.2.10] - 2026-11-08
 
 ### Removed

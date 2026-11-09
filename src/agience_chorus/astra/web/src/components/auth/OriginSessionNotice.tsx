@@ -1,29 +1,17 @@
 /**
  * Says so when Origin holds no session for this browser (`ORIGIN_SESSION_REQUIRED`, raised when
  * Origin refuses the web app's token for Mantle with 401), and offers to sign in again at Origin.
- * Without the session no workspace can be read, so an empty app would only hide why.
+ * Without the session no workspace can be read, so an empty app would only hide why. Signing in
+ * again (`signInAgain` in the AuthProvider) ends the local session before it goes to Origin, so the
+ * refused token is not brought back.
  */
 import { useEffect, useState } from 'react'
 
 import { ORIGIN_SESSION_REQUIRED } from '../../auth/mantleToken'
-import { originSignInUrl } from '../../auth/originSignIn'
-import { getRuntimeConfig } from '../../config/runtime'
 import { useAuth } from '../../hooks/useAuth'
 
-/** Signing in again: on a service-provider deployment (`idpUri` names another host, as in
- *  production), at the IdP's own sign-in page, which hands the new sign-in back here; otherwise
- *  through Origin's authorization form. */
-function signInAgain(login: (provider?: string) => unknown): void {
-  const idp = (getRuntimeConfig().idpUri || '').replace(/\/$/, '')
-  if (idp && !idp.startsWith(window.location.origin)) {
-    window.location.assign(originSignInUrl())
-    return
-  }
-  void login('local')
-}
-
 export default function OriginSessionNotice() {
-  const { login } = useAuth()
+  const { signInAgain } = useAuth()
   const [needed, setNeeded] = useState(false)
 
   useEffect(() => {
@@ -43,7 +31,7 @@ export default function OriginSessionNotice() {
         <p className="text-sm text-gray-600">
           Your sign-in has ended, so your workspaces can’t be opened. Sign in again to continue.
         </p>
-        <button type="button" onClick={() => signInAgain(login)}
+        <button type="button" onClick={signInAgain}
                 className="w-full bg-gray-900 text-white py-2 px-4 rounded-md hover:bg-gray-800 text-sm">
           Sign in again
         </button>
