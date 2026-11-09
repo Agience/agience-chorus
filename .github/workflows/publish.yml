@@ -145,7 +145,12 @@ jobs:
           cache: npm
           cache-dependency-path: src/agience_chorus/astra/web/package-lock.json
       - run: npm ci
-      - run: GIT_SHA="${GITHUB_SHA::7}" npm run build
+      # The footer shows the platform release this build is for and the commit it was built from.
+      # A `release/<id>` branch is a platform release's candidate (`platform_release push`), so its
+      # id is the branch name's tail; any other ref builds as `dev`.
+      - run: |
+          case "$GITHUB_REF" in refs/heads/release/*) export APP_RELEASE="${GITHUB_REF#refs/heads/release/}" ;; esac
+          GIT_SHA="${GITHUB_SHA::7}" npm run build
       - uses: actions/upload-artifact@v4
         with:
           name: facet

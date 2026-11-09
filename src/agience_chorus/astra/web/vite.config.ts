@@ -1,10 +1,10 @@
 ﻿import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
-import { readFileSync, existsSync } from 'fs'
-import { execSync } from 'child_process'
+import { existsSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, resolve } from 'path'
 import { contentTypesPlugin } from './plugins/content-types-plugin'
+import { buildInfo } from './plugins/build-info'
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url)
@@ -19,23 +19,12 @@ function firstExisting(paths: Array<string | undefined>): string | undefined {
 // nothing under this installer.
 const DEV_ORIGIN = process.env.VITE_DEV_ORIGIN ?? 'http://127.0.0.1:8080'
 
-// ⭐ FACET VERSIONS ON ITS OWN CADENCE, AND `package.json` IS THE ONE PLACE THAT NUMBER IS WRITTEN
-// [John, 2026-09-13]. This tree ships inside agience-chorus but does not follow chorus's release
-// number — the UI is bumped when the UI ships.
-//
-// ⚠ `__APP_VERSION__` IS WHAT THE RUNNING APP DISPLAYS, so a second file carrying a version is a
-// second answer to "what is deployed". There was one: a hand-edited `vendor/build_info.json` that
-// nothing produced and nothing refreshed. It reached 0.3.2 while `package.json` still said 0.0.0,
-// and no gate compared them. 0.3.2 is carried forward here so the displayed version does not walk
-// backwards across this change.
-//
-// Read from disk rather than imported: an import would pull package.json into the module graph and
-// ship its dependency list to the browser.
-const pkgRaw = readFileSync(resolve(__dirname, 'package.json'), 'utf-8').replace(/^\uFEFF/, '')
-const APP_VERSION: string = String(JSON.parse(pkgRaw).version ?? '')
+// The footer shows the platform release this build is for and the agience-chorus commit it was
+// built from, both as they appear on GitHub [John, 2026-11-09; replaces 2026-09-13's own cadence
+// for the facet]. `plugins/build-info.ts` is the one place either is read; `package.json`'s
+// `version` is not displayed anywhere. A build that is not a platform release shows `dev`.
+const BUILD = buildInfo(process.env)
 const APP_BUILD_TIME: string = new Date().toISOString()
-let APP_GIT_SHA = ''
-try { APP_GIT_SHA = (process.env.GIT_SHA || execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()) } catch { /* not a git repo */ }
 
 function discoverContentTypeRoots() {
   // facet/vite.config.ts -> __dirname = <repo>/src/facet
@@ -61,9 +50,9 @@ function discoverContentTypeRoots() {
 // https://vite.dev/config/
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify(APP_VERSION),
+    __APP_VERSION__: JSON.stringify(BUILD.release),
     __APP_BUILD_TIME__: JSON.stringify(APP_BUILD_TIME),
-    __APP_GIT_SHA__: JSON.stringify(APP_GIT_SHA),
+    __APP_GIT_SHA__: JSON.stringify(BUILD.sha),
   },
   plugins: [
     react({
@@ -75,12 +64,9 @@ export default defineConfig({
     // Reads types/**/{type.json,presentation.json}, resolves inheritance,
     // exposes as the virtual module `virtual:content-types`.
     contentTypesPlugin(discoverContentTypeRoots()),
-    // ⭐ `/version.json` IS GENERATED, BECAUSE THE HAND-MAINTAINED ONE WAS A THIRD ANSWER TO "WHAT
-    // IS DEPLOYED" AND HAD BEEN WRONG FOR SIX MONTHS. `public/version.json` was copied verbatim
-    // into every build; measured 2026-09-15 it said `0.1.23` / `2026-03-16` while `package.json`
-    // said 0.3.2, and it was live at `https://my.agience.ai/version.json`. It is the same failure
-    // the `__APP_VERSION__` note above describes for `vendor/build_info.json` — a second file
-    // carrying a version that nothing regenerates — in a third place.
+    // ⭐ `/version.json` IS GENERATED, from what the footer shows: the release (`dev` when the
+    // build is not one), the commit and the build time. A hand-kept copy is a second answer to
+    // "what is deployed" that nothing refreshes.
     //
     // ⚠ NOTHING IN THIS TREE READS IT, which is exactly why it rotted: no screen went blank and no
     // test failed. It stays published rather than deleted because it is a public URL and this
@@ -97,7 +83,7 @@ export default defineConfig({
           type: 'asset',
           fileName: 'version.json',
           source: JSON.stringify(
-            { version: APP_VERSION, build_time: APP_BUILD_TIME, git_sha: APP_GIT_SHA },
+            { version: BUILD.release || 'dev', build_time: APP_BUILD_TIME, git_sha: BUILD.sha },
             null,
             2,
           ) + '\n',

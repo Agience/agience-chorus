@@ -7,6 +7,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [0.2.10] - 2026-11-09
 
+### Changed
+- The web app's footer shows the platform release it was built for and the agience-chorus commit it was built from, as GitHub shows them: `2026.11.4 · 6da03e5`, the release linked to its `platform/<id>` tag on agience-chorus and the commit to the commit. A build that is not a platform release shows `dev · <commit>`. The release comes from `APP_RELEASE` (YYYY.MM.N; any other value stops the build), which the publish workflow sets from a `release/<id>` branch; `package.json`'s `version` is no longer displayed. `/version.json` carries the same release (`dev` when there is none), commit and build time.
+
+## [0.2.10] - 2026-11-09
+
 ### Fixed
 - "Sign in again" (`OriginSessionNotice`) reaches Origin's sign-in form. Origin can still accept a stored token at `/auth/userinfo` after the session it was issued in has ended (the person was deactivated, or their Origin session ended first), while refusing `narrow` and `mantle-token` with 401. The button reloaded the app with that token, and on a service-provider deployment Origin's `/login` handed its own stale token straight back (silent SSO), so the same notice returned. Signing in again (`signInAgain` in the AuthProvider) now ends the local session first: the stored token, the held token for Mantle and the cached person. It then asks Origin's sign-in page for a fresh sign-in (`prompt=login`), or, on Origin's own deployment, goes to its authorization form. A live Origin session may still hand back a new token; the stale one is gone.
 
