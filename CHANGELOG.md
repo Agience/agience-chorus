@@ -7,6 +7,9 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [0.2.10] - 2026-11-08
 
+### Fixed
+- The suite runs against a store and a node key of its own (`src/conftest.py`): a fresh empty shard and keys folder under the session's temp folder (`EMBER_SQLITE_DIR`, `EMBER_STORE_KEYS_DIR`), and a generated data key, also written into the session's `KEYS_DIR` for child interpreters. The sage tests read WordNet through the host's default store, which was the developer's `~/genesis-shard`, and blinded terms under `/data/keys/encryption.key`; on a machine with neither, 23 of them failed. Those that need WordNet's geometry build it from nltk's corpus.
+
 ### Fixed (local check, 2026-11-08)
 - The web app's sign-in page sends people to Origin's own sign-in page (`/auth/authorize`: a password, a mailed code, a new account or a provider), which starts their Origin session; it posts no password or code itself. A waiting service provider is returned to after the sign-in.
 - With no Origin session, or one for another person, the app says so and offers to sign in again (`OriginSessionNotice`), rather than showing an empty workspace. A service-provider deployment (`idpUri` on another host, as in production) signs in again at the IdP's page.

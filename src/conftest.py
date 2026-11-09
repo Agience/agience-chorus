@@ -107,3 +107,58 @@ from agience_chorus.tests._origin_for_tests import origin_issuer  # noqa: F401,E
 # `test_persona_bundle_conversion_status.py` both fail on a `register_seam` call in shipped code,
 # so the seam fill happens here instead.
 import ember  # noqa: F401,E402  — binds ember's host seams; see `ember/runtime/seams.py`
+
+
+# ── the store and the node key this suite runs against ──────────────────────────────────────────
+#
+# Both are the suite's own, made fresh for the session; neither is read from the machine running it.
+#
+# The store: `crystal.ontology.driver` resolves the host's DEFAULT store (`ember.mantle_api.
+# open_own_store`) on any ontology read made without `store=`, and `ontology.activation`,
+# `match.fired_field` and the recognition probes all make such reads. Left to the environment, that
+# default is `~/genesis-shard`: on a developer machine the developer's own WordNet-bearing shard,
+# which makes the geometric tests pass by reading it, and on a clean runner a keys folder that does
+# not exist, which fails them. A fresh empty shard under the session's temp folder is the same
+# answer everywhere. Tests that need WordNet's geometry install it from nltk (`test_match.wn_ready`,
+# ember's `_install_offline_wordnet`), and an installed index answers wherever no store is named.
+# Set unconditionally, as ember's own suite does: inheriting a real `EMBER_STORE_KEYS_DIR` would
+# point a writing test at a real `content.key`. Session-scoped, so a test's own `monkeypatch`
+# still wins. `EMBER_SQLITE_CREATE` is safe only because the folder is a fresh temp one.
+#
+# The node key: the lexical index blinds every term with a keyed token (`corpus_fts._token`), whose
+# key is the node's data key. With none loaded, `_ensure_node_key` reads `KEYS_DIR/encryption.key`,
+# which defaults to `/data/keys`, a real node's key folder. The session's key is a generated one; it
+# is also written into the session's `KEYS_DIR` (set by `_chorus_test_identity`), so a child
+# interpreter a test starts loads this key and no other.
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True, scope="session")
+def _suite_store_environment(tmp_path_factory):
+    mp = _pytest.MonkeyPatch()
+    root = tmp_path_factory.mktemp("suite-shard")
+    keys = root / "keys"
+    keys.mkdir()
+    mp.setenv("EMBER_STORE_KEYS_DIR", str(keys))
+    mp.setenv("EMBER_SQLITE_DIR", str(root))
+    # `EMBER_SQLITE_DB` is left unset: the store reads it as a file name in the folder (default
+    # `lattice.db`), `astra.reading.read_basis` as a whole path, so any value set here would send
+    # one of them to a file the other never writes.
+    mp.delenv("EMBER_SQLITE_DB", raising=False)
+    mp.setenv("EMBER_SQLITE_CREATE", "1")
+    from crystal.ontology import driver as _driver
+    _driver.bind(None)                 # drop a default handle resolved before the floor was set
+    yield
+    mp.undo()
+
+
+@_pytest.fixture(autouse=True, scope="session")
+def _suite_node_key(_chorus_test_identity):
+    from cryptography.fernet import Fernet
+    import prism.trust.key_manager as _km
+    key = Fernet.generate_key().decode()
+    (_chorus_test_identity / "encryption.key").write_text(key, encoding="utf-8")
+    prior = _km._encryption_key
+    _km._encryption_key = key
+    yield
+    _km._encryption_key = prior
