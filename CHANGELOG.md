@@ -7,6 +7,9 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [0.2.10] - 2026-11-08
 
+### Removed
+- The retired Lumen chat UI (`astra/web/src/legacy-lumen-ui/`). The sign-in page no longer lists `lumen.agience.ai` as a service provider or narrows a token for it to `ember`; the persona `lumen` is unchanged.
+
 ### Fixed
 - The suite runs against a store and a node key of its own (`src/conftest.py`): a fresh empty shard and keys folder under the session's temp folder (`EMBER_SQLITE_DIR`, `EMBER_STORE_KEYS_DIR`), and a generated data key, also written into the session's `KEYS_DIR` for child interpreters. The sage tests read WordNet through the host's default store, which was the developer's `~/genesis-shard`, and blinded terms under `/data/keys/encryption.key`; on a machine with neither, 23 of them failed. Those that need WordNet's geometry build it from nltk's corpus.
 - Facet's production build type-checks again: the sign-in tests stub `location.href` as one getter and setter pair instead of a value plus a setter of the same name (`tsc -b`, TS2300).

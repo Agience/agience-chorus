@@ -42,7 +42,7 @@ const Login: React.FC = () => {
   // Setup operator token — present when redirected from the setup wizard (Google-only)
   const setupOperatorToken = new URLSearchParams(location.search).get('setup_token') ?? undefined
 
-  // SSO: an SP (e.g. lumen.agience.ai) redirected the user here to sign in via the
+  // SSO: an SP (e.g. a persona page) redirected the user here to sign in via the
   // single Origin login screen. After any successful auth we return them to the SP
   // with the token in the URL fragment. redirect_uri must be on an allowed SP origin
   // (auth/spRedirect.ts), and only the IdP deployment hands tokens out — see `returnsTokenToSp`.

@@ -53,8 +53,8 @@ describe('a bearer alone never narrows', () => {
   it('narrows for a service provider in the session', async () => {
     const seen: Seen[] = []
     origin(seen)
-    expect(await tokenForSp('FULL', 'https://lumen.agience.ai/x', 'https://origin.test'))
-      .toBe('for-ember')
+    expect(await tokenForSp('FULL', 'https://aria.home.agience.ai/x', 'https://origin.test'))
+      .toBe('for-https://aria.home.agience.ai')
     expect(seen[0].url).toBe('https://origin.test/auth/me/authority/narrow')
     inSession(seen[0])
   })

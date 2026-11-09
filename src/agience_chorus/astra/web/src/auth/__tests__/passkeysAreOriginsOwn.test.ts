@@ -19,7 +19,7 @@ function sources(dir: string): string[] {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) {
-      if (name === '__tests__' || name === 'legacy-lumen-ui') continue;
+      if (name === '__tests__') continue;
       out.push(...sources(p));
     } else if (/\.(ts|tsx)$/.test(name) && !/\.test\./.test(name)) {
       out.push(p);

@@ -14,7 +14,6 @@ import { getRuntimeConfig } from '../config/runtime'
 export const KNOWN_SP_ORIGINS: readonly string[] = [
   'https://origin.agience.ai',
   'https://my.agience.ai',
-  'https://lumen.agience.ai',
 ]
 
 export function allowedSpOrigins(): string[] {
@@ -44,8 +43,8 @@ export function isAllowedSpRedirect(
 
 /**
  * The audience a service provider's token is narrowed to, or null for the platform's own web app
- * and Origin (which keep the person's own token). Review 8, R3: Ember (lumen.agience.ai) gets a
- * delegation addressed to `ember`; any other SP (a persona page) one addressed to its own origin.
+ * and Origin (which keep the person's own token). Review 8, R3: any other SP (a persona page) gets
+ * a delegation addressed to its own origin.
  */
 export function spAudience(redirectUri: string): string | null {
   let origin: string
@@ -56,7 +55,6 @@ export function spAudience(redirectUri: string): string | null {
   }
   if (origin === 'https://my.agience.ai' || origin === 'https://origin.agience.ai') return null
   if (typeof window !== 'undefined' && origin === window.location.origin) return null
-  if (origin === 'https://lumen.agience.ai') return 'ember'
   return origin
 }
 

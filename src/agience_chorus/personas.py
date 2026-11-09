@@ -414,8 +414,7 @@ def _wire_conversation_carrier() -> None:
     The host owns this because neither persona does: chorus personas never import one another, so
     aria's bff ships with `_RESPOND_CARRIER = None` and degrades until something injects a
     responder. That something has to be the component allowed to see both, which is this loader —
-    the same wiring `host_lumen.py` performs, letting the chat be served by the crystal instead of
-    a bespoke second host outside the model.
+    letting the chat be served by the crystal instead of a bespoke second host outside the model.
 
     Every failure degrades; none raises. A store that will not open, a lumen that will not import,
     an aria without a bff — each leaves the carrier dark, and a dark carrier is a real state, not
@@ -428,8 +427,7 @@ def _wire_conversation_carrier() -> None:
         return
     try:
         # Bind the ontology read to the store this process actually holds. An answer measured on
-        # a store the host never chose would look identical to one measured on the right store —
-        # the same reason host_lumen.py binds it.
+        # a store the host never chose would look identical to one measured on the right store.
         #
         # This bind is load-bearing, not merely correct: `crystal.ontology` may not import
         # mantle, so it has no process-default store to fall back to. With nothing bound and no

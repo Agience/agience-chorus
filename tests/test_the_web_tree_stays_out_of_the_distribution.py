@@ -11,13 +11,6 @@ runtime: the runtime reads the BUILT output, which is declared separately.
 Measured 2026-09-16: `node_modules` is **373 MB**, against a legitimate tracked payload of 4.1 MB.
 A wheel that picked this up would be ninety times the size of the package it was meant to be.
 
-⛔ IT ALSO HOLDS ONE BROKEN PYTHON FILE. `web/src/legacy-lumen-ui/lumen_chat_bff.py` has no imports
-at all — `os`, `app`, `Depends`, `Header` and `HTMLResponse` are every one of them undefined, 20
-`F821`s in a single file, which is every undefined name in this repo. It cannot be imported and it
-is not meant to be; it sits in a hyphenated directory that is not a legal package path. It is the
-retired Lumen host's UI, kept as reference. Shipping it would put a module that raises `NameError`
-on import inside a published distribution.
-
 TWO INDEPENDENT GUARDS KEEP IT OUT, and this file holds both, because either one alone is a guard
 that can be removed by someone who checked only for the other:
 
