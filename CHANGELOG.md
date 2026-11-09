@@ -9,6 +9,7 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ### Fixed
 - The suite runs against a store and a node key of its own (`src/conftest.py`): a fresh empty shard and keys folder under the session's temp folder (`EMBER_SQLITE_DIR`, `EMBER_STORE_KEYS_DIR`), and a generated data key, also written into the session's `KEYS_DIR` for child interpreters. The sage tests read WordNet through the host's default store, which was the developer's `~/genesis-shard`, and blinded terms under `/data/keys/encryption.key`; on a machine with neither, 23 of them failed. Those that need WordNet's geometry build it from nltk's corpus.
+- Facet's production build type-checks again: the sign-in tests stub `location.href` as one getter and setter pair instead of a value plus a setter of the same name (`tsc -b`, TS2300).
 
 ### Fixed (local check, 2026-11-08)
 - The web app's sign-in page sends people to Origin's own sign-in page (`/auth/authorize`: a password, a mailed code, a new account or a provider), which starts their Origin session; it posts no password or code itself. A waiting service provider is returned to after the sign-in.

@@ -23,7 +23,7 @@ describe('signing in at Origin', () => {
       const { AuthContext } = await import('../AuthContext')
       const assigned: string[] = []
       vi.stubGlobal('location', { ...window.location, origin: 'http://localhost:3000',
-        href: 'http://localhost:3000/login',
+        get href() { return 'http://localhost:3000/login' },
         set href(v: string) { assigned.push(v) } } as unknown as Location)
       function Go() {
         const ctx = useContext(AuthContext)
@@ -55,7 +55,7 @@ describe('signing in with no provider named', () => {
     const { AuthContext } = await import('../AuthContext')
     const assigned: string[] = []
     vi.stubGlobal('location', { ...window.location, origin: 'http://localhost:3000',
-      href: 'http://localhost:3000/invite/t',
+      get href() { return 'http://localhost:3000/invite/t' },
       set href(v: string) { assigned.push(v) } } as unknown as Location)
     function Go() {
       const ctx = useContext(AuthContext)
