@@ -7,6 +7,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [0.2.10] - 2026-11-09
 
+### Fixed
+- GitHub CI is green: the suite installs agience-origin with the other siblings, which `src/agience_chorus/tests/_origin_for_tests.py` imports to issue real delegations.
+
+## [0.2.10] - 2026-11-09
+
 ### Changed
 - The web app's footer shows the platform release it was built for and the agience-chorus commit it was built from, as GitHub shows them: `2026.11.4 · 6da03e5`, the release linked to its `platform/<id>` tag on agience-chorus and the commit to the commit. A build that is not a platform release shows `dev · <commit>`. The release comes from `APP_RELEASE` (YYYY.MM.N; any other value stops the build), which the publish workflow sets from a `release/<id>` branch; `package.json`'s `version` is no longer displayed. `/version.json` carries the same release (`dev` when there is none), commit and build time.
 

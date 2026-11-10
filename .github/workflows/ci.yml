@@ -16,8 +16,9 @@ jobs:
   # The Python suite. Every sibling below is PUBLIC, so none of these checkouts needs a token, and a
   # fork can run this job as-is.
   #
-  # Chorus reaches all four: `crystal` at 87 import sites, `prism` at 73, `mantle` at 40, and
-  # `ember` at exactly one — `src/conftest.py`, a fixture file. Product code imports no ember, and
+  # Chorus reaches all five: `crystal` at 87 import sites, `prism` at 73, `mantle` at 40, `ember` at
+  # exactly one — `src/conftest.py`, a fixture file — and `origin` from its tests alone
+  # (`src/agience_chorus/tests/_origin_for_tests.py`). Product code imports no ember, and
   # `src/tests/test_chorus_does_not_import_ember.py` is what holds that.
   #
   # Each `path:` is the repository's own name. `src/conftest.py` locates ember's shared test doubles
@@ -36,6 +37,10 @@ jobs:
         with: { repository: "${{ github.repository_owner }}/agience-mantle", path: .siblings/agience-mantle }
       - uses: actions/checkout@v4
         with: { repository: "${{ github.repository_owner }}/agience-ember", path: .siblings/agience-ember }
+      # Origin, for the tests that issue real delegations through Origin's own code
+      # (`src/agience_chorus/tests/_origin_for_tests.py`). Public, like the others.
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/agience-origin", path: .siblings/agience-origin }
       # `.siblings/` now holds every repository the bundle spec names EXCEPT this one. The spec
       # declares module sources workspace-relatively (`agience-chorus/...`, `agience-crystal/...`),
       # so `src/agience_chorus/seraph/tests/test_bundling.py` needs one directory holding both — that is
@@ -53,7 +58,7 @@ jobs:
       # whose import chain runs through `ophan.market_frame` or `lumen.curriculum` lands there.
       # Without the extra those four modules fail at COLLECTION, which stops the whole run.
       # The instrument is published (0.2.1) and its repository is public, so this needs no token.
-      - run: pip install './.siblings/agience-prism-py[trust,vector,wire]' './.siblings/agience-crystal[service,ontology]' ./.siblings/agience-mantle './.siblings/agience-ember[optics]'
+      - run: pip install './.siblings/agience-prism-py[trust,vector,wire]' './.siblings/agience-crystal[service,ontology]' ./.siblings/agience-mantle './.siblings/agience-ember[optics]' ./.siblings/agience-origin
       # The checkout, installed as the package it now is, with every tekton's extras and the
       # test tools. `requirements.txt` resolves to `-e .[all]`; `[dev]` adds pytest.
       - run: pip install -e ".[all,dev]"
