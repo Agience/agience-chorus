@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.23] - 2026-11-10
+
+### Changed
+- A workflow's invoke is the gateway's `workflow` dispatch (BUG-048): its steps run in Crystal, each on its own persona, so "Run now" and a timer reach steps served by other personas. A single step still runs in Lumen.
+
 ## [0.2.22] - 2026-11-10
 
 ### Fixed

@@ -221,7 +221,7 @@
       "enabled": true,
       "requires_grant": "invoke",
       "dispatch": {
-        "kind": "mcp_tool",
+        "kind": "workflow",
         "server_ref": "lumen",
         "tool_ref": "execute_transform",
         "arguments": {
