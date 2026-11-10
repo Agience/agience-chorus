@@ -61,7 +61,7 @@ vi.mock('@/api/artifacts', () => ({
   invokeWithContext: (...args: unknown[]) => invokeWithContextMock(...args),
   listLinks: (...args: unknown[]) => listLinksMock(...args),
 }));
-const listLinksMock = vi.fn(async () => ({}));
+const listLinksMock = vi.fn(async (..._args: unknown[]) => ({} as Record<string, string>));
 
 const proxyToolCallMock = vi.fn();
 const createAPIKeyMock = vi.fn();
