@@ -5,6 +5,12 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.20] - 2026-11-10
+
+### Fixed
+- A timer whose target has nothing to run is refused when it is armed, in words, before anything is approved at Origin (BUG-043). Armed on an empty workflow or transform, it failed every run. A run block under `transform` or `order`, where the runner also looks, counts.
+- Manage Collections and Assign to Collections tick every container an artifact is in, workspaces included, and a change is made against that list (BUG-042). A workspace now offered there showed as not held, and checking it added the artifact again. Two workspaces of one name are told apart: one someone else owns reads "Workspace · shared with you".
+
 ## [0.2.19] - 2026-11-10
 
 ### Fixed

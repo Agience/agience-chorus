@@ -332,7 +332,8 @@ function CollectionsPanel({ artifact }: { artifact: Artifact }) {
 	})), [containerIds, labelMap]);
 
 	const handleSelectCollections = async (collectionIds: string[]) => {
-		const current = { ...artifact, committed_collection_ids: committedCollectionIds };
+		// Against every container it is in, workspaces included (BUG-042): the picker ticks them all.
+		const current = { ...artifact, committed_collection_ids: containerIds };
 		let now: string[];
 		try {
 			now = await setArtifactCollections(current, collectionIds);
@@ -340,14 +341,12 @@ function CollectionsPanel({ artifact }: { artifact: Artifact }) {
 			now = (err as { partial?: string[] }).partial ?? committedCollectionIds;
 			toast.error('Could not change every collection', { description: errorDetail(err, 'Some changes were not saved') });
 		}
-		setChangedIds(now);
 		// Both lists the panel reads: the patch reaches this window's artifact and clears the local
 		// override, so a stale `container_ids` would bring the old list back (BUG-021, reopened).
-		const before = new Set(committedCollectionIds.map(String));
-		const stored = Array.isArray(artifact.container_ids) ? artifact.container_ids.map(String) : [];
-		const containers = [...stored.filter((id) => !before.has(id)), ...now]
-			.filter((id, i, all) => all.indexOf(id) === i);
-		patchArtifactLocally({ id: artifact.id, committed_collection_ids: now, container_ids: containers });
+		const containers = now.filter((id, i, all) => all.indexOf(id) === i);
+		const collectionsNow = containers.filter((id) => !workspaces.some((w) => String(w.id) === id));
+		setChangedIds(collectionsNow);
+		patchArtifactLocally({ id: artifact.id, committed_collection_ids: collectionsNow, container_ids: containers });
 		setShowPicker(false);
 	};
 
@@ -383,7 +382,7 @@ function CollectionsPanel({ artifact }: { artifact: Artifact }) {
 				open={showPicker}
 				onClose={() => setShowPicker(false)}
 				onSelect={handleSelectCollections}
-				selectedCollectionIds={committedCollectionIds}
+				selectedCollectionIds={containerIds}
 				multiple={true}
 				title="Manage Collections"
 			/>

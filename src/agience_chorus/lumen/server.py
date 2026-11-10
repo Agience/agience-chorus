@@ -1352,7 +1352,12 @@ async def timer_reach(timer_id: str, contexts: Optional[dict] = None) -> str:
             if "run" not in _timers._context(got.json()) and target not in given:
                 return json.dumps({"need": [target]})
             workflow = context_of(target, got.json())
-            run = workflow.get("run") or {}
+            run = _run_block(workflow)
+            # Nothing to run is said now, before anything is approved at Origin (BUG-043,
+            # 2026-11-10: a timer armed on an empty workflow failed every run).
+            if not run and got.json().get("content_type") in _RUNNABLE_TYPES:
+                return json.dumps({"error": "the timer's target has nothing to run: give it a step "
+                                            "(a run block) before arming the timer"})
             if run.get("type") == "workflow":
                 links = await _workflow_links(client, target)
                 # A step made before steps were operators names a Transform calling a tool.
@@ -1379,6 +1384,18 @@ async def timer_reach(timer_id: str, contexts: Optional[dict] = None) -> str:
     resources = _timers.reach(timer_id, spec, workflow, links, tools, platform)
     resources += [r for r in dict.fromkeys(roots) if r and r not in resources]
     return json.dumps({"resources": resources})
+
+
+#: The targets Lumen runs from a run block: one with none fails every firing.
+_RUNNABLE_TYPES = frozenset({"application/vnd.agience.transform+json",
+                             "application/vnd.agience.workflow+json"})
+
+
+def _run_block(ctx: dict) -> dict:
+    """A card's run block, where the transform runner looks for it."""
+    ctx = ctx or {}
+    run = ctx.get("run") or (ctx.get("transform") or {}).get("run") or (ctx.get("order") or {}).get("run")
+    return run if isinstance(run, dict) else {}
 
 
 def _raw_tool(ctx: dict) -> list:

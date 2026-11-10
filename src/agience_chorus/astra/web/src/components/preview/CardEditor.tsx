@@ -238,9 +238,10 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
 
   const title = editTitle || ctx.title || ctx.filename || 'Untitled Artifact';
 
-  const committedCollectionIds = Array.isArray(artifact.committed_collection_ids)
-    ? artifact.committed_collection_ids
-    : [];
+  // Every container it is in, workspaces included (BUG-042): the picker ticks them all.
+  const containerIds = (artifact as { container_ids?: string[] }).container_ids;
+  const committedCollectionIds = Array.isArray(containerIds) ? containerIds.map(String)
+    : Array.isArray(artifact.committed_collection_ids) ? artifact.committed_collection_ids : [];
 
   const collectionMemberships = committedCollectionIds.map(id => {
     const collection = collections.find(c => c.id === id);

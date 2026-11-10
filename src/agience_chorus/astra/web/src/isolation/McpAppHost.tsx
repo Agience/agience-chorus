@@ -479,7 +479,10 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
             for (const id of need) {
               const doc = id === timerKey ? artifact : await getArtifact(id);
               const ctxOf = safeParseArtifactContext(doc.context) as Record<string, unknown>;
-              contexts[id] = id === timerKey ? { timer: ctxOf.timer } : { run: ctxOf.run };
+              // A run block where the runner finds it: on the card, or under `transform` or `order`.
+              const nested = (k: string) => ((ctxOf[k] ?? {}) as { run?: unknown }).run;
+              contexts[id] = id === timerKey ? { timer: ctxOf.timer }
+                : { run: ctxOf.run ?? nested('transform') ?? nested('order') };
             }
           }
           const resources = Array.isArray(reach.resources)

@@ -1,11 +1,12 @@
 ﻿// components/modals/CollectionPicker.tsx
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useContext } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { FolderOpen, Plus, Search, Check, Minus } from 'lucide-react';
 import { listCollections, createCollection } from '../../api/collections';
 import { CollectionResponse } from '../../api/types';
 import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
+import { AuthContext } from '../../context/auth/AuthContext';
 import toast from 'react-hot-toast';
 
 interface CollectionPickerProps {
@@ -65,6 +66,8 @@ export function CollectionPicker({
   const [newCollectionName, setNewCollectionName] = useState('');
   const { activeWorkspaceId } = useWorkspaces();
   const [workspaceIds, setWorkspaceIds] = useState<Set<string>>(new Set());
+  // Read directly, not `useAuth`: the picker opens outside a signed-in shell too (tests, previews).
+  const user = useContext(AuthContext)?.user;
 
   // Load collections when dialog opens
   useEffect(() => {
@@ -256,7 +259,11 @@ export function CollectionPicker({
                               {collection.name || (workspaceIds.has(String(collection.id)) ? 'Untitled workspace' : 'Untitled collection')}
                             </h3>
                             {workspaceIds.has(String(collection.id)) && (
-                              <span className="flex-shrink-0 rounded bg-purple-50 px-1.5 text-xs text-purple-700">Workspace</span>
+                              <span className="flex-shrink-0 rounded bg-purple-50 px-1.5 text-xs text-purple-700">
+                                {/* Two workspaces of one name told apart (BUG-042): whose it is. */}
+                                {user?.id && collection.created_by && String(collection.created_by) !== String(user.id)
+                                  ? 'Workspace · shared with you' : 'Workspace'}
+                              </span>
                             )}
                           </div>
                           {collection.description && (

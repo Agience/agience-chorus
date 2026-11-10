@@ -137,3 +137,21 @@ async def test_arming_reads_the_timer_on_its_job_grant(person):
     assert out == {"timer_id": "t-1", "armed": True, "job_grant": "jg-1"}, out
     assert store.armed["t-1"]["schedule"] == {"every_minutes": 60}
     assert ("GET", L.artifact_url(L.MANTLE_URI, "t-1"), "Bearer job-key") in mantle.calls
+
+
+@pytest.mark.asyncio
+async def test_a_target_with_nothing_to_run_is_refused_before_origin_is_asked(person, monkeypatch):
+    """BUG-043 (2026-11-10): a timer armed on an empty workflow failed every run; it is refused at
+    arming, in words, before anything is approved."""
+    timer = {"timer": {"schedule": {"every_minutes": 60}, "target": {"artifact_id": "wf-empty"}}}
+    monkeypatch.setitem(FULL, "t-2", (T.TIMER_TYPE, timer))
+    monkeypatch.setitem(FULL, "wf-empty", ("application/vnd.agience.workflow+json", {}))
+    with patch.object(L.httpx, "AsyncClient", Mantle().client()):
+        out = json.loads(await L.timer_reach("t-2", {"t-2": timer, "wf-empty": {}}))
+    assert "nothing to run" in out.get("error", "") and "resources" not in out
+    # A run block under `transform`, where the runner also finds one, is something to run.
+    nested = {"transform": {"run": {"type": "mcp-tool", "server": "astra", "tool": "noop"}}}
+    monkeypatch.setitem(FULL, "wf-empty", ("application/vnd.agience.transform+json", nested))
+    with patch.object(L.httpx, "AsyncClient", Mantle().client()):
+        ok = json.loads(await L.timer_reach("t-2", {"t-2": timer, "wf-empty": {"run": nested["transform"]["run"]}}))
+    assert "t-2" in ok.get("resources", []), ok

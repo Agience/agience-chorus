@@ -14,6 +14,7 @@ vi.mock('../../../api/collections', () => ({
 }));
 vi.mock('../../../hooks/useWorkspaces', () => ({ useWorkspaces: () => ({ activeWorkspaceId: 'ws-1' }) }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('../../../context/auth/AuthContext', async () => { const { createContext } = await import('react'); return { AuthContext: createContext({ user: { id: 'me' } }) }; });
 
 import { CollectionPicker } from '../CollectionPicker';
 

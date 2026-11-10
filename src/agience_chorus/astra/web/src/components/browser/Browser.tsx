@@ -85,6 +85,14 @@ interface BrowserProps {
   onSearchSortChange?: (mode: 'relevance' | 'recency') => void;
 }
 
+
+/** Every container an artifact is in, workspaces included (BUG-042): what the assign picker ticks
+ *  and changes, so a workspace it already holds is shown held, and never added to twice. */
+function membershipsOf(card: Artifact): string[] {
+  const containers = (card as { container_ids?: string[] }).container_ids;
+  return (Array.isArray(containers) ? containers : card.committed_collection_ids ?? []).map(String);
+}
+
 export default function Browser({ 
   activeSource, 
   selectedArtifactId, 
@@ -773,7 +781,7 @@ export default function Browser({
   }, [assignIds, selectedArtifactIds, artifacts, sourceArtifacts]);
   const heldByAll = useMemo(() => {
     if (!assignCards.length) return [];
-    const [first, ...rest] = assignCards.map(c => new Set((c.committed_collection_ids ?? []).map(String)));
+    const [first, ...rest] = assignCards.map(c => new Set(membershipsOf(c)));
     return [...first].filter(id => rest.every(s => s.has(id)));
   }, [assignCards]);
 
@@ -781,7 +789,7 @@ export default function Browser({
   // leaves them alone unless the person sets them (2026-10-31, a tester: they showed as unchecked).
   const heldBySome = useMemo(() => {
     const all = new Set(heldByAll);
-    const any = new Set(assignCards.flatMap(c => (c.committed_collection_ids ?? []).map(String)));
+    const any = new Set(assignCards.flatMap(c => membershipsOf(c)));
     return [...any].filter(id => !all.has(id));
   }, [assignCards, heldByAll]);
 
@@ -790,12 +798,15 @@ export default function Browser({
     const chosen = new Set(collectionIds.map(String));
     const removed = [...heldByAll.filter(id => !chosen.has(id)), ...clearedPartialIds.map(String)];
     for (const collectionId of chosen) {
-      const outside = ids.filter(id => !assignCards.find(c => String(c.id) === id)?.committed_collection_ids?.map(String).includes(collectionId));
+      const outside = ids.filter(id => {
+        const card = assignCards.find(c => String(c.id) === id);
+        return !card || !membershipsOf(card).includes(collectionId);
+      });
       if (outside.length) await addArtifactsToCollectionWithFeedback(collectionId, outside);
     }
     for (const collectionId of removed) {
       for (const card of assignCards) {
-        if (!(card.committed_collection_ids ?? []).map(String).includes(collectionId)) continue;
+        if (!membershipsOf(card).includes(collectionId)) continue;
         try {
           await removeArtifactFromCollection(collectionId, String(card.root_id ?? card.id));
         } catch {
