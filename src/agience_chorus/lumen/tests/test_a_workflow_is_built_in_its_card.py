@@ -127,11 +127,14 @@ async def test_adding_a_step_links_its_artifacts_from_the_workflow(person):
     world = World()
     with patch.object(L.httpx, "AsyncClient", world.client()):
         out = json.loads(await L.add_workflow_step("wf", "op-plat", {"limit": 3}, {"collection_id": "acc-1"}))
-        catalog = json.loads(await L.workflow_catalog("wf"))
+        # The view saves the steps in the person's session (BUG-044); the catalog reads them from it.
+        catalog = json.loads(await L.workflow_catalog("wf", {"run": out["run"]}))
     (link,) = [c[2] for c in world.calls if c[0] == "POST"]
     key = out["key"]
     assert link == {"container_id": "wf", "source_artifact_id": "acc-1", "relationship": f"{key}.collection_id"}
-    (step,) = json.loads(world.docs["wf"]["context"])["run"]["steps"]
+    assert not [c for c in world.calls if c[0] == "PATCH"], "Lumen writes no sealed steps"
+    (step,) = out["run"]["steps"]
+    assert out["step"] == step
     assert step == {"name": "Reconcile accounts", "key": key, "operator_id": "op-plat",
                     "arguments": {"limit": 3, "collection_id": f"@link.{key}.collection_id"}}
     assert catalog["steps"][0]["links"] == {"collection_id": {"id": "acc-1", "title": "Accounts"}}
@@ -171,5 +174,22 @@ async def test_removing_a_step_removes_its_links_and_keeps_the_others(person):
     C.delete = delete
     with patch.object(L.httpx, "AsyncClient", C):
         out = json.loads(await L.remove_workflow_step("wf", 0))
-    assert [s["name"] for s in json.loads(world.docs["wf"]["context"])["run"]["steps"]] == ["B"]
+    assert [s["name"] for s in out["run"]["steps"]] == ["B"]
+    assert not [c for c in world.calls if c[0] == "PATCH"], "the view saves the steps (BUG-044)"
     assert deleted and deleted[0].endswith("/artifacts/wf/links/sa") and out["links_removed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_whose_steps_lumen_cannot_open_is_built_from_the_person_s_reading(person):
+    """BUG-044 (2026-11-10): the steps are sealed under the person's key, which Lumen's persona
+    delegation does not open, so adding a step read none and wrote over them (403). The view sends
+    its own context; Lumen builds on it and returns the steps for the view to save."""
+    sealed = World()
+    sealed.docs["wf"]["context"] = json.dumps({"title": "Routine"})   # Mantle shows Lumen no run block
+    given = {"run": {"type": "workflow", "steps": [{"name": "A", "key": "sa", "operator_id": "op-plat",
+                                                    "arguments": {}}]}}
+    with patch.object(L.httpx, "AsyncClient", sealed.client()):
+        out = json.loads(await L.add_workflow_step("wf", "op-plat", context=given))
+    assert [s["name"] for s in out["run"]["steps"]] == ["A", "Reconcile accounts"]
+    assert not [c for c in sealed.calls if c[0] == "PATCH"]
+

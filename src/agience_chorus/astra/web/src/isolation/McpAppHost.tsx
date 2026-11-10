@@ -20,7 +20,7 @@ import { buildCspMetaTag } from './csp';
 import { isWebUrl } from './openLink';
 import { getAgienceDragPayload } from '@/dnd/agienceDrag';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
-import { CHAT_CONTENT_TYPE } from '@/utils/content-type';
+import { CHAT_CONTENT_TYPE, OPERATOR_CONTENT_TYPE } from '@/utils/content-type';
 import { getArtifact } from '@/api/artifacts';
 import { mergeViewContext } from './mergeViewContext';
 
@@ -626,6 +626,34 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         } catch (e) {
           sendError(req.id, -32000, `Asking failed: ${readableError(e)}`);
         }
+        return;
+      }
+
+      // What a workflow's steps are, by name (BUG-045, 2026-11-10): an operator's title, description
+      // and input form are sealed under its owner's key, so the persona listing them showed each as
+      // "Operator". Read here, in the person's session, for operators only, and only those fields.
+      case 'describe_operators': {
+        const ids = Array.isArray(toolArgs.ids)
+          ? [...new Set(toolArgs.ids.filter((i): i is string => typeof i === 'string' && i !== ''))]
+          : [];
+        if (ids.length === 0 || ids.length > 100) {
+          sendError(req.id, -32602, 'describe_operators takes 1 to 100 operator ids');
+          return;
+        }
+        const out: Record<string, { title: string; description: string; input_schema: unknown }> = {};
+        await Promise.all(ids.map(async (id) => {
+          try {
+            const doc = await getArtifact(id);
+            if (doc.content_type !== OPERATOR_CONTENT_TYPE) return;
+            const c = safeParseArtifactContext(doc.context) as Record<string, unknown>;
+            out[id] = {
+              title: typeof c.title === 'string' ? c.title : '',
+              description: typeof c.description === 'string' ? c.description.slice(0, 300) : '',
+              input_schema: c.input_schema && typeof c.input_schema === 'object' ? c.input_schema : {},
+            };
+          } catch { /* one the person cannot read is left out */ }
+        }));
+        sendResponse(req.id, { content: [{ type: 'text', text: JSON.stringify({ operators: out }) }] });
         return;
       }
 

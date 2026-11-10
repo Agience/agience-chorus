@@ -550,6 +550,15 @@ async def _workflow_links(client: httpx.AsyncClient, workflow_id: str) -> dict[s
     return out
 
 
+def _given_ctx(doc: dict, context: Optional[dict]) -> dict:
+    """A card's context: the caller's own, as the person's session read it, when given; else as
+    Mantle shows it to this persona. A persona's delegation opens no sealed field (John,
+    2026-11-10, Q9), so the steps, `runs_to` and title of a person's workflow reach Lumen only
+    this way (BUG-044). It is taken only for a card Mantle shows the person can read, and every
+    step still runs on the person's own grants."""
+    return dict(context) if isinstance(context, dict) and context else _ctx_of(doc)
+
+
 async def _workflow_runs_to(client: httpx.AsyncClient, artifact_id: str, headers: dict) -> str:
     """The Runs collection of `artifact_id` when it is a workflow, made if it has none; "" for
     anything else (a single step, an operator, a card the caller cannot read)."""
@@ -564,7 +573,8 @@ async def _workflow_runs_to(client: httpx.AsyncClient, artifact_id: str, headers
     return runs_to
 
 
-async def _runs_container(client: httpx.AsyncClient, workflow_id: str, ctx: dict, workspace_id: str) -> str:
+async def _runs_container(client: httpx.AsyncClient, workflow_id: str, ctx: dict, workspace_id: str,
+                          save: bool = True) -> str:
     """Where a workflow's Run cards go: its own Runs collection (`context.runs_to`), made on its first
     run, so the workspace does not fill with runs. A caller that cannot make one (a timer's key,
     which creates nothing top-level) records into the workspace instead."""
@@ -578,8 +588,9 @@ async def _runs_container(client: httpx.AsyncClient, workflow_id: str, ctx: dict
         if made.status_code < 400:
             runs_to = made.json().get("id")
             ctx["runs_to"] = runs_to
-            await client.patch(artifact_url(MANTLE_URI, workflow_id), headers=headers,
-                               json={"context": json.dumps(ctx)})
+            if save:
+                await client.patch(artifact_url(MANTLE_URI, workflow_id), headers=headers,
+                                   json={"context": json.dumps(ctx)})
             return runs_to
     except Exception:  # noqa: BLE001 — the run is recorded beside the workflow instead
         log.warning("could not make a Runs collection for %s", workflow_id, exc_info=True)
@@ -598,6 +609,7 @@ async def run_workflow(
     workflow_artifact_id: str,
     workspace_id: Optional[str] = None,
     params: Optional[str] = None,
+    context: Optional[dict] = None,
 ) -> str:
     """
     Args:
@@ -636,6 +648,8 @@ async def run_workflow(
                 ctx = json.loads(ctx)
             except json.JSONDecodeError:
                 return json.dumps({"error": "workflow artifact has invalid JSON context."})
+        if isinstance(context, dict) and context:
+            ctx = dict(context)            # the person's own reading of it (BUG-044)
 
         # Find the run block
         run = (
@@ -914,6 +928,7 @@ async def execute_transform(
     input: Optional[str] = None,
     artifacts: Optional[list[str]] = None,
     depth: int = 0,
+    context: Optional[dict] = None,
 ) -> str:
     """
     Args:
@@ -960,6 +975,8 @@ async def execute_transform(
 
     # Parse context
     raw_ctx = transform_artifact.get("context", {})
+    if isinstance(context, dict) and context:
+        raw_ctx = dict(context)            # the person's own reading of it (BUG-044)
     if isinstance(raw_ctx, str):
         try:
             raw_ctx = json.loads(raw_ctx)
@@ -1029,6 +1046,7 @@ async def execute_transform(
             workflow_artifact_id=transform_id,
             workspace_id=workspace_id,
             params=json.dumps(workflow_params) if workflow_params else None,
+            context=context,
         )
 
     # --- llm: a transform step runs inside the answer path, which stays grounded ---
@@ -1687,7 +1705,7 @@ def _items(resp) -> list:
         "what each links; the workspace; the caller's Inbox; and the recent runs."
     )
 )
-async def workflow_catalog(workflow_id: str) -> str:
+async def workflow_catalog(workflow_id: str, context: Optional[dict] = None) -> str:
     try:
         headers = _require_user_headers()
     except MissingDelegationError as exc:
@@ -1698,7 +1716,7 @@ async def workflow_catalog(workflow_id: str) -> str:
         if card.status_code != 200:
             return json.dumps({"error": "no such workflow, or you cannot read it"})
         workspace_id = card.json().get("collection_id") or ""
-        wf_ctx = _ctx_of(card.json())
+        wf_ctx = _given_ctx(card.json(), context)
         # What the platform provides is named by the node, never by what an operator says of itself.
         platform = {i["id"]: i.get("slug") or "" for i in _items(await client.get(
             f"{MANTLE_URI}/artifacts/platform-operators", headers=headers)) if i.get("id")}
@@ -1760,7 +1778,8 @@ async def workflow_catalog(workflow_id: str) -> str:
     )
 )
 async def add_workflow_step(workflow_id: str, operator_id: str, arguments: Optional[dict] = None,
-                            links: Optional[dict] = None, name: str = "") -> str:
+                            links: Optional[dict] = None, name: str = "",
+                            context: Optional[dict] = None) -> str:
     try:
         headers = _require_user_headers()
     except MissingDelegationError as exc:
@@ -1770,7 +1789,7 @@ async def add_workflow_step(workflow_id: str, operator_id: str, arguments: Optio
         if card.status_code != 200:
             return json.dumps({"error": "no such workflow, or you cannot read it"})
         doc = card.json()
-        ctx = _ctx_of(doc)
+        ctx = _given_ctx(doc, context)
         run = ctx.get("run") or {}
         if run.get("type") not in (None, "workflow"):
             return json.dumps({"error": "this card runs one step; make it a workflow first"})
@@ -1794,13 +1813,11 @@ async def add_workflow_step(workflow_id: str, operator_id: str, arguments: Optio
                 return json.dumps({"error": f"could not link {arg} ({made.status_code}): you may not read it, "
                                             f"or may not change this workflow"})
             args[arg] = _runs.LINK + rel
-        steps = [*(run.get("steps") or []), {"name": title, "key": key, "operator_id": operator_id, "arguments": args}]
-        ctx["run"] = {**run, "type": "workflow", "steps": steps}
-        patched = await client.patch(artifact_url(MANTLE_URI, workflow_id), headers=headers,
-                                     json={"context": json.dumps(ctx)})
-        if patched.status_code >= 400:
-            return json.dumps({"error": f"could not add the step ({patched.status_code})"})
-    return json.dumps({"key": key, "run": ctx["run"]})
+        step = {"name": title, "key": key, "operator_id": operator_id, "arguments": args}
+        ctx["run"] = {**run, "type": "workflow", "steps": [*(run.get("steps") or []), step]}
+    # The person's session saves it (BUG-044): the steps are sealed under their key, which this
+    # persona's delegation does not open, so a write from here could not keep them.
+    return json.dumps({"key": key, "step": step, "run": ctx["run"]})
 
 
 @mcp.tool(
@@ -1809,7 +1826,7 @@ async def add_workflow_step(workflow_id: str, operator_id: str, arguments: Optio
         "it works on. The artifacts themselves are untouched."
     )
 )
-async def remove_workflow_step(workflow_id: str, index: int) -> str:
+async def remove_workflow_step(workflow_id: str, index: int, context: Optional[dict] = None) -> str:
     try:
         headers = _require_user_headers()
     except MissingDelegationError as exc:
@@ -1818,17 +1835,14 @@ async def remove_workflow_step(workflow_id: str, index: int) -> str:
         card = await client.get(artifact_url(MANTLE_URI, workflow_id), headers=headers)
         if card.status_code != 200:
             return json.dumps({"error": "no such workflow, or you cannot read it"})
-        ctx = _ctx_of(card.json())
+        ctx = _given_ctx(card.json(), context)
         run = ctx.get("run") or {}
         steps = list(run.get("steps") or [])
         if run.get("type") != "workflow" or not 0 <= index < len(steps):
             return json.dumps({"error": f"this workflow has no step {index + 1}"})
         step = steps.pop(index)
         ctx["run"] = {**run, "steps": steps}
-        patched = await client.patch(artifact_url(MANTLE_URI, workflow_id), headers=headers,
-                                     json={"context": json.dumps(ctx)})
-        if patched.status_code >= 400:
-            return json.dumps({"error": f"could not remove the step ({patched.status_code})"})
+        # The person's session saves the steps (BUG-044); the links the step kept go here.
         removed = 0
         if step.get("key"):
             gone = await client.delete(artifact_url(MANTLE_URI, workflow_id, "links", str(step["key"])),
@@ -1846,13 +1860,20 @@ async def remove_workflow_step(workflow_id: str, index: int) -> str:
         "by the person building the workflow, so a timer that runs it later can record there."
     )
 )
-async def prepare_runs(workflow_id: str) -> str:
+async def prepare_runs(workflow_id: str, context: Optional[dict] = None) -> str:
     try:
         headers = _require_user_headers()
     except MissingDelegationError as exc:
         return json.dumps({"error": str(exc)})
     async with httpx.AsyncClient(timeout=30) as client:
-        runs_to = await _workflow_runs_to(client, workflow_id, headers)
+        if isinstance(context, dict) and context:
+            # The person's session records `runs_to` on the workflow (BUG-044).
+            card = await client.get(artifact_url(MANTLE_URI, workflow_id), headers=headers)
+            ctx = _given_ctx(card.json(), context) if card.status_code == 200 else {}
+            runs_to = (await _runs_container(client, workflow_id, ctx, "", save=False)
+                       if (ctx.get("run") or {}).get("type") == "workflow" else "")
+        else:
+            runs_to = await _workflow_runs_to(client, workflow_id, headers)
     if not runs_to:
         return json.dumps({"error": "not a workflow you can read, or its Runs collection could not be made"})
     return json.dumps({"runs_to": runs_to})

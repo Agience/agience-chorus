@@ -602,6 +602,39 @@ describe('McpAppHost', () => {
     });
   });
 
+  describe('describe_operators', () => {
+    // BUG-045 (2026-11-10): an operator's title and form are sealed, so the persona listing them
+    // named each "Operator". The host reads them in the person's session, operators only.
+    it('names the operators the person can read, and nothing that is not an operator', async () => {
+      getArtifactMock.mockImplementation(async (id: string) => {
+        if (id === 'op-1') return { id, content_type: 'application/vnd.agience.operator+json',
+          context: JSON.stringify({ title: 'Quick check', description: 'A step that runs', secret: 'x',
+                                    input_schema: { type: 'object' } }) };
+        if (id === 'note-1') return { id, content_type: 'text/markdown', context: JSON.stringify({ title: 'Private' }) };
+        throw new Error('403');
+      });
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ id: 'wf-1', content_type: 'application/vnd.agience.transform+json' })} html="" />, [],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 51, method: 'tools/call',
+                           params: { name: 'describe_operators', arguments: { ids: ['op-1', 'note-1', 'gone-1'] } } });
+      await waitFor(() => expect(responseFor(posted, 51)?.result).toBeDefined());
+      const out = JSON.parse(responseFor(posted, 51)!.result!.content[0].text);
+      expect(out).toEqual({ operators: { 'op-1': { title: 'Quick check', description: 'A step that runs',
+                                                   input_schema: { type: 'object' } } } });
+      expect(proxyToolCallMock).not.toHaveBeenCalled();
+    });
+
+    it('takes at most 100 ids', async () => {
+      const { container } = renderWithConfirm(<McpAppHost artifact={makeArtifact({ id: 'wf-1' })} html="" />, []);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 52, method: 'tools/call',
+                           params: { name: 'describe_operators', arguments: { ids: Array.from({ length: 101 }, (_, i) => `o${i}`) } } });
+      await waitFor(() => expect(responseFor(posted, 52)?.error).toBeDefined());
+    });
+  });
+
   describe('timers', () => {
     // A timer runs on a job grant approved at Origin (2026-11-10, BUG-024/BUG-035): no key is issued,
     // and what it reaches is what Lumen names, never its workspace.

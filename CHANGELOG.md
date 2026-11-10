@@ -5,6 +5,12 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.21] - 2026-11-10
+
+### Fixed
+- The workflow editor names each operator and recipe, and shows its description and input form (BUG-045). They are sealed under their owners' keys, so Lumen's catalog called every one "Operator"; the app reads them in the person's session (`describe_operators`: operators only, title, description and input form only, at most 100 at once).
+- The workflow editor adds, removes and runs steps of a person's own workflow (BUG-044). Its steps, Runs collection and title are sealed under the person's key, which Lumen's persona delegation does not open (John, 2026-11-10), so Lumen read none of them and its write was refused (403). The editor now sends Lumen the context it already holds in the person's session; Lumen checks the operator, makes the typed links and returns the steps, and the editor saves them as the person. Running from the editor and listing a workflow's steps read the same context. Lumen still confirms the person can read the workflow, and every step runs on their own grants.
+
 ## [0.2.20] - 2026-11-10
 
 ### Fixed

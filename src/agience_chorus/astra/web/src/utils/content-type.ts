@@ -1,6 +1,7 @@
 export const AGENCY_CONTENT_TYPE = 'application/vnd.agience.agency+json';
 export const TRANSFORM_CONTENT_TYPE = 'application/vnd.agience.transform+json';
 export const CHAT_CONTENT_TYPE = 'application/vnd.agience.chat+json';
+export const OPERATOR_CONTENT_TYPE = 'application/vnd.agience.operator+json';
 
 // Root containers
 export const TOOL_CONTENT_TYPE = 'application/vnd.agience.tool+json';

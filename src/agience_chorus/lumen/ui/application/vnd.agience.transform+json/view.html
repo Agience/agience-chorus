@@ -108,6 +108,25 @@ window.addEventListener('message', (e) => {
 rpc('ui/initialize', { protocolVersion: '2026-01-26', clientInfo: { name: 'agience-viewer', version: '0.1.0' } })
   .then(() => parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/initialized' }, '*'));
 
+// Operators by name (BUG-045): their titles and forms are sealed under their owners' keys, which
+// Lumen does not open, so the app reads them here, in the person's session.
+async function named(c) {
+  const ids = [...new Set([...((c && c.operators) || []).map((o) => o.id),
+                           ...((c && c.steps) || []).map((st) => st.operator_id)].filter(Boolean))].slice(0, 100);
+  if (!ids.length) return c;
+  try {
+    const got = (await tool('describe_operators', { ids })).operators || {};
+    for (const o of c.operators || []) {
+      const d = got[o.id]; if (!d) continue;
+      if (d.title) o.title = d.title;
+      if (d.description) o.description = d.description;
+      if (d.input_schema && Object.keys(d.input_schema).length) o.input_schema = d.input_schema;
+    }
+    for (const st of c.steps || []) { const d = got[st.operator_id]; if (d && d.title) st.operator = d.title; }
+  } catch { /* names stay as Lumen could read them */ }
+  return c;
+}
+
 async function tool(name, args) {
   const res = await rpc('tools/call', { name, arguments: args });
   const text = (res && res.content && res.content[0] && res.content[0].text) || '';
@@ -143,7 +162,7 @@ function onCard(params) {
 }
 
 function refresh() {
-  return tool('workflow_catalog', { workflow_id: artifactId }).then((c) => { catalog = c; render(); })
+  return tool('workflow_catalog', { workflow_id: artifactId, context: ctx }).then(named).then((c) => { catalog = c; render(); })
     .catch((e) => status(e.message, true));
 }
 
@@ -316,7 +335,11 @@ async function saveNow() {
   try {
     await save({ run: { ...(ctx.run || {}), type: 'workflow', steps: currentSteps() } });
     // Its Runs collection, made now by the person building it, so a timer can record there later.
-    if (!catalog.runs_to) catalog.runs_to = (await tool('prepare_runs', { workflow_id: artifactId })).runs_to;
+    // Lumen makes it; this view, in the person's session, records it on the workflow (BUG-044).
+    if (!ctx.runs_to && !catalog.runs_to) {
+      const made = (await tool('prepare_runs', { workflow_id: artifactId, context: ctx })).runs_to;
+      if (made) { catalog.runs_to = made; await save({ runs_to: made }); }
+    }
     status('Saved.'); render();
   } catch (e) { status(e.message, true); }
 }
@@ -351,8 +374,8 @@ async function move(i, d) {
 }
 // Removing a step removes the links it kept, too; the artifacts they named are untouched.
 async function removeStep(i) {
-  try { const out = await tool('remove_workflow_step', { workflow_id: artifactId, index: i });
-    ctx = { ...ctx, run: out.run }; await refresh(); status('Step removed.'); }
+  try { const out = await tool('remove_workflow_step', { workflow_id: artifactId, index: i, context: ctx });
+    await save({ run: out.run }); await refresh(); status('Step removed.'); }
   catch (e) { status(e.message, true); }
 }
 
@@ -373,8 +396,9 @@ $('addStep').onclick = async () => {
     await save({ run: { ...(ctx.run || {}), type: 'workflow', steps: currentSteps() } });
     const links = Object.fromEntries(Object.entries(picks).filter(([k]) => !(k in args)).map(([k, v]) => [k, v.id]));
     const out = await tool('add_workflow_step', { workflow_id: artifactId, operator_id: op.id,
-      arguments: args, links, name: $('newName').value.trim() });
-    ctx = { ...ctx, run: out.run }; picks = {};
+      arguments: args, links, name: $('newName').value.trim(), context: ctx });
+    // Saved here, in the person's session: Lumen cannot keep the sealed steps (BUG-044).
+    await save({ run: out.run }); picks = {};
     $('newName').value = ''; $('newOp').value = ''; showNewOp({});
     await refresh(); status('Step added.');
   } catch (e) { status(e.message, true); }
@@ -398,11 +422,11 @@ $('run').onclick = async () => {
   await saveNow(); if ($('status').className === 'err') return;
   status('Running…'); $('run').disabled = true;
   try {
-    const out = unwrap(unwrap(await tool('execute_transform', { transform_id: artifactId })));
+    const out = unwrap(unwrap(await tool('execute_transform', { transform_id: artifactId, context: ctx })));
     $('result').classList.remove('hidden');
     $('result').textContent = typeof out === 'string' ? out : JSON.stringify(out, null, 2);
     status('Done.');
-    tool('workflow_catalog', { workflow_id: artifactId }).then((c) => { catalog = c; renderRuns(); }).catch(() => {});
+    tool('workflow_catalog', { workflow_id: artifactId, context: ctx }).then(named).then((c) => { catalog = c; renderRuns(); }).catch(() => {});
   } catch (e) { $('result').classList.remove('hidden'); $('result').textContent = e.message; status('It failed.', true); }
   finally { $('run').disabled = false; }
 };
