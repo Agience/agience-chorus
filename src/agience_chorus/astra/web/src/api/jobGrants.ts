@@ -68,6 +68,21 @@ export function approveTimerAtOrigin(timerId: string, reach: string[], title: st
   );
 }
 
+export const RUN_JOB_PREFIX = 'lumen.run.';
+
+/** A workflow's one run, now (John, 2026-11-10): the job name and the id of the one-shot grant the
+ *  person approves at Origin for it. Origin bounds it to minutes and a single run. */
+export async function approveRunAtOrigin(workflowId: string, reach: string[], title: string): Promise<{ job: string; grantId: string }> {
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, '0')).join('');
+  const job = `${RUN_JOB_PREFIX}${workflowId}.${nonce}`;
+  const grantId = await askOrigin(
+    { job, reach: reach.join(','), title },
+    (data) => (data.type === 'agience.job-grant' && data.job === job && typeof data.grant_id === 'string'
+      && data.grant_id ? data.grant_id : undefined),
+  );
+  return { job, grantId };
+}
+
 /** Resolves once the person stops the grant at Origin. */
 export function revokeAtOrigin(grantId: string, title: string): Promise<void> {
   return askOrigin(

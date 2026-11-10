@@ -429,7 +429,7 @@ $('run').onclick = async () => {
   await saveNow(); if ($('status').className === 'err') return;
   status('Running…'); $('run').disabled = true;
   try {
-    const out = unwrap(unwrap(await rpc('tools/call', { name: 'invoke_self', arguments: { context: ctx } })));
+    const out = unwrap(unwrap(await rpc('tools/call', { name: 'run_now', arguments: { context: ctx } })));
     $('result').classList.remove('hidden');
     $('result').textContent = typeof out === 'string' ? out : JSON.stringify(out, null, 2);
     status('Done.');

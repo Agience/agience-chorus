@@ -59,7 +59,9 @@ const invokeWithContextMock = vi.fn();
 vi.mock('@/api/artifacts', () => ({
   getArtifact: (...args: unknown[]) => getArtifactMock(...args),
   invokeWithContext: (...args: unknown[]) => invokeWithContextMock(...args),
+  listLinks: (...args: unknown[]) => listLinksMock(...args),
 }));
+const listLinksMock = vi.fn(async () => ({}));
 
 const proxyToolCallMock = vi.fn();
 const createAPIKeyMock = vi.fn();
@@ -69,9 +71,11 @@ vi.mock('@/api/mcp', () => ({
   proxyToolCall: (...args: unknown[]) => proxyToolCallMock(...args),
 }));
 const approveAtOriginMock = vi.fn();
+const approveRunMock = vi.fn();
 const revokeAtOriginMock = vi.fn();
 vi.mock('@/api/jobGrants', () => ({
   approveTimerAtOrigin: (...args: unknown[]) => approveAtOriginMock(...args),
+  approveRunAtOrigin: (...args: unknown[]) => approveRunMock(...args),
   revokeAtOrigin: (...args: unknown[]) => revokeAtOriginMock(...args),
 }));
 vi.mock('@/api/apiKeys', () => ({
@@ -604,6 +608,38 @@ describe('McpAppHost', () => {
     });
   });
 
+  describe('run_now', () => {
+    // John, 2026-11-10: Run now takes a one-shot grant over what the run reaches, approved at Origin;
+    // the links come from the person's session (BUG-051), and Lumen runs it on that grant.
+    it('shows the run’s reach, has it approved for one run at Origin, and hands Lumen the grant', async () => {
+      listLinksMock.mockResolvedValueOnce({ 's2.artifact_id': 'note-1' });
+      proxyToolCallMock.mockImplementation(async (name: string) => ({ content: [{ type: 'text', text: JSON.stringify(
+        name === 'workflow_reach' ? { resources: ['wf-1', 'op-read', 'note-1'] } : { status: 'completed' }) }] }));
+      approveRunMock.mockResolvedValue({ job: 'lumen.run.wf-1.ab12', grantId: 'jg-r' });
+      const ctx = { title: 'Digest', run: { type: 'workflow', steps: [{ name: 'Read' }] } };
+      const { container } = renderWithConfirm(<McpAppHost artifact={makeArtifact({ id: 'wf-1' })} html="" />, [true]);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 71, method: 'tools/call', params: { name: 'run_now', arguments: { context: ctx } } });
+      await waitFor(() => expect(responseFor(posted, 71)?.result).toBeDefined());
+      expect(proxyToolCallMock).toHaveBeenCalledWith('workflow_reach',
+        { workflow_id: 'wf-1', context: ctx, links: { 's2.artifact_id': 'note-1' } }, 'lumen');
+      expect(approveRunMock).toHaveBeenCalledWith('wf-1', ['wf-1', 'op-read', 'note-1'], 'Digest');
+      expect(proxyToolCallMock).toHaveBeenCalledWith('run_workflow_now',
+        { workflow_id: 'wf-1', job: 'lumen.run.wf-1.ab12', job_grant: 'jg-r', context: ctx }, 'lumen');
+    });
+
+    it('runs nothing when the person does not continue', async () => {
+      approveRunMock.mockReset();
+      proxyToolCallMock.mockImplementation(async () => ({ content: [{ type: 'text', text: '{"resources": ["wf-1"]}' }] }));
+      const { container } = renderWithConfirm(<McpAppHost artifact={makeArtifact({ id: 'wf-1' })} html="" />, [false]);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 72, method: 'tools/call', params: { name: 'run_now', arguments: { context: { run: {} } } } });
+      await waitFor(() => expect(responseFor(posted, 72)?.error).toBeDefined());
+      expect(approveRunMock).not.toHaveBeenCalled();
+      expect(proxyToolCallMock).not.toHaveBeenCalledWith('run_workflow_now', expect.anything(), 'lumen');
+    });
+  });
+
   describe('invoke_self', () => {
     // BUG-044 (2026-11-10): "Run now" goes through Crystal as the person, as a timer's firing does,
     // so each step reaches the persona that serves it; only the view's own artifact.
@@ -729,7 +765,7 @@ describe('McpAppHost', () => {
       await waitFor(() => expect(responseFor(posted, 37)?.result).toBeDefined());
       expect(getArtifactMock).toHaveBeenCalledWith('wf-1');
       expect(proxyToolCallMock).toHaveBeenCalledWith('timer_reach', {
-        timer_id: 't1', contexts: { t1: { timer: JSON.parse(TARGETED).timer }, 'wf-1': WF } }, 'lumen');
+        timer_id: 't1', contexts: { t1: { timer: JSON.parse(TARGETED).timer }, 'wf-1': WF }, links: {} }, 'lumen');
       expect(JSON.stringify(proxyToolCallMock.mock.calls)).not.toMatch(/secret|private/);
       expect(approveAtOriginMock).toHaveBeenCalledWith('t1', ['t1', 'wf-1'], 'Digest');
     });

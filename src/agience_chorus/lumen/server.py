@@ -550,6 +550,15 @@ async def _workflow_links(client: httpx.AsyncClient, workflow_id: str) -> dict[s
     return out
 
 
+async def _links_for(client: httpx.AsyncClient, workflow_id: str, given: Optional[dict]) -> dict[str, str]:
+    """A workflow's links: as the person's session lists them when given (a persona's delegation
+    cannot list a link whose item is sealed, so a timer's or a run's reach left it out, BUG-051),
+    else as Lumen reads them. Each becomes part of the reach the person approves at Origin."""
+    if isinstance(given, dict) and given:
+        return {str(k): str(v) for k, v in given.items() if isinstance(k, str) and isinstance(v, str) and v}
+    return await _workflow_links(client, workflow_id)
+
+
 def _given_ctx(doc: dict, context: Optional[dict]) -> dict:
     """A card's context: the caller's own, as the person's session read it, when given; else as
     Mantle shows it to this persona. A persona's delegation opens no sealed field (John,
@@ -1344,7 +1353,8 @@ async def arm_timer(timer_id: str, job_grant: str) -> str:
         "id's context as read in the person's own session."
     )
 )
-async def timer_reach(timer_id: str, contexts: Optional[dict] = None) -> str:
+async def timer_reach(timer_id: str, contexts: Optional[dict] = None,
+                      links: Optional[dict] = None) -> str:
     try:
         headers = _require_user_headers()
     except MissingDelegationError as exc:
@@ -1355,6 +1365,7 @@ async def timer_reach(timer_id: str, contexts: Optional[dict] = None) -> str:
     # session and asks again with their contexts. A context is taken only for an item Mantle shows
     # the person can read, and what it yields is the list the person approves at Origin.
     given = {str(k): v for k, v in (contexts or {}).items() if isinstance(v, dict)}
+    given_links = links
 
     def context_of(doc_id: str, doc: dict) -> dict:
         return given[doc_id] if doc_id in given else _timers._context(doc)
@@ -1388,7 +1399,7 @@ async def timer_reach(timer_id: str, contexts: Optional[dict] = None) -> str:
                 return json.dumps({"error": "the timer's target has nothing to run: give it a step "
                                             "(a run block) before arming the timer"})
             if run.get("type") == "workflow":
-                links = await _workflow_links(client, target)
+                links = await _links_for(client, target, given_links)
                 # A step made before steps were operators names a Transform calling a tool.
                 need = []
                 for step in run.get("steps") or []:
@@ -1425,6 +1436,92 @@ def _run_block(ctx: dict) -> dict:
     ctx = ctx or {}
     run = ctx.get("run") or (ctx.get("transform") or {}).get("run") or (ctx.get("order") or {}).get("run")
     return run if isinstance(run, dict) else {}
+
+
+@mcp.tool(
+    description=(
+        "What one run of a workflow must reach, now: the workflow, each operator a step invokes and "
+        "each item a step links. The person approves this list at Origin for that one run. `context` "
+        "and `links` are the workflow as the person's own session reads it."
+    )
+)
+async def workflow_reach(workflow_id: str, context: Optional[dict] = None,
+                         links: Optional[dict] = None) -> str:
+    try:
+        headers = _require_user_headers()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    async with httpx.AsyncClient(timeout=20) as client:
+        card = await client.get(artifact_url(MANTLE_URI, workflow_id), headers=headers)
+        if card.status_code != 200:
+            return json.dumps({"error": "no such workflow, or you cannot read it"})
+        run = _run_block(_given_ctx(card.json(), context))
+        steps = run.get("steps") or []
+        if run.get("type") != "workflow" or not steps:
+            return json.dumps({"error": "this workflow has no steps to run"})
+        found = await _links_for(client, workflow_id, links)
+    out: list = []
+    for rid in [workflow_id, str(card.json().get("root_id") or ""),
+                *(str(st.get("operator_id") or "") for st in steps)]:
+        if rid and rid not in out:
+            out.append(rid)
+    for st in steps:
+        for value in (st.get("arguments") or {}).values():
+            if isinstance(value, str) and value.startswith(_runs.LINK):
+                target = found.get(value[len(_runs.LINK):])
+                if target and target not in out:
+                    out.append(target)
+    return json.dumps({"resources": out})
+
+
+@mcp.tool(
+    description=(
+        "Run a workflow once, now, on the one-shot job grant its owner approved at Origin for this run "
+        "(`job` `lumen.run.<workflow>.<nonce>`): through the gateway, each step on its own persona, "
+        "within that grant's reach."
+    )
+)
+async def run_workflow_now(workflow_id: str, job: str, job_grant: str,
+                           context: Optional[dict] = None) -> str:
+    import asyncio as _asyncio
+
+    try:
+        _require_user_headers()
+        person = _get_delegation_user_id()
+    except MissingDelegationError as exc:
+        return json.dumps({"error": str(exc)})
+    # Exactly `lumen.run.<this workflow>.<nonce>`: a prefix would let a grant for workflow `a.b`
+    # pass for workflow `a` (review, 2026-11-10).
+    import re as _re
+    if not _re.fullmatch(_re.escape(f"lumen.run.{workflow_id}.") + r"[0-9a-f]{6,32}", job or ""):
+        return json.dumps({"error": "that job is not a run of this workflow"})
+
+    def mint() -> tuple:
+        try:
+            with httpx.Client(timeout=15) as client:
+                r = client.post(f"{ORIGIN_URI}/internal/job-delegation",
+                                headers={"Authorization": f"Bearer {_auth.sign_exchange_jwt()}"},
+                                json={"principal": person, "job": job, "audience": "crystal",
+                                      "job_grant": job_grant})
+                return r.status_code, (str(r.json().get("access_token") or "") if r.status_code == 200 else "")
+        except httpx.HTTPError:
+            return 599, ""
+
+    status, run_key = await _asyncio.to_thread(mint)
+    if status != 200 or not run_key:
+        return json.dumps({"error": f"Origin minted nothing under that run's grant ({status}); run it again"})
+    claims = _claims_of(run_key)
+    if claims.get("job_grant") != job_grant or workflow_id not in (claims.get("job_reach") or []):
+        return json.dumps({"error": "the approved grant does not reach this workflow"})
+    async with httpx.AsyncClient(timeout=300) as client:
+        r = await client.post(artifact_url(CRYSTAL_URI, workflow_id, "op", "invoke"),
+                              headers={"Authorization": f"Bearer {run_key}"},
+                              json={"context": context or {}})
+    try:
+        return json.dumps(r.json()) if r.status_code < 400 else json.dumps(
+            {"error": f"the run failed ({r.status_code}): {r.text[:300]}"})
+    except ValueError:
+        return json.dumps({"error": f"the run answered {r.status_code}"})
 
 
 def _raw_tool(ctx: dict) -> list:

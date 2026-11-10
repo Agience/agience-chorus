@@ -161,3 +161,70 @@ async def test_a_target_with_nothing_to_run_is_refused_before_origin_is_asked(pe
     with patch.object(L.httpx, "AsyncClient", Mantle().client()):
         ok = json.loads(await L.timer_reach("t-2", {"t-2": timer, "wf-empty": {"run": nested["transform"]["run"]}}))
     assert "t-2" in ok.get("resources", []), ok
+
+
+LINKED = {"run": {"type": "workflow", "steps": [
+    {"name": "Read", "key": "s2", "operator_id": "op-read", "arguments": {"artifact_id": "@link.s2.artifact_id"}}]}}
+
+
+@pytest.mark.asyncio
+async def test_a_run_s_reach_is_the_workflow_its_operators_and_the_items_it_links(person, monkeypatch):
+    """Run now's one-shot grant (John, 2026-11-10) reaches what the run touches; the links come
+    from the person's session, since a persona cannot list a link to a sealed item (BUG-051)."""
+    monkeypatch.setitem(FULL, "wf-l", ("application/vnd.agience.transform+json", {}))
+    with patch.object(L.httpx, "AsyncClient", Mantle().client()):
+        out = json.loads(await L.workflow_reach("wf-l", LINKED, {"s2.artifact_id": "note-1"}))
+    assert out == {"resources": ["wf-l", "op-read", "note-1"]}
+
+
+@pytest.mark.asyncio
+async def test_a_timer_s_reach_takes_the_links_the_person_s_session_lists(person, monkeypatch):
+    timer = {"timer": {"schedule": {"every_minutes": 60}, "target": {"artifact_id": "wf-l"}}}
+    monkeypatch.setitem(FULL, "t-3", (T.TIMER_TYPE, timer))
+    monkeypatch.setitem(FULL, "wf-l", ("application/vnd.agience.transform+json", LINKED))
+    with patch.object(L.httpx, "AsyncClient", Mantle().client()):
+        out = json.loads(await L.timer_reach("t-3", {"t-3": timer, "wf-l": LINKED}, {"s2.artifact_id": "note-1"}))
+    assert "note-1" in out["resources"], out
+
+
+@pytest.mark.asyncio
+async def test_a_run_now_runs_once_through_the_gateway_on_its_grant(person, monkeypatch):
+    posted = []
+
+    class Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, headers=None, json=None):
+            posted.append(("mint", json))
+            return MockResponse({"access_token": _jwt({"job_grant": "jg-r", "job_reach": ["wf-l", "note-1"]})}, 200)
+
+    class AClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            posted.append(("invoke", url, headers["Authorization"].startswith("Bearer "), json))
+            return MockResponse({"content": [{"type": "text", "text": "{\"status\": \"completed\"}"}]}, 200)
+
+    monkeypatch.setattr(L._auth, "sign_exchange_jwt", lambda: "lumen-key")
+    with patch.object(L.httpx, "Client", Client), patch.object(L.httpx, "AsyncClient", AClient):
+        refused = json.loads(await L.run_workflow_now("wf-l", "lumen.run.wf-l.extra.ab12cd", "jg-r", LINKED))
+        out = json.loads(await L.run_workflow_now("wf-l", "lumen.run.wf-l.ab12cd", "jg-r", LINKED))
+    assert "not a run of this workflow" in refused["error"]
+    assert posted[0] == ("mint", {"principal": "me-1", "job": "lumen.run.wf-l.ab12cd", "audience": "crystal",
+                                  "job_grant": "jg-r"})
+    assert posted[1][0] == "invoke" and posted[1][1].endswith("/artifacts/wf-l/op/invoke") and posted[1][3] == {"context": LINKED}
+    assert out["content"][0]["text"] == "{\"status\": \"completed\"}"

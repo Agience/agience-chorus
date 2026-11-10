@@ -98,6 +98,24 @@ export function invokeWithContext(
   return post(`/artifacts/${artifactId}/op/invoke`, { context, workspace_id: workspaceId });
 }
 
+/**
+ * A workflow's typed links, `{relationship: item id}`, as the person's own session lists them: a
+ * persona's delegation cannot list a link to an item it cannot open, so the reach a run or a timer
+ * asks for comes from here (BUG-051).
+ */
+export async function listLinks(artifactId: string): Promise<Record<string, string>> {
+  const page = await get<{ items?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>(
+    `/artifacts/${encodeURIComponent(artifactId)}/children`, { params: { links: '*', limit: 1000 } });
+  const items = Array.isArray(page) ? page : (page?.items ?? []);
+  const out: Record<string, string> = {};
+  for (const m of items) {
+    const rel = typeof m.relationship === 'string' ? m.relationship : '';
+    const id = String(m.root_id ?? m.id ?? '');
+    if (rel && id && !(rel in out)) out[rel] = id;
+  }
+  return out;
+}
+
 export function invokeArtifact(
   artifactId: string,
   input?: string,

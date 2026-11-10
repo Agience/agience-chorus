@@ -5,6 +5,12 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.25] - 2026-11-10
+
+### Changed
+- "Run now" in the workflow editor asks for a one-shot grant (John, 2026-11-10): the app shows what the run reaches (the workflow, its steps' operators and the items they link, the links read in the person's session), the person approves that one run at Origin, and Lumen (`run_workflow_now`) runs it through the gateway on that grant, so a step can read the person's sealed items within it. `workflow_reach` names the reach.
+- A timer's reach takes the target workflow's links as the person's session lists them (BUG-051): a persona cannot list a link to an item it cannot open, so a linked note was left out of the grant and its step failed.
+
 ## [0.2.24] - 2026-11-10
 
 ### Fixed

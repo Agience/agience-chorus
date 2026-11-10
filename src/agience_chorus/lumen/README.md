@@ -24,6 +24,8 @@ Implemented (live):
 | `schedule_action` | Create a Timer card that will run an artifact's operation on a schedule; it runs once its owner arms it from the card |
 | `arm_timer` | Arm a Timer: keep the key it acts on, sealed, and fire it on its schedule |
 | `timer_reach` | What a Timer's key must reach to run what it runs: for a workflow, each operator a step invokes and each artifact a step links |
+| `workflow_reach` | What one run of a workflow must reach, now: the workflow, each operator a step invokes and each item a step links; approved at Origin for that one run |
+| `run_workflow_now` | Run a workflow once, now, on the one-shot job grant its owner approved at Origin, through the gateway, each step on its own persona |
 | `disarm_timer` | Disarm a Timer: forget its key; it does not fire again |
 | `reconcile` | Reconcile several accounts of one event: what all agree on, where they differ (with the accounts and evidence behind each version), what only one states; each difference raised for a person to settle |
 | `workflow_catalog` | What a workflow card's builder offers: the operators the caller may invoke (the platform's, their own, ones shared with them), the workflow's steps with what each links, and the caller's Inbox |

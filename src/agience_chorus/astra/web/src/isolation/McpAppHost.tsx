@@ -21,7 +21,7 @@ import { isWebUrl } from './openLink';
 import { getAgienceDragPayload } from '@/dnd/agienceDrag';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
 import { CHAT_CONTENT_TYPE, OPERATOR_CONTENT_TYPE } from '@/utils/content-type';
-import { getArtifact, invokeWithContext } from '@/api/artifacts';
+import { getArtifact, invokeWithContext, listLinks } from '@/api/artifacts';
 import { mergeViewContext } from './mergeViewContext';
 
 /** The document every view runs in: `public/view-host.html`, with its own CSP at the edge. */
@@ -464,7 +464,9 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           };
           let reach: { resources?: unknown; error?: unknown; need?: unknown } = {};
           for (let round = 0; round < 4; round++) {
-            const answer = await proxyToolCall('timer_reach', { timer_id: artifact.id, contexts }, 'lumen');
+            const target = ((contexts[timerKey]?.timer ?? {}) as { target?: { artifact_id?: unknown } }).target?.artifact_id;
+            const links = typeof target === 'string' && target ? await listLinks(target).catch(() => ({})) : {};
+            const answer = await proxyToolCall('timer_reach', { timer_id: artifact.id, contexts, links }, 'lumen');
             reach = JSON.parse(answer.content?.[0]?.text ?? '{}') as typeof reach;
             const need = Array.isArray(reach.need)
               ? reach.need.filter((n): n is string => typeof n === 'string' && n !== '' && !(n in contexts))
@@ -625,6 +627,63 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           sendResponse(req.id, result);
         } catch (e) {
           sendError(req.id, -32000, `Asking failed: ${readableError(e)}`);
+        }
+        return;
+      }
+
+      // A workflow's "Run now" on a one-shot grant (John, 2026-11-10): what the run reaches (the
+      // workflow, its steps' operators, the items they link, read here in the person's session) is
+      // shown, approved at Origin for this one run, and run by Lumen through the gateway on it.
+      case 'run_now': {
+        const ctxArg = toolArgs.context;
+        if (!confirmDialog || !ctxArg || typeof ctxArg !== 'object' || Array.isArray(ctxArg)) {
+          sendError(req.id, -32602, 'run_now takes the workflow\'s context');
+          return;
+        }
+        if (credentialRequestPending.current) {
+          sendError(req.id, -32000, 'Another approval is awaiting the user');
+          return;
+        }
+        credentialRequestPending.current = true;
+        try {
+          const workflowId = String(artifact.id ?? '');
+          const links = await listLinks(workflowId).catch(() => ({}));
+          const answer = await proxyToolCall('workflow_reach', { workflow_id: workflowId, context: ctxArg, links }, 'lumen');
+          const reach = JSON.parse(answer.content?.[0]?.text ?? '{}') as { resources?: unknown; error?: unknown };
+          const resources = Array.isArray(reach.resources)
+            ? reach.resources.filter((r): r is string => typeof r === 'string' && r !== '') : [];
+          if (!resources.includes(workflowId)) {
+            sendError(req.id, -32000, `Running failed: ${typeof reach.error === 'string' ? reach.error
+              : 'Lumen could not say what this run reaches'}`);
+            return;
+          }
+          const title = String((ctxArg as Record<string, unknown>).title || 'Workflow');
+          const approved = await confirmDialog.confirm({
+            title: 'Run this workflow now?',
+            description: 'It runs once, now, as you, reading, writing and running operations in these items '
+              + 'and what they contain, and nowhere else. You approve this one run at Origin, in the window '
+              + 'that opens next.',
+            customContent: (
+              <pre className="max-h-48 overflow-auto rounded bg-gray-50 p-2 text-xs">
+                {JSON.stringify({ reaches: resources, access: 'read, write and run, once' }, null, 2)}
+              </pre>
+            ),
+            confirmLabel: 'Continue at Origin',
+            tone: 'warn',
+          });
+          if (!approved) {
+            sendError(req.id, -32000, 'You did not run the workflow');
+            return;
+          }
+          const { approveRunAtOrigin } = await import('@/api/jobGrants');
+          const { job, grantId } = await approveRunAtOrigin(workflowId, resources, title);
+          const result = await proxyToolCall('run_workflow_now',
+            { workflow_id: workflowId, job, job_grant: grantId, context: ctxArg }, 'lumen');
+          sendResponse(req.id, result);
+        } catch (e) {
+          sendError(req.id, -32000, `Running failed: ${readableError(e)}`);
+        } finally {
+          credentialRequestPending.current = false;
         }
         return;
       }

@@ -39,6 +39,14 @@
       "description": "What a Timer's key must reach to run what it runs: for a workflow, each operator a step invokes and each artifact a step links"
     },
     {
+      "name": "workflow_reach",
+      "description": "What one run of a workflow must reach, now: the workflow, each operator a step invokes and each item a step links; approved at Origin for that one run"
+    },
+    {
+      "name": "run_workflow_now",
+      "description": "Run a workflow once, now, on the one-shot job grant its owner approved at Origin, through the gateway, each step on its own persona"
+    },
+    {
       "name": "disarm_timer",
       "description": "Disarm a Timer: forget its key; it does not fire again"
     },
