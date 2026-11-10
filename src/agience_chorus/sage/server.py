@@ -437,9 +437,12 @@ async def browse_collections(limit: int = 20) -> str:
     question the artifact surface already answers. The live equivalent is `GET /artifacts/visible`.
     """
     async with httpx.AsyncClient() as client:
+        # Collections only, as the tool says: unfiltered, it read every artifact the caller reaches
+        # (BUG-051, 2026-11-10).
         resp = await client.get(
             f"{MANTLE_URI}/artifacts/visible",
             headers=_require_user_headers(),
+            params={"content_type": "application/vnd.agience.collection+json"},
             timeout=15,
         )
     if resp.status_code >= 400:

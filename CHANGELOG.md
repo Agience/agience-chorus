@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.24] - 2026-11-10
+
+### Fixed
+- Sage's "List my collections" asks for collections only; it read every artifact the caller reached (BUG-051).
+
 ## [0.2.23] - 2026-11-10
 
 ### Changed
