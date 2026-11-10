@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.19] - 2026-11-10
+
+### Fixed
+- A once-timer saved for a later time while armed runs again at that time (BUG-041). Its first run was taken as its only one, and an armed timer's card was read only when its last-read schedule said it was due, so an edit made after arming was never seen. An armed timer's card is now read again every 15 minutes, and a once-timer runs whenever its time is after its last run.
+
 ## [0.2.18] - 2026-11-10
 
 ### Fixed

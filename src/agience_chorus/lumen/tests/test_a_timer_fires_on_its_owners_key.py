@@ -239,3 +239,24 @@ def test_a_paused_timer_is_read_again_only_now_and_then(tmp_path):
     assert asked == ["t1"]
     T.fire_due(store, fake.http(), "m", "c", NOW + T.PAUSED_RECHECK, tokens=tokens)
     assert asked == ["t1", "t1"]
+
+
+def test_a_once_timer_moved_later_while_armed_runs_again_at_its_new_time(tmp_path):
+    """BUG-041 (2026-11-10): a once-timer that had run, then was saved for a later time while still
+    armed, never ran again: its last run was taken as its only run, and the card was never read
+    again to see the new time."""
+    first = NOW - timedelta(minutes=1)
+    store = T.Store(tmp_path)
+    store.arm("t1", "jg-1", "p-1", schedule={"at": first.isoformat()}, last_run=None)
+    store.note("t1", checked_at=NOW.isoformat())
+    fake = FakeHttp(_ctx(schedule={"at": first.isoformat()}))
+    assert T.fire_due(store, fake.http(), "m", "c", NOW, tokens=_tokens()) == {"t1": "fired (200)"}
+    later = NOW + timedelta(minutes=30)
+    fake.ctx["timer"]["schedule"] = {"at": later.isoformat()}           # saved while armed
+    asked, tokens = _counting()
+    assert T.fire_due(store, fake.http(), "m", "c", NOW + timedelta(minutes=1), tokens=tokens) == {"t1": "not due"}
+    assert asked == []                                                   # not read every pass
+    assert T.fire_due(store, fake.http(), "m", "c", NOW + T.PAUSED_RECHECK, tokens=tokens) == {"t1": "not due"}
+    assert store.load()["t1"]["schedule"] == {"at": later.isoformat()}  # read again: the new time seen
+    assert T.fire_due(store, fake.http(), "m", "c", later, tokens=tokens) == {"t1": "fired (200)"}
+    assert fake.ctx["timer_state"]["runs"] == 2

@@ -89,7 +89,10 @@ def is_due(schedule: Dict[str, Any], last_run: Optional[str], now: datetime) -> 
     if "every_minutes" in s:
         return last is None or now - last >= timedelta(minutes=s["every_minutes"])
     if "at" in s:
-        return last is None and now >= _parse_time(s["at"])
+        # Once, at its time: again only if its time was moved past its last run (BUG-041,
+        # 2026-11-10: a once-timer saved for a later time while armed never ran again).
+        at = _parse_time(s["at"])
+        return now >= at and (last is None or last < at)
     hh, mm = (int(x) for x in str(s["daily_at"]).split(":"))
     slot = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
     if now < slot:
@@ -254,8 +257,12 @@ def fire_due(store: Store, http: Http, mantle: str, crystal: str, now: datetime,
                     report[timer_id] = "paused"
                     continue
             elif entry.get("schedule") and not is_due(entry["schedule"], entry.get("last_run"), now):
-                report[timer_id] = "not due"
-                continue
+                # The card is read again now and then, so a schedule saved while armed is taken
+                # up (BUG-041: one saved after arming was never seen).
+                checked = entry.get("checked_at") or entry.get("armed_at")
+                if not checked or now - _parse_time(checked) < PAUSED_RECHECK:
+                    report[timer_id] = "not due"
+                    continue
         except (ScheduleError, ValueError):
             pass
         minted, key, run_key = tokens(timer_id, entry)
