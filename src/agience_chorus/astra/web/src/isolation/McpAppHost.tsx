@@ -445,7 +445,8 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           const resources = Array.isArray(reach.resources)
             ? reach.resources.filter((r): r is string => typeof r === 'string' && r !== '')
             : [];
-          if (!resources.includes(artifact.id)) {
+          const timerId = String(artifact.id ?? '');
+          if (!timerId || !resources.includes(timerId)) {
             sendError(req.id, -32000, `Arming failed: ${typeof reach.error === 'string' ? reach.error
               : 'Lumen could not say what this timer reaches'}`);
             return;
@@ -468,8 +469,8 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
             return;
           }
           const { approveTimerAtOrigin } = await import('@/api/jobGrants');
-          const grantId = await approveTimerAtOrigin(artifact.id, resources, title);
-          const armedAnswer = await proxyToolCall('arm_timer', { timer_id: artifact.id, job_grant: grantId }, 'lumen');
+          const grantId = await approveTimerAtOrigin(timerId, resources, title);
+          const armedAnswer = await proxyToolCall('arm_timer', { timer_id: timerId, job_grant: grantId }, 'lumen');
           const text = armedAnswer.content?.[0]?.text ?? '{}';
           const armed = JSON.parse(text) as { armed?: boolean; error?: string };
           if (!armed.armed) {
