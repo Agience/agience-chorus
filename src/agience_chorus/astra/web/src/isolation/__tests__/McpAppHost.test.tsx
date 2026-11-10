@@ -8,7 +8,8 @@
  * tests focus on the wire contract:
  *
  *   - iframe is rendered with sandbox="allow-scripts" only (not allow-same-origin)
- *   - CSP meta tag is injected into srcdoc before the caller-supplied HTML
+ *   - the view runs in `view-host.html` (never srcdoc, which inherits the app's CSP), and is sent
+ *     its HTML, CSP meta tag first, when the host says it is ready
  *   - postMessage events from a different window are ignored (origin isolation)
  *   - ui/initialize returns the protocol version + host context
  *   - tools/call with update_artifact / create_artifact routes to the right
@@ -27,7 +28,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, waitFor, cleanup } from '@testing-library/react';
 import type { ReactElement } from 'react';
 
-import McpAppHost from '../McpAppHost';
+import McpAppHost, { VIEW_HOST } from '../McpAppHost';
 import type { Artifact } from '@/context/workspace/workspace.types';
 import { ConfirmContext } from '@/context/dialog/ConfirmContext';
 import type { ConfirmOptions } from '@/context/dialog/types';
@@ -177,13 +178,26 @@ describe('McpAppHost', () => {
       expect(iframe.getAttribute('sandbox')).toBe('allow-scripts');
     });
 
-    it('injects the CSP meta tag before the caller-supplied HTML inside srcdoc', () => {
+    it('loads the view host, never a srcdoc, which would inherit the app page CSP', () => {
+      // BUG-007, 2026-11-10: a srcdoc frame inherits `script-src 'self'` from the app's page, and
+      // every view's inline script and handler was refused in production; jsdom enforces no CSP.
+      const { container } = render(<McpAppHost artifact={makeArtifact()} html="<p>hi</p>" />);
+      const iframe = container.querySelector('iframe')!;
+      expect(iframe.getAttribute('src')).toBe(VIEW_HOST);
+      expect(iframe.hasAttribute('srcdoc')).toBe(false);
+    });
+
+    it('sends the view, CSP meta tag first, to the host when it is ready, and to no other window', () => {
       const html = '<p>viewer</p>';
       const { container } = render(
         <McpAppHost artifact={makeArtifact()} html={html} />,
       );
-      const iframe = container.querySelector('iframe')!;
-      const srcdoc = iframe.getAttribute('srcdoc') ?? '';
+      const { posted, dispatchFromIframe, dispatchFromOtherOrigin } = wireIframe(container);
+      dispatchFromOtherOrigin({ type: 'agience/view-host/ready' });
+      expect(posted).toEqual([]);
+      dispatchFromIframe({ type: 'agience/view-host/ready' });
+      const sent = posted.find((p) => (p.message as { type?: string }).type === 'agience/view-host/render');
+      const srcdoc = (sent?.message as { html?: string } | undefined)?.html ?? '';
       // CSP meta tag wraps the payload.
       expect(srcdoc).toContain('<meta http-equiv="Content-Security-Policy"');
       expect(srcdoc.indexOf('<meta http-equiv="Content-Security-Policy"')).toBeLessThan(
@@ -199,8 +213,10 @@ describe('McpAppHost', () => {
           csp={{ connectDomains: ['https://allowed.example'] }}
         />,
       );
-      const srcdoc =
-        (container.querySelector('iframe') as HTMLIFrameElement).getAttribute('srcdoc') ?? '';
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ type: 'agience/view-host/ready' });
+      const srcdoc = ((posted.find((p) => (p.message as { type?: string }).type === 'agience/view-host/render')
+        ?.message as { html?: string } | undefined)?.html) ?? '';
       expect(srcdoc).toContain('connect-src https://allowed.example');
       expect(srcdoc).not.toContain("connect-src 'none'");
     });

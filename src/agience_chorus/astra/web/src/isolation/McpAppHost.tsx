@@ -23,6 +23,9 @@ import { safeParseArtifactContext } from '@/utils/artifactContext';
 import { getArtifact } from '@/api/artifacts';
 import { mergeViewContext } from './mergeViewContext';
 
+/** The document every view runs in: `public/view-host.html`, with its own CSP at the edge. */
+export const VIEW_HOST = `${import.meta.env.BASE_URL}view-host.html`;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -123,6 +126,23 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
 
   // Assemble the HTML with CSP meta tag injected
   const srcdocHtml = buildCspMetaTag(csp) + html;
+
+  // The view's document is `view-host.html`, loaded from this origin into the sandboxed frame:
+  // a srcdoc frame would inherit the app page's CSP (`script-src 'self'`), which refuses every
+  // view's inline scripts (BUG-007, 2026-11-10: timers could not be armed, Inbox items not
+  // approved). The host page runs under its own path-scoped CSP; it says it is ready, and is sent
+  // the view's HTML, CSP meta tag first, to become.
+  useEffect(() => {
+    function onReady(event: MessageEvent) {
+      const frame = iframeRef.current?.contentWindow;
+      if (!frame || event.source !== frame) return;
+      if (event.data?.type !== 'agience/view-host/ready') return;
+      // The frame's origin is opaque (no allow-same-origin), so it cannot be named as a target.
+      frame.postMessage({ type: 'agience/view-host/render', html: srcdocHtml }, '*');
+    }
+    window.addEventListener('message', onReady);
+    return () => window.removeEventListener('message', onReady);
+  }, [srcdocHtml]);
 
   // Expose sendPickerResult to parent via ref
   // (defined after sendNotification — hoisted within closure)
@@ -660,8 +680,10 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
       style={{ width: '100%', height: '100%', position: 'relative' }}
     >
       <iframe
+        // A new view is a new document: the frame reloads the host, which asks for it again.
+        key={srcdocHtml}
         ref={iframeRef}
-        srcDoc={srcdocHtml}
+        src={VIEW_HOST}
         sandbox="allow-scripts"
         style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'auto' }}
         title="MCP App View"

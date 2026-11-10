@@ -1,0 +1,26 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Agience view</title>
+<!--
+  The document a persona view runs in (McpAppHost). The app's own page allows only its own script
+  files, and a srcdoc, blob: or data: frame inherits that policy, so a view's inline scripts and
+  handlers would be refused. This page is loaded from the app's origin into a frame sandboxed
+  without allow-same-origin, so it runs as an opaque origin under the policy the edge gives this
+  path alone. It takes one message from the frame's parent, the view's HTML with the view's own
+  CSP meta tag first, and becomes that document.
+-->
+<script>
+(function () {
+  var done = false;
+  window.addEventListener('message', function (e) {
+    if (done || e.source !== window.parent) return;
+    var d = e.data;
+    if (!d || d.type !== 'agience/view-host/render' || typeof d.html !== 'string') return;
+    done = true;
+    document.open();
+    document.write(d.html);
+    document.close();
+  });
+  window.parent.postMessage({ type: 'agience/view-host/ready' }, '*');
+})();
+</script>

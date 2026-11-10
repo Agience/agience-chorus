@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-11-09
+
+### Fixed
+- Persona views run on production (BUG-007): a view is no longer a `srcdoc` frame, which inherits the app page's CSP (`script-src 'self'`), so every view's inline script and handler was refused, and timers could not be armed nor Inbox items approved. `McpAppHost` loads `view-host.html` from the app's own origin into the same frame, sandboxed without `allow-same-origin` (an opaque origin), and sends it the view's HTML, the view's CSP meta tag first, once it says it is ready; the host page becomes that document under the policy the edge gives its path alone. Checked in Chromium under both production policies: the view's inline module script and handler run and its messages reach the app, where the `srcdoc` frame is refused with production's error.
+
 ## [0.2.10] - 2026-11-09
 
 ### Fixed
