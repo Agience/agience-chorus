@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-11-10
+
+### Fixed
+- Requires agience-prism 0.1.11, whose sign-in bounds poller no longer refuses the first call a persona takes after a restart (BUG-032: Iris answered 401 to it).
+
 ## [0.2.13] - 2026-11-10
 
 ### Fixed
