@@ -86,6 +86,18 @@ export function addItemToContainer(
  *
  * Calls the unified invoke endpoint scoped to a specific artifact.
  */
+/**
+ * Invoke a workflow as the person, through Crystal, with the workflow as their session reads it
+ * (`context`): the path a timer's firing takes, so its steps may reach any persona (BUG-044).
+ */
+export function invokeWithContext(
+  artifactId: string,
+  context: Record<string, unknown>,
+  workspaceId?: string,
+): Promise<unknown> {
+  return post(`/artifacts/${artifactId}/op/invoke`, { context, workspace_id: workspaceId });
+}
+
 export function invokeArtifact(
   artifactId: string,
   input?: string,

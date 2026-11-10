@@ -335,10 +335,17 @@ async function saveNow() {
   try {
     await save({ run: { ...(ctx.run || {}), type: 'workflow', steps: currentSteps() } });
     // Its Runs collection, made now by the person building it, so a timer can record there later.
-    // Lumen makes it; this view, in the person's session, records it on the workflow (BUG-044).
+    // Made by the person, beside the workflow, and recorded on it (BUG-044): Lumen's delegation
+    // may not make a collection of the person's. A run goes ahead without one, recorded beside it.
     if (!ctx.runs_to && !catalog.runs_to) {
-      const made = (await tool('prepare_runs', { workflow_id: artifactId, context: ctx })).runs_to;
-      if (made) { catalog.runs_to = made; await save({ runs_to: made }); }
+      try {
+        const res = await rpc('tools/call', { name: 'create_artifact', arguments: {
+          content_type: 'application/vnd.agience.collection+json', content: '',
+          context: JSON.stringify({ content_type: 'application/vnd.agience.collection+json',
+                                    title: `Runs — ${ctx.title || 'workflow'}` }) } });
+        const made = JSON.parse((res && res.content && res.content[0] && res.content[0].text) || '{}').id;
+        if (made) { catalog.runs_to = made; await save({ runs_to: made }); }
+      } catch { /* runs are recorded beside the workflow instead */ }
     }
     status('Saved.'); render();
   } catch (e) { status(e.message, true); }
@@ -422,7 +429,7 @@ $('run').onclick = async () => {
   await saveNow(); if ($('status').className === 'err') return;
   status('Running…'); $('run').disabled = true;
   try {
-    const out = unwrap(unwrap(await tool('execute_transform', { transform_id: artifactId, context: ctx })));
+    const out = unwrap(unwrap(await rpc('tools/call', { name: 'invoke_self', arguments: { context: ctx } })));
     $('result').classList.remove('hidden');
     $('result').textContent = typeof out === 'string' ? out : JSON.stringify(out, null, 2);
     status('Done.');

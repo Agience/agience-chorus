@@ -21,7 +21,7 @@ import { isWebUrl } from './openLink';
 import { getAgienceDragPayload } from '@/dnd/agienceDrag';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
 import { CHAT_CONTENT_TYPE, OPERATOR_CONTENT_TYPE } from '@/utils/content-type';
-import { getArtifact } from '@/api/artifacts';
+import { getArtifact, invokeWithContext } from '@/api/artifacts';
 import { mergeViewContext } from './mergeViewContext';
 
 /** The document every view runs in: `public/view-host.html`, with its own CSP at the edge. */
@@ -625,6 +625,26 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           sendResponse(req.id, result);
         } catch (e) {
           sendError(req.id, -32000, `Asking failed: ${readableError(e)}`);
+        }
+        return;
+      }
+
+      // A workflow's "Run now" (BUG-044, 2026-11-10): invoked as the person, through Crystal, as a
+      // timer's firing is, so each step reaches the persona that serves it. Only the view's own
+      // artifact, with the context the view holds for it.
+      case 'invoke_self': {
+        const ctxArg = toolArgs.context;
+        if (!ctxArg || typeof ctxArg !== 'object' || Array.isArray(ctxArg)) {
+          sendError(req.id, -32602, 'invoke_self takes the workflow\'s context');
+          return;
+        }
+        try {
+          const result = await invokeWithContext(String(artifact.id ?? ''), ctxArg as Record<string, unknown>,
+                                                 activeWorkspaceId || artifact.collection_id || undefined);
+          const isMcp = result && typeof result === 'object' && Array.isArray((result as { content?: unknown }).content);
+          sendResponse(req.id, isMcp ? result : { content: [{ type: 'text', text: JSON.stringify(result) }] });
+        } catch (e) {
+          sendError(req.id, -32000, `Running failed: ${readableError(e)}`);
         }
         return;
       }

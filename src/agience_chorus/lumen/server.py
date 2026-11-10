@@ -648,8 +648,10 @@ async def run_workflow(
                 ctx = json.loads(ctx)
             except json.JSONDecodeError:
                 return json.dumps({"error": "workflow artifact has invalid JSON context."})
-        if isinstance(context, dict) and context:
-            ctx = dict(context)            # the person's own reading of it (BUG-044)
+        if isinstance(context, dict) and context and not _run_block(ctx):
+            # The person's own reading of it, when Lumen cannot read its sealed steps (BUG-044); a
+            # timer's delegation reads them itself, and a card's own steps are never replaced.
+            ctx = dict(context)
 
         # Find the run block
         run = (
@@ -975,8 +977,14 @@ async def execute_transform(
 
     # Parse context
     raw_ctx = transform_artifact.get("context", {})
-    if isinstance(context, dict) and context:
-        raw_ctx = dict(context)            # the person's own reading of it (BUG-044)
+    if isinstance(raw_ctx, str):
+        try:
+            raw_ctx = json.loads(raw_ctx)
+        except json.JSONDecodeError:
+            pass
+    if isinstance(context, dict) and context and not _run_block(raw_ctx if isinstance(raw_ctx, dict) else {}):
+        # The person's own reading of it, when Lumen cannot read its sealed steps (BUG-044).
+        raw_ctx = dict(context)
     if isinstance(raw_ctx, str):
         try:
             raw_ctx = json.loads(raw_ctx)
@@ -1373,7 +1381,10 @@ async def timer_reach(timer_id: str, contexts: Optional[dict] = None) -> str:
             run = _run_block(workflow)
             # Nothing to run is said now, before anything is approved at Origin (BUG-043,
             # 2026-11-10: a timer armed on an empty workflow failed every run).
-            if not run and got.json().get("content_type") in _RUNNABLE_TYPES:
+            # A workflow with no steps has nothing to run either (BUG-043, reopened 2026-11-10: the
+            # editor's "No steps yet" workflow holds a run block with an empty step list).
+            empty = not run or (run.get("type") == "workflow" and not run.get("steps"))
+            if empty and got.json().get("content_type") in _RUNNABLE_TYPES:
                 return json.dumps({"error": "the timer's target has nothing to run: give it a step "
                                             "(a run block) before arming the timer"})
             if run.get("type") == "workflow":

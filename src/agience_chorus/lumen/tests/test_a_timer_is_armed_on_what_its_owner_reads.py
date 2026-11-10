@@ -149,6 +149,12 @@ async def test_a_target_with_nothing_to_run_is_refused_before_origin_is_asked(pe
     with patch.object(L.httpx, "AsyncClient", Mantle().client()):
         out = json.loads(await L.timer_reach("t-2", {"t-2": timer, "wf-empty": {}}))
     assert "nothing to run" in out.get("error", "") and "resources" not in out
+    # The editor's "No steps yet": a workflow run block with no steps (BUG-043, reopened).
+    no_steps = {"run": {"type": "workflow", "steps": []}}
+    monkeypatch.setitem(FULL, "wf-empty", ("application/vnd.agience.transform+json", no_steps))
+    with patch.object(L.httpx, "AsyncClient", Mantle().client()):
+        out = json.loads(await L.timer_reach("t-2", {"t-2": timer, "wf-empty": no_steps}))
+    assert "nothing to run" in out.get("error", ""), out
     # A run block under `transform`, where the runner also finds one, is something to run.
     nested = {"transform": {"run": {"type": "mcp-tool", "server": "astra", "tool": "noop"}}}
     monkeypatch.setitem(FULL, "wf-empty", ("application/vnd.agience.transform+json", nested))

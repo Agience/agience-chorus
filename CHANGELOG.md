@@ -5,6 +5,12 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.22] - 2026-11-10
+
+### Fixed
+- A workflow runs from its editor (BUG-047). "Run now" goes through Crystal as the person, the path a timer's firing takes, so each step reaches the persona that serves it; a person's Lumen delegation passes nothing on to another persona. The editor sends the workflow as the person's session reads it (`invoke_self`: the view's own artifact only), and Lumen uses it only when it cannot read the workflow's sealed steps itself, so a timer's run is unchanged. The workflow's Runs collection is made by the person, beside it; a run goes ahead without one.
+- A timer aimed at a workflow with no steps is refused when armed (BUG-043, reopened): the editor's "No steps yet" holds a run block with an empty step list, which passed as something to run.
+
 ## [0.2.21] - 2026-11-10
 
 ### Fixed

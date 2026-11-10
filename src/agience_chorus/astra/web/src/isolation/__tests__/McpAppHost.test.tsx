@@ -55,8 +55,10 @@ vi.mock('@/hooks/useWorkspaces', () => ({
 
 // Dynamic imports inside the component — stubbed so we never hit axios.
 const getArtifactMock = vi.fn();
+const invokeWithContextMock = vi.fn();
 vi.mock('@/api/artifacts', () => ({
   getArtifact: (...args: unknown[]) => getArtifactMock(...args),
+  invokeWithContext: (...args: unknown[]) => invokeWithContextMock(...args),
 }));
 
 const proxyToolCallMock = vi.fn();
@@ -599,6 +601,33 @@ describe('McpAppHost', () => {
                            params: { name: 'ask_notes', arguments: { question: 'all my notes' } } });
       await waitFor(() => expect(responseFor(posted, 42)?.error).toBeDefined());
       expect(proxyToolCallMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('invoke_self', () => {
+    // BUG-044 (2026-11-10): "Run now" goes through Crystal as the person, as a timer's firing does,
+    // so each step reaches the persona that serves it; only the view's own artifact.
+    it('invokes the workflow of the view itself through Crystal, with its context', async () => {
+      invokeWithContextMock.mockResolvedValue({ content: [{ type: 'text', text: '{"ok": true}' }] });
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ id: 'wf-1', collection_id: 'ws-1' })} html="" />, [],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      const ctx = { run: { type: 'workflow', steps: [{ name: 'A' }] } };
+      dispatchFromIframe({ jsonrpc: '2.0', id: 61, method: 'tools/call',
+                           params: { name: 'invoke_self', arguments: { context: ctx, id: 'someone-else' } } });
+      await waitFor(() => expect(responseFor(posted, 61)?.result).toBeDefined());
+      expect(invokeWithContextMock).toHaveBeenCalledWith('wf-1', ctx, expect.anything());
+      expect(proxyToolCallMock).not.toHaveBeenCalled();
+    });
+
+    it('takes no call without the context of the workflow', async () => {
+      invokeWithContextMock.mockClear();
+      const { container } = renderWithConfirm(<McpAppHost artifact={makeArtifact({ id: 'wf-1' })} html="" />, []);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 62, method: 'tools/call', params: { name: 'invoke_self', arguments: {} } });
+      await waitFor(() => expect(responseFor(posted, 62)?.error).toBeDefined());
+      expect(invokeWithContextMock).not.toHaveBeenCalled();
     });
   });
 

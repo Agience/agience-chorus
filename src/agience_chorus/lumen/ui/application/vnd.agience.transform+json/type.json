@@ -229,12 +229,17 @@
           "workspace_id": "$.body.workspace_id?",
           "params": "$.body.params?",
           "input": "$.body.input?",
-          "artifacts": "$.body.artifacts?"
+          "artifacts": "$.body.artifacts?",
+          "context": "$.body.context?"
         }
       },
       "input_schema": {
         "type": "object",
         "properties": {
+          "context": {
+            "type": "object",
+            "description": "The workflow as the person's own session reads it, used only when Lumen cannot read its sealed steps (BUG-044)."
+          },
           "workspace_id": {
             "type": "string"
           },
