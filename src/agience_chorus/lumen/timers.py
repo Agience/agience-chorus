@@ -1,4 +1,4 @@
-"""Timers — an operator that fires an artifact's operation on a schedule, on a key its owner issued.
+"""Timers — an operator that fires an artifact's operation on a schedule, on its owner's job grant.
 
 A timer is a `vnd.agience.timer+json` card:
 
@@ -10,22 +10,21 @@ A timer is a `vnd.agience.timer+json` card:
     }
     context.timer_state = {"last_run", "last_status", "last_error", "runs"}   # written by the operator
 
-Nobody is signed in when a timer fires, so it acts on a grant: a key the owner issues from the card
-when they arm it (`POST /grants/keys`, over the timer's workspace). The key reaches what the owner
-gave it and nothing else; every read and write a firing makes — the timer card, the target's
-operation through Crystal, a workflow's steps on other personas — is decided by Mantle against that
-one grant. Revoking the key, or disarming the card (which revokes it), stops the timer: a firing
-whose key is refused drops the timer.
-
-The key reaches this operator from the app's host, never through the card's view, and is kept only
-sealed: RSA-OAEP under this node's chorus key (`KEYS_DIR/chorus.public.pem`), so the file holds
-nothing a reader of the disk can use.
+Nobody is signed in when a timer fires, so it runs on a job grant its owner makes at Origin when
+they arm it (John, 2026-11-10): job `lumen.timer.<timer id>`, over the owner's own key, naming what
+the timer reaches (`reach`, from `reach` below) and nothing else, approved at Origin's own page with
+a step-up. Lumen keeps the grant's id, never a key. Each firing asks Origin, on Lumen's own key, for
+two delegations under the grant (`POST /internal/job-delegation`): one narrowed to Lumen, exchanged
+for Lumen's own server delegation, on which it reads and writes the timer, records the run and raises
+an Inbox item; and one narrowed to Crystal, on which the target's operation runs. Both carry the
+reach, every exchange from them keeps it, and Mantle holds each read and write to it and to what the
+owner holds there. A revoked or expired grant mints nothing, and a firing refused its delegation
+drops the timer; disarming forgets it here and revokes the grant at Origin's page.
 
 Times are UTC.
 """
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import os
@@ -33,13 +32,15 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 log = logging.getLogger("agience.lumen.timers")
 
 TIMER_TYPE = "application/vnd.agience.timer+json"
 #: How often due timers are looked for.
 TICK_SECONDS = 30.0
+#: How often a paused timer's card is read again, to see it resumed.
+PAUSED_RECHECK = timedelta(minutes=15)
 #: The most a run's result recorded into `results_to` carries.
 RESULT_CHARS = 4000
 
@@ -96,34 +97,11 @@ def is_due(schedule: Dict[str, Any], last_run: Optional[str], now: datetime) -> 
     return last is None or last < slot
 
 
-# ── sealing ───────────────────────────────────────────────────────────────────────────────────
-def _keys_dir() -> Path:
-    return Path(os.environ.get("KEYS_DIR") or ".")
-
-
-def seal(secret: str, keys_dir: Optional[Path] = None) -> str:
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import padding
-
-    pub = serialization.load_pem_public_key(((keys_dir or _keys_dir()) / "chorus.public.pem").read_bytes())
-    sealed = pub.encrypt(secret.encode(), padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),
-                                                        algorithm=hashes.SHA256(), label=None))
-    return base64.b64encode(sealed).decode()
-
-
-def unseal(sealed: str, keys_dir: Optional[Path] = None) -> str:
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import padding
-
-    key = serialization.load_pem_private_key(((keys_dir or _keys_dir()) / "chorus.private.pem").read_bytes(),
-                                             password=None)
-    return key.decrypt(base64.b64decode(sealed), padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),
-                                                               algorithm=hashes.SHA256(), label=None)).decode()
-
-
 # ── the armed set ─────────────────────────────────────────────────────────────────────────────
 class Store:
-    """The timers armed on this node: `{timer_id: {"sealed_key", "key_id", "armed_at"}}`."""
+    """The timers armed on this node: `{timer_id: {"job_grant", "principal", "armed_at",
+    "schedule", "last_run", "checked_at", "paused"}}`. The schedule and last run are the card's, as
+    last read, so a pass asks Origin for a delegation only for a timer that is due."""
 
     def __init__(self, directory: Path):
         self.path = Path(directory) / "armed.json"
@@ -145,40 +123,52 @@ class Store:
             pass
         os.replace(tmp, self.path)
 
-    def arm(self, timer_id: str, sealed_key: str, key_id: str) -> None:
+    def note(self, timer_id: str, **fields: Any) -> None:
+        """Keep what a pass read of a timer still armed here."""
         with self._lock:
             data = self.load()
-            data[timer_id] = {"sealed_key": sealed_key, "key_id": key_id,
+            if timer_id in data:
+                data[timer_id].update(fields)
+                self._save(data)
+
+    def arm(self, timer_id: str, job_grant: str, principal: str,
+            schedule: Optional[Dict[str, Any]] = None, last_run: Optional[str] = None) -> None:
+        with self._lock:
+            data = self.load()
+            data[timer_id] = {"job_grant": job_grant, "principal": principal,
+                              **({"schedule": schedule} if schedule else {}),
+                              **({"last_run": last_run} if last_run else {}),
                               "armed_at": datetime.now(timezone.utc).isoformat()}
             self._save(data)
 
-    def disarm(self, timer_id: str) -> bool:
+    def disarm(self, timer_id: str) -> Optional[Dict[str, Any]]:
+        """Forget the timer; what it was armed with, or None when it was not armed here."""
         with self._lock:
             data = self.load()
-            gone = data.pop(timer_id, None) is not None
-            if gone:
+            gone = data.pop(timer_id, None)
+            if gone is not None:
                 self._save(data)
             return gone
 
 
 # ── what its key must reach ───────────────────────────────────────────────────────────────────
-def reach(workspace: str, spec: Dict[str, Any], workflow: Optional[Dict[str, Any]] = None,
+def reach(timer_id: str, spec: Dict[str, Any], workflow: Optional[Dict[str, Any]] = None,
           links: Optional[Dict[str, str]] = None, tools: Optional[List[tuple]] = None,
           platform: Optional[Dict[tuple, str]] = None) -> List[str]:
-    """Every resource a timer's key must reach, in order, once each: its workspace, its target,
-    where it records runs and raises failures, and for a workflow each operator a step invokes and
-    each artifact a step links. A card made before steps were operators calls persona tools
-    directly (`tools`, as (server, tool)); each one the platform offers as an operator (`platform`)
-    needs that operator, so it is reached too. The owner approves this list, and Mantle clamps the
-    key on each to what the owner holds there, so a key over an operator carries read and invoke and
-    no more."""
+    """Every item a timer's grant must reach, in order, once each: the timer itself (its state is
+    written back), its target, where it records runs and raises failures, and for a workflow each
+    operator a step invokes and each artifact a step links. Never its workspace (BUG-035): the
+    grant reaches what the timer runs and nothing beside it. A card made before steps were
+    operators calls persona tools directly (`tools`, as (server, tool)); each one the platform
+    offers as an operator (`platform`) needs that operator, so it is reached too. The owner approves
+    this list at Origin, and Mantle holds the timer on each to what the owner holds there."""
     out: List[str] = []
 
     def add(rid: Any) -> None:
         if isinstance(rid, str) and rid and rid not in out:
             out.append(rid)
 
-    add(workspace)
+    add(timer_id)
     add((spec.get("target") or {}).get("artifact_id"))
     add(spec.get("results_to"))
     add(spec.get("inbox_to"))
@@ -224,10 +214,16 @@ def step_failure(result: Any) -> Optional[str]:
 
 @dataclass
 class Http:
-    """The calls a firing makes, each with the timer's key as its bearer. Injected for tests."""
-    get: Callable[[str, str], Any]               # (url, key) -> (status, json)
-    post: Callable[[str, str, dict], Any]        # (url, key, body) -> (status, json)
-    patch: Callable[[str, str, dict], Any]       # (url, key, body) -> (status, json)
+    """The calls a firing makes, each with one of its delegations as its bearer. Injected for
+    tests."""
+    get: Callable[[str, str], Any]               # (url, token) -> (status, json)
+    post: Callable[[str, str, dict], Any]        # (url, token, body) -> (status, json)
+    patch: Callable[[str, str, dict], Any]       # (url, token, body) -> (status, json)
+
+
+#: `(timer_id, armed entry) -> (status, for Mantle, for Crystal)`: a firing's two delegations from
+#: Origin under the timer's job grant, or the status Origin refused them with.
+Tokens = Callable[[str, Dict[str, Any]], Tuple[int, Optional[str], Optional[str]]]
 
 
 def _context(doc: dict) -> dict:
@@ -241,18 +237,39 @@ def _context(doc: dict) -> dict:
 
 
 def fire_due(store: Store, http: Http, mantle: str, crystal: str, now: datetime,
-             unseal_fn: Callable[[str], str] = unseal) -> Dict[str, str]:
+             tokens: Tokens) -> Dict[str, str]:
     """One pass over the armed timers: fire each that is due. Returns {timer_id: what happened}."""
     report: Dict[str, str] = {}
     for timer_id, entry in sorted(store.load().items()):
+        if not entry.get("job_grant"):
+            # Armed on a key before timers ran on job grants: it is armed again to run.
+            store.disarm(timer_id)
+            report[timer_id] = "dropped (armed on a key; arm it again)"
+            continue
+        # Due by the card as last read, or nothing is asked of Origin.
         try:
-            key = unseal_fn(entry["sealed_key"])
-        except Exception as exc:
-            report[timer_id] = f"unsealable ({type(exc).__name__})"
+            if entry.get("paused"):
+                checked = entry.get("checked_at")
+                if checked and now - _parse_time(checked) < PAUSED_RECHECK:
+                    report[timer_id] = "paused"
+                    continue
+            elif entry.get("schedule") and not is_due(entry["schedule"], entry.get("last_run"), now):
+                report[timer_id] = "not due"
+                continue
+        except (ScheduleError, ValueError):
+            pass
+        minted, key, run_key = tokens(timer_id, entry)
+        if minted in (401, 403, 404):
+            # Origin mints nothing under a revoked or expired grant: the timer is over.
+            store.disarm(timer_id)
+            report[timer_id] = f"dropped (grant {minted})"
+            continue
+        if minted != 200 or not key or not run_key:
+            report[timer_id] = f"no delegation ({minted})"
             continue
         status, doc = http.get(f"{mantle}/artifacts/{timer_id}", key)
         if status in (401, 403, 404):
-            # The key was revoked, or the card is gone or out of its reach: the timer is over.
+            # The card is gone, or out of the grant's reach: the timer is over.
             store.disarm(timer_id)
             report[timer_id] = f"dropped ({status})"
             continue
@@ -261,26 +278,32 @@ def fire_due(store: Store, http: Http, mantle: str, crystal: str, now: datetime,
             continue
         ctx = _context(doc)
         spec, state = ctx.get("timer") or {}, ctx.get("timer_state") or {}
+        seen = {"schedule": spec.get("schedule"), "last_run": state.get("last_run"),
+                "checked_at": now.isoformat(), "paused": spec.get("enabled") is False}
         if spec.get("enabled") is False:
+            store.note(timer_id, **seen)
             report[timer_id] = "paused"
             continue
         try:
             if not is_due(spec.get("schedule"), state.get("last_run"), now):
+                store.note(timer_id, **seen)
                 report[timer_id] = "not due"
                 continue
         except ScheduleError as exc:
+            store.note(timer_id, **seen)
             report[timer_id] = f"bad schedule: {exc}"
             continue
 
         target = spec.get("target") or {}
         op = target.get("operation") or "invoke"
-        code, result = http.post(f"{crystal}/artifacts/{target.get('artifact_id')}/op/{op}", key,
-                                 target.get("body") or {})
+        code, result = http.post(f"{crystal}/artifacts/{target.get('artifact_id')}/op/{op}",
+                                 run_key, target.get("body") or {})
         failure = step_failure(result) if 200 <= code < 300 else json.dumps(result)[:500]
         state = {**state, "last_run": now.isoformat(), "last_status": code, "runs": int(state.get("runs") or 0) + 1,
                  "last_ok": failure is None, "last_error": failure}
         http.patch(f"{mantle}/artifacts/{timer_id}", key,
                    {"context": json.dumps({**ctx, "timer_state": state})})
+        store.note(timer_id, **{**seen, "last_run": state["last_run"]})
         if spec.get("results_to"):
             http.post(f"{mantle}/artifacts", key, {
                 "container_id": spec["results_to"],
@@ -300,7 +323,7 @@ def fire_due(store: Store, http: Http, mantle: str, crystal: str, now: datetime,
                     evidence=[timer_id, str(target.get("artifact_id") or "")],
                     action={"artifact_id": target.get("artifact_id"), "operation": op,
                             "body": target.get("body") or {}} if target.get("artifact_id") else None,
-                    source={"artifact_id": timer_id, "kind": "timer"}, by="key",
+                    source={"artifact_id": timer_id, "kind": "timer"}, by="timer",
                     at=now.isoformat())),
             })
         report[timer_id] = f"fired ({code})" if failure is None else f"fired ({code}), failed: {failure[:120]}"

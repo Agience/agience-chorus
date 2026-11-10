@@ -5,6 +5,14 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.15] - 2026-11-10
+
+### Changed
+- A timer is armed on a job grant its owner approves at Origin, over what it runs and never its workspace (BUG-024, BUG-035). The host lists what the timer reaches, opens Origin's page, and hands Lumen the grant's id; Lumen keeps no key, and asks Origin for a firing's delegations only when the timer is due. Disarming stops the timer at once and offers to stop its grant at Origin. A refusal reads as a sentence, not a transport error. A timer armed on a key before is dropped and armed again.
+
+### Fixed
+- Ask anything answers from the person's own notes (BUG-036): a Chat asks the host's `ask_notes`, which calls Sage's grounded `ask` on the app's delegation for Sage and returns cited extracts, or says why nothing answers it. No model writes the reply, and no view but a Chat may ask. A tool's failure is shown in its own words; it was parsed as JSON and shown as "Something went wrong".
+
 ## [0.2.14] - 2026-11-10
 
 ### Fixed

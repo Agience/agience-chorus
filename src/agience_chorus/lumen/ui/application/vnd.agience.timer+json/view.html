@@ -103,7 +103,8 @@
       }
     }
 
-    const armed = () => Boolean(ctx.key && ctx.key.api_key_id && !ctx.key.revoked_at);
+    // Armed on the job grant its owner approved at Origin (a timer armed on a key before is armed again).
+    const armed = () => Boolean(ctx.job_grant && ctx.job_grant.grant_id && !ctx.job_grant.disarmed_at);
 
     function render() {
       const t = ctx.timer || {}, s = t.schedule || {}, st = ctx.timer_state || {};
@@ -161,8 +162,8 @@
       try { await save({ ...ctx, timer: readForm() }); } catch (e) { showError(e.message || 'Save failed'); }
     };
 
-    // The host issues the key (after the owner approves it in its own dialog) and hands it to Lumen
-    // directly; the key never enters this view. The view records only the key's id.
+    // The host shows what the timer reaches, the owner approves a job grant over it at Origin, and the
+    // host hands the grant to Lumen; no key exists. The view records the grant's id and reach.
     window.handleArm = async function() {
       showError('');
       try {
@@ -170,17 +171,20 @@
         if (!timer.target.artifact_id) { showError('Name the target artifact first.'); return; }
         await save({ ...ctx, timer });
         const res = await sendRpc('tools/call', { name: 'arm_timer', arguments: { timer_id: artifactId } });
-        const armedKey = JSON.parse(res.content[0].text);
-        await save({ ...ctx, key: { api_key_id: armedKey.key_id, resources: armedKey.resources,
-                                    armed_at: new Date().toISOString() } });
+        const grant = JSON.parse(res.content[0].text);
+        const { key: _retired, ...rest } = ctx;
+        await save({ ...rest, job_grant: { grant_id: grant.job_grant, reach: grant.resources,
+                                           armed_at: new Date().toISOString() } });
       } catch (e) { showError((e && e.message) || 'Arming failed'); }
     };
 
     window.handleDisarm = async function() {
       showError('');
       try {
-        await sendRpc('tools/call', { name: 'disarm_timer', arguments: { id: ctx.key.api_key_id } });
-        await save({ ...ctx, key: { ...ctx.key, revoked_at: new Date().toISOString() } });
+        const res = await sendRpc('tools/call', { name: 'disarm_timer', arguments: { timer_id: artifactId } });
+        const out = JSON.parse(res.content[0].text);
+        await save({ ...ctx, job_grant: { ...ctx.job_grant, disarmed_at: new Date().toISOString(),
+                                          ...(out.revoked ? { revoked_at: new Date().toISOString() } : {}) } });
       } catch (e) { showError((e && e.message) || 'Disarming failed'); }
     };
   </script>

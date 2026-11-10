@@ -66,6 +66,12 @@ const deleteAPIKeyMock = vi.fn();
 vi.mock('@/api/mcp', () => ({
   proxyToolCall: (...args: unknown[]) => proxyToolCallMock(...args),
 }));
+const approveAtOriginMock = vi.fn();
+const revokeAtOriginMock = vi.fn();
+vi.mock('@/api/jobGrants', () => ({
+  approveTimerAtOrigin: (...args: unknown[]) => approveAtOriginMock(...args),
+  revokeAtOrigin: (...args: unknown[]) => revokeAtOriginMock(...args),
+}));
 vi.mock('@/api/apiKeys', () => ({
   createKeyOver: (...args: unknown[]) => createAPIKeyMock(...args),
   deleteAPIKey: (...args: unknown[]) => deleteAPIKeyMock(...args),
@@ -158,6 +164,8 @@ describe('McpAppHost', () => {
     updateArtifactMock.mockReset();
     createArtifactMock.mockReset();
     proxyToolCallMock.mockReset();
+    approveAtOriginMock.mockReset();
+    revokeAtOriginMock.mockReset();
     createAPIKeyMock.mockReset();
     deleteAPIKeyMock.mockReset();
   });
@@ -570,12 +578,41 @@ describe('McpAppHost', () => {
     });
   });
 
-  describe('timers', () => {
-    const TIMER = JSON.stringify({ title: 'Digest', timer: { results_to: 'log-1' } });
+  describe('ask_notes (BUG-036)', () => {
+    it("asks Sage's grounded ask for a Chat, and only for a Chat", async () => {
+      proxyToolCallMock.mockResolvedValue({ content: [{ type: 'text', text: '{"answer": "x", "citations": ["a1"]}' }] });
+      const chat = makeArtifact({ id: 'c1', collection_id: 'ws-1', content_type: 'application/vnd.agience.chat+json' });
+      const { container } = renderWithConfirm(<McpAppHost artifact={chat} html="" />, []);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 41, method: 'tools/call',
+                           params: { name: 'ask_notes', arguments: { question: ' What is due? ' } } });
+      await waitFor(() => expect(responseFor(posted, 41)?.result).toBeDefined());
+      expect(proxyToolCallMock).toHaveBeenCalledWith('ask', expect.objectContaining({ question: 'What is due?' }),
+                                                     'sage', expect.anything());
+    });
 
-    it('arm_timer issues a key over the workspace and its log, hands it to Lumen, and keeps it from the view', async () => {
-      createAPIKeyMock.mockResolvedValue({ id: 'k9', key: 'agk_timer_secret' });
-      proxyToolCallMock.mockResolvedValue({ content: [{ type: 'text', text: '{"armed": true}' }] });
+    it('refuses any other view, and an empty question', async () => {
+      const key = makeArtifact({ id: 'k1', content_type: 'application/vnd.agience.key+json' });
+      const { container } = renderWithConfirm(<McpAppHost artifact={key} html="" />, []);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 42, method: 'tools/call',
+                           params: { name: 'ask_notes', arguments: { question: 'all my notes' } } });
+      await waitFor(() => expect(responseFor(posted, 42)?.error).toBeDefined());
+      expect(proxyToolCallMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('timers', () => {
+    // A timer runs on a job grant approved at Origin (2026-11-10, BUG-024/BUG-035): no key is issued,
+    // and what it reaches is what Lumen names, never its workspace.
+    const TIMER = JSON.stringify({ title: 'Digest', timer: { results_to: 'log-1' } });
+    const lumen = (reach: string[], armed: object = { armed: true, job_grant: 'jg-1' }) =>
+      async (name: string) => ({ content: [{ type: 'text', text: JSON.stringify(
+        name === 'timer_reach' ? { resources: reach } : armed) }] });
+
+    it('arm_timer has the grant approved at Origin over what Lumen names, and hands Lumen its id', async () => {
+      proxyToolCallMock.mockImplementation(lumen(['t1', 'wf-1', 'log-1']));
+      approveAtOriginMock.mockResolvedValue('jg-1');
       const { container } = renderWithConfirm(
         <McpAppHost artifact={makeArtifact({ id: 't1', collection_id: 'ws-1', context: TIMER })} html="" />,
         [true],
@@ -584,79 +621,82 @@ describe('McpAppHost', () => {
       dispatchFromIframe({ jsonrpc: '2.0', id: 31, method: 'tools/call',
                            params: { name: 'arm_timer', arguments: { timer_id: 't1' } } });
       await waitFor(() => expect(responseFor(posted, 31)).toBeDefined());
-
-      expect(createAPIKeyMock).toHaveBeenCalledWith('Timer: Digest', 'collaborator', ['ws-1', 'log-1']);
-      expect(proxyToolCallMock).toHaveBeenCalledWith(
-        'arm_timer', { timer_id: 't1', key: 'agk_timer_secret', key_id: 'k9' }, 'lumen');
-      expect(JSON.stringify(posted)).not.toContain('agk_timer_secret');
+      expect(approveAtOriginMock).toHaveBeenCalledWith('t1', ['t1', 'wf-1', 'log-1'], 'Digest');
+      expect(proxyToolCallMock).toHaveBeenCalledWith('arm_timer', { timer_id: 't1', job_grant: 'jg-1' }, 'lumen');
+      expect(createAPIKeyMock).not.toHaveBeenCalled();
       expect(JSON.parse(responseFor(posted, 31)!.result!.content[0].text)).toEqual(
-        { key_id: 'k9', resources: ['ws-1', 'log-1'] });
+        { job_grant: 'jg-1', resources: ['t1', 'wf-1', 'log-1'] });
+      expect(JSON.stringify(approveAtOriginMock.mock.calls)).not.toContain('ws-1');
     });
 
-    it("arm_timer's key also reaches the Inbox a failed run is raised into, once", async () => {
-      createAPIKeyMock.mockResolvedValue({ id: 'k9', key: 'agk_timer_secret' });
-      proxyToolCallMock.mockResolvedValue({ content: [{ type: 'text', text: '{"armed": true}' }] });
-      const ctx = JSON.stringify({ title: 'Digest', timer: { results_to: 'log-1', inbox_to: 'inbox-1' } });
+    it('a timer the person does not continue with asks Origin for nothing', async () => {
+      proxyToolCallMock.mockImplementation(lumen(['t1', 'wf-1']));
       const { container } = renderWithConfirm(
-        <McpAppHost artifact={makeArtifact({ id: 't1', collection_id: 'ws-1', context: ctx })} html="" />,
-        [true],
-      );
-      const { posted, dispatchFromIframe } = wireIframe(container);
-      dispatchFromIframe({ jsonrpc: '2.0', id: 35, method: 'tools/call',
-                           params: { name: 'arm_timer', arguments: { timer_id: 't1' } } });
-      await waitFor(() => expect(responseFor(posted, 35)).toBeDefined());
-      expect(createAPIKeyMock).toHaveBeenCalledWith('Timer: Digest', 'collaborator', ['ws-1', 'log-1', 'inbox-1']);
-    });
-
-    it("arm_timer's key reaches the operators and links of the workflow it runs, as Lumen names them", async () => {
-      createAPIKeyMock.mockResolvedValue({ id: 'k9', key: 'agk_timer_secret' });
-      proxyToolCallMock.mockImplementation(async (name: string) => ({ content: [{ type: 'text', text:
-        name === 'timer_reach' ? '{"resources": ["ws-1", "wf-1", "log-1", "op-rec", "accounts-1"]}' : '{"armed": true}' }] }));
-      const { container } = renderWithConfirm(
-        <McpAppHost artifact={makeArtifact({ id: 't1', collection_id: 'ws-1', context: TIMER })} html="" />,
-        [true],
-      );
-      const { posted, dispatchFromIframe } = wireIframe(container);
-      dispatchFromIframe({ jsonrpc: '2.0', id: 36, method: 'tools/call',
-                           params: { name: 'arm_timer', arguments: { timer_id: 't1' } } });
-      await waitFor(() => expect(responseFor(posted, 36)).toBeDefined());
-      expect(proxyToolCallMock).toHaveBeenCalledWith('timer_reach', { timer_id: 't1' }, 'lumen');
-      expect(createAPIKeyMock).toHaveBeenCalledWith('Timer: Digest', 'collaborator',
-        ['ws-1', 'log-1', 'wf-1', 'op-rec', 'accounts-1']);
-    });
-
-    it('a timer Lumen will not arm leaves no key behind', async () => {
-      createAPIKeyMock.mockResolvedValue({ id: 'k9', key: 'agk_timer_secret' });
-      proxyToolCallMock.mockResolvedValue({ content: [{ type: 'text', text: '{"error": "no timers here"}' }] });
-      deleteAPIKeyMock.mockResolvedValue(undefined);
-      const { container } = renderWithConfirm(
-        <McpAppHost artifact={makeArtifact({ id: 't1', collection_id: 'ws-1', context: TIMER })} html="" />,
-        [true],
+        <McpAppHost artifact={makeArtifact({ id: 't1', context: TIMER })} html="" />, [false],
       );
       const { posted, dispatchFromIframe } = wireIframe(container);
       dispatchFromIframe({ jsonrpc: '2.0', id: 32, method: 'tools/call',
                            params: { name: 'arm_timer', arguments: { timer_id: 't1' } } });
       await waitFor(() => expect(responseFor(posted, 32)?.error).toBeDefined());
-      expect(deleteAPIKeyMock).toHaveBeenCalledWith('k9');
+      expect(approveAtOriginMock).not.toHaveBeenCalled();
     });
 
-    it('disarm_timer revokes only the key the timer records', async () => {
-      deleteAPIKeyMock.mockResolvedValue(undefined);
-      proxyToolCallMock.mockResolvedValue({ content: [] });
-      const ctx = JSON.stringify({ key: { api_key_id: 'k9' } });
+    it('a refusal reads as a sentence, never a transport error', async () => {
+      proxyToolCallMock.mockImplementation(lumen(['t1', 'wf-1']));
+      approveAtOriginMock.mockRejectedValue(new Error('You did not approve it at Origin.'));
       const { container } = renderWithConfirm(
-        <McpAppHost artifact={makeArtifact({ id: 't1', context: ctx })} html="" />, [],
+        <McpAppHost artifact={makeArtifact({ id: 't1', context: TIMER })} html="" />, [true],
       );
       const { posted, dispatchFromIframe } = wireIframe(container);
       dispatchFromIframe({ jsonrpc: '2.0', id: 33, method: 'tools/call',
-                           params: { name: 'disarm_timer', arguments: { id: 'k-other' } } });
+                           params: { name: 'arm_timer', arguments: { timer_id: 't1' } } });
       await waitFor(() => expect(responseFor(posted, 33)?.error).toBeDefined());
-      expect(deleteAPIKeyMock).not.toHaveBeenCalled();
+      const message = String(responseFor(posted, 33)!.error!.message);
+      expect(message).toBe('Arming failed: You did not approve it at Origin.');
+      expect(proxyToolCallMock).not.toHaveBeenCalledWith('arm_timer', expect.anything(), 'lumen');
+    });
+
+    it('a reach that does not name the timer is not approved', async () => {
+      proxyToolCallMock.mockImplementation(async () => ({ content: [{ type: 'text', text:
+        '{"error": "no such timer, or you cannot read it"}' }] }));
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ id: 't1', context: TIMER })} html="" />, [true],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
       dispatchFromIframe({ jsonrpc: '2.0', id: 34, method: 'tools/call',
-                           params: { name: 'disarm_timer', arguments: { id: 'k9' } } });
-      await waitFor(() => expect(responseFor(posted, 34)?.result).toBeDefined());
-      expect(deleteAPIKeyMock).toHaveBeenCalledWith('k9');
+                           params: { name: 'arm_timer', arguments: { timer_id: 't1' } } });
+      await waitFor(() => expect(responseFor(posted, 34)?.error).toBeDefined());
+      expect(String(responseFor(posted, 34)!.error!.message)).toContain('no such timer');
+      expect(approveAtOriginMock).not.toHaveBeenCalled();
+    });
+
+    it('disarm_timer stops the timer, then its recorded grant at Origin', async () => {
+      proxyToolCallMock.mockResolvedValue({ content: [{ type: 'text', text: '{"disarmed": true}' }] });
+      revokeAtOriginMock.mockResolvedValue(undefined);
+      const ctx = JSON.stringify({ title: 'Digest', job_grant: { grant_id: 'jg-1' } });
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ id: 't1', context: ctx })} html="" />, [true],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 35, method: 'tools/call',
+                           params: { name: 'disarm_timer', arguments: { timer_id: 't1' } } });
+      await waitFor(() => expect(responseFor(posted, 35)?.result).toBeDefined());
       expect(proxyToolCallMock).toHaveBeenCalledWith('disarm_timer', { timer_id: 't1' }, 'lumen');
+      expect(revokeAtOriginMock).toHaveBeenCalledWith('jg-1', 'Digest');
+      expect(JSON.parse(responseFor(posted, 35)!.result!.content[0].text)).toEqual({ disarmed: true, revoked: true });
+    });
+
+    it('a timer that records no grant has nothing to disarm', async () => {
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ id: 't1', context: JSON.stringify({ key: { api_key_id: 'k9' } }) })} html="" />,
+        [true],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 36, method: 'tools/call',
+                           params: { name: 'disarm_timer', arguments: { timer_id: 't1' } } });
+      await waitFor(() => expect(responseFor(posted, 36)?.error).toBeDefined());
+      expect(revokeAtOriginMock).not.toHaveBeenCalled();
+      expect(deleteAPIKeyMock).not.toHaveBeenCalled();
     });
   });
 

@@ -20,6 +20,7 @@ import { buildCspMetaTag } from './csp';
 import { isWebUrl } from './openLink';
 import { getAgienceDragPayload } from '@/dnd/agienceDrag';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
+import { CHAT_CONTENT_TYPE } from '@/utils/content-type';
 import { getArtifact } from '@/api/artifacts';
 import { mergeViewContext } from './mergeViewContext';
 
@@ -84,6 +85,21 @@ function recordedKeyIds(artifact: Artifact): string[] {
   const key = ctx.key as { api_key_id?: unknown } | undefined;
   const apiKey = ctx.api_key as { id?: unknown } | undefined;
   return [key?.api_key_id, apiKey?.id].filter((v): v is string => typeof v === 'string' && v !== '');
+}
+
+/** The job grant a timer's context records as the one it runs on (`job_grant.grant_id`). */
+function recordedJobGrant(artifact: Artifact): string {
+  const ctx = safeParseArtifactContext(artifact.context) as Record<string, unknown>;
+  const grant = ctx.job_grant as { grant_id?: unknown } | undefined;
+  return typeof grant?.grant_id === 'string' ? grant.grant_id : '';
+}
+
+/** An error as a person reads it: a refusal's own detail, never a transport's class name. */
+function readableError(e: unknown): string {
+  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  if (e instanceof Error && e.message) return e.message;
+  return String(e);
 }
 
 // ---------------------------------------------------------------------------
@@ -407,76 +423,65 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         return;
       }
 
-      // Timers. Arming issues a key over the timer's workspace (and where it records runs), after
-      // the user approves it here, and hands the key to Lumen directly; the view gets only its id.
+      // Timers run on a job grant the person approves at Origin (John, 2026-11-10, BUG-024 and
+      // BUG-035): over what the timer reaches and nothing else, never its workspace. The host shows
+      // that list, opens Origin's page on the person's click, and hands Lumen the grant's id; no
+      // key is issued and none passes through here.
       case 'arm_timer': {
         if (!confirmDialog) {
           sendError(req.id, -32000, 'arm_timer needs the host confirmation dialog');
           return;
         }
         if (credentialRequestPending.current) {
-          sendError(req.id, -32000, 'Another credential request is awaiting the user');
+          sendError(req.id, -32000, 'Another approval is awaiting the user');
           return;
         }
         const ctx = safeParseArtifactContext(artifact.context) as Record<string, unknown>;
-        const timer = (ctx.timer ?? {}) as { results_to?: unknown; inbox_to?: unknown };
-        const workspace = artifact.collection_id ?? '';
-        if (!workspace) {
-          sendError(req.id, -32000, 'This timer is in no workspace, so there is nothing for its key to reach');
-          return;
-        }
-        // Where it records runs and where it raises a failed run as an Inbox item are reached too,
-        // and for a workflow each operator it invokes and each artifact it links (Lumen's
-        // `timer_reach`); Mantle clamps the key on each to what the person holds there.
-        const resources = [workspace];
-        for (const place of [timer.results_to, timer.inbox_to]) {
-          if (typeof place === 'string' && place && !resources.includes(place)) resources.push(place);
-        }
+        const title = typeof ctx.title === 'string' && ctx.title ? ctx.title : 'Timer';
         credentialRequestPending.current = true;
         try {
-          try {
-            const answer = await proxyToolCall('timer_reach', { timer_id: artifact.id }, 'lumen');
-            const reach = JSON.parse(answer.content?.[0]?.text ?? '{}') as { resources?: unknown };
-            for (const place of Array.isArray(reach.resources) ? reach.resources : []) {
-              if (typeof place === 'string' && place && !resources.includes(place)) resources.push(place);
-            }
-          } catch {
-            // Lumen could not say: the key reaches the places named on the card, and a step that
-            // needs more is refused when it runs, by name.
+          const answer = await proxyToolCall('timer_reach', { timer_id: artifact.id }, 'lumen');
+          const reach = JSON.parse(answer.content?.[0]?.text ?? '{}') as { resources?: unknown; error?: unknown };
+          const resources = Array.isArray(reach.resources)
+            ? reach.resources.filter((r): r is string => typeof r === 'string' && r !== '')
+            : [];
+          if (!resources.includes(artifact.id)) {
+            sendError(req.id, -32000, `Arming failed: ${typeof reach.error === 'string' ? reach.error
+              : 'Lumen could not say what this timer reaches'}`);
+            return;
           }
           const approved = await confirmDialog.confirm({
             title: 'Arm this timer?',
-            description: 'It will run on its schedule, reading, writing and running operations in the '
-              + 'places below on a key issued to it, until you disarm it. Disarming revokes the key.',
+            description: 'It will run on its schedule as you, reading, writing and running operations in '
+              + 'these items and what they contain, and nowhere else, until you disarm it. You approve it '
+              + 'at Origin, in the window that opens next.',
             customContent: (
               <pre className="max-h-48 overflow-auto rounded bg-gray-50 p-2 text-xs">
                 {JSON.stringify({ reaches: resources, access: 'read, write and run' }, null, 2)}
               </pre>
             ),
-            confirmLabel: 'Arm timer',
+            confirmLabel: 'Continue at Origin',
             tone: 'warn',
           });
           if (!approved) {
-            sendError(req.id, -32000, 'The user declined to arm the timer');
+            sendError(req.id, -32000, 'You did not arm the timer');
             return;
           }
-          const { createKeyOver, deleteAPIKey } = await import('@/api/apiKeys');
-          const title = typeof ctx.title === 'string' && ctx.title ? ctx.title : 'Timer';
-          const created = await createKeyOver(`Timer: ${title}`, 'collaborator', resources);
-          const answer = await proxyToolCall('arm_timer',
-            { timer_id: artifact.id, key: created.key, key_id: created.id }, 'lumen');
-          const text = answer.content?.[0]?.text ?? '{}';
+          const { approveTimerAtOrigin } = await import('@/api/jobGrants');
+          const grantId = await approveTimerAtOrigin(artifact.id, resources, title);
+          const armedAnswer = await proxyToolCall('arm_timer', { timer_id: artifact.id, job_grant: grantId }, 'lumen');
+          const text = armedAnswer.content?.[0]?.text ?? '{}';
           const armed = JSON.parse(text) as { armed?: boolean; error?: string };
           if (!armed.armed) {
-            await deleteAPIKey(created.id).catch(() => undefined);
-            sendError(req.id, -32000, `Arming failed: ${armed.error ?? text}`);
+            sendError(req.id, -32000, `Arming failed: ${armed.error ?? 'Lumen did not arm it'}. The job grant `
+              + 'you approved can be stopped from Origin\'s Passkeys page.');
             return;
           }
           sendResponse(req.id, {
-            content: [{ type: 'text', text: JSON.stringify({ key_id: created.id, resources }) }],
+            content: [{ type: 'text', text: JSON.stringify({ job_grant: grantId, resources }) }],
           });
         } catch (e) {
-          sendError(req.id, -32000, `Arming failed: ${e}`);
+          sendError(req.id, -32000, `Arming failed: ${readableError(e)}`);
         } finally {
           credentialRequestPending.current = false;
         }
@@ -484,18 +489,36 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
       }
 
       case 'disarm_timer': {
-        const keyId = typeof toolArgs.id === 'string' ? toolArgs.id : '';
-        if (!keyId || !recordedKeyIds(artifact).includes(keyId)) {
-          sendError(req.id, -32000, 'disarm_timer is limited to the key recorded on the hosted timer');
+        const grantId = recordedJobGrant(artifact);
+        if (!grantId) {
+          sendError(req.id, -32000, 'This timer records no job grant to stop');
+          return;
+        }
+        if (!confirmDialog) {
+          sendError(req.id, -32000, 'disarm_timer needs the host confirmation dialog');
           return;
         }
         try {
-          const { deleteAPIKey } = await import('@/api/apiKeys');
-          await deleteAPIKey(keyId);
-          await proxyToolCall('disarm_timer', { timer_id: artifact.id }, 'lumen').catch(() => undefined);
-          sendResponse(req.id, { content: [{ type: 'text', text: 'OK' }] });
+          // It stops here at once; the grant is then stopped at Origin, where it was made.
+          await proxyToolCall('disarm_timer', { timer_id: artifact.id }, 'lumen');
+          const stop = await confirmDialog.confirm({
+            title: 'Timer disarmed',
+            description: 'It no longer runs. Stop the job grant it ran on at Origin too, so nothing can '
+              + 'run on it again before it expires.',
+            confirmLabel: 'Stop it at Origin',
+            cancelLabel: 'Later',
+            tone: 'warn',
+          });
+          let revoked = false;
+          if (stop) {
+            const ctx = safeParseArtifactContext(artifact.context) as Record<string, unknown>;
+            const { revokeAtOrigin } = await import('@/api/jobGrants');
+            await revokeAtOrigin(grantId, typeof ctx.title === 'string' ? ctx.title : 'Timer');
+            revoked = true;
+          }
+          sendResponse(req.id, { content: [{ type: 'text', text: JSON.stringify({ disarmed: true, revoked }) }] });
         } catch (e) {
-          sendError(req.id, -32000, `Disarming failed: ${e}`);
+          sendError(req.id, -32000, `Disarming failed: ${readableError(e)}`);
         }
         return;
       }
@@ -538,6 +561,30 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         return;
       }
 
+      // A Chat's question, answered from the person's own notes (BUG-036, 2026-11-10): Sage's
+      // grounded `ask` (retrieval under the person's grants, cited extracts or a stated refusal) on
+      // the delegation the app holds for Sage. No model answers; no other view may ask.
+      case 'ask_notes': {
+        if (artifact.content_type !== CHAT_CONTENT_TYPE) {
+          sendError(req.id, -32000, 'ask_notes answers a Chat only');
+          return;
+        }
+        const question = typeof toolArgs.question === 'string' ? toolArgs.question.trim() : '';
+        if (!question || question.length > 2000) {
+          sendError(req.id, -32602, 'Ask a question of at most 2000 characters');
+          return;
+        }
+        try {
+          const workspaceId = activeWorkspaceId || artifact.collection_id || undefined;
+          const result = await proxyToolCall('ask', { question, ...(workspaceId ? { workspace_id: workspaceId } : {}) },
+                                             'sage', workspaceId);
+          sendResponse(req.id, result);
+        } catch (e) {
+          sendError(req.id, -32000, `Asking failed: ${readableError(e)}`);
+        }
+        return;
+      }
+
       default: {
         // A view calls the tools of the persona that served it (`resource_server`), as an MCP App
         // calls its own server. Without one, the call goes through the artifact's own `invoke`
@@ -552,7 +599,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           );
           sendResponse(req.id, result);
         } catch (e) {
-          sendError(req.id, -32000, `Tool call failed: ${e}`);
+          sendError(req.id, -32000, `Tool call failed: ${readableError(e)}`);
         }
       }
     }

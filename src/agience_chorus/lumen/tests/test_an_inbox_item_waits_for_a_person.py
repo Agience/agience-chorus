@@ -18,7 +18,7 @@ import pytest
 from agience_chorus.lumen import inbox as I
 from agience_chorus.lumen import timers as T
 
-from .test_a_timer_fires_on_its_owners_key import FakeHttp, _armed, _ctx
+from .test_a_timer_fires_on_its_owners_key import FakeHttp, _armed, _ctx, _tokens
 from .test_chain_and_feedback import MockResponse
 
 _spec = importlib.util.spec_from_file_location("chorus_lumen_server_inbox",
@@ -76,9 +76,9 @@ def test_a_card_that_is_not_an_item_cannot_be_moved():
 # ── a timer whose run failed ──────────────────────────────────────────────────────────────────
 def test_a_failed_timer_run_is_raised_in_the_inbox_its_owner_named(tmp_path):
     fake = FakeHttp(_ctx(inbox_to="inbox-1"), op_status=500)
-    T.fire_due(_armed(tmp_path), fake.http(), "http://mantle", "http://crystal", NOW, unseal_fn=lambda s: "agk_key")
+    T.fire_due(_armed(tmp_path), fake.http(), "http://mantle", "http://crystal", NOW, tokens=_tokens())
     raised = [c for c in fake.calls if c[0] == "POST" and c[3].get("container_id") == "inbox-1"]
-    assert len(raised) == 1 and raised[0][2] == "agk_key", "on the timer's own key"
+    assert len(raised) == 1 and raised[0][2] == "m-tok", "on the timer's own delegation"
     body = raised[0][3]
     assert body["content_type"] == I.ITEM_TYPE
     item = json.loads(body["context"])["item"]
@@ -89,7 +89,7 @@ def test_a_failed_timer_run_is_raised_in_the_inbox_its_owner_named(tmp_path):
 
 def test_a_timer_run_that_succeeded_raises_nothing(tmp_path):
     fake = FakeHttp(_ctx(inbox_to="inbox-1"))
-    T.fire_due(_armed(tmp_path), fake.http(), "m", "c", NOW, unseal_fn=lambda s: "k")
+    T.fire_due(_armed(tmp_path), fake.http(), "m", "c", NOW, tokens=_tokens())
     assert not [c for c in fake.calls if c[0] == "POST" and c[3].get("container_id") == "inbox-1"]
 
 

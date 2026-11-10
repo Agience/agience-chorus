@@ -289,35 +289,36 @@ async function sendTurn(messages) {
     // Prefer context-embedded workspace_id; fall back to host-provided workspaceId
     // so picker-created chats (no context yet) still get workspace-scoped deltas.
     const workspaceId = (c.chat && c.chat.workspace_id) || (_hostCtx.agience && _hostCtx.agience.workspaceId) || undefined;
-    const chatArtifactId = _artifactData ? _artifactData.artifact_id : undefined;
+    // Answered from the person's own notes (BUG-036): the host asks Sage's grounded `ask`, which
+    // returns cited extracts or says why it found none. No model writes the reply.
+    const question = (messages.filter(m => m.role === 'user').pop() || {}).content || '';
     const result = await sendRpc('tools/call', {
-      name: 'run_chat_turn',
-      arguments: {
-        messages: JSON.stringify(messages),
-        workspace_id: workspaceId,
-        chat_artifact_id: chatArtifactId,
-      },
+      name: 'ask_notes',
+      arguments: { question, workspace_id: workspaceId },
     });
 
-    // Parse the tool result
     const textContent = (result.content || []).find(c => c.type === 'text');
-    if (!textContent) throw new Error('No response from chat turn');
-
-    const parsed = JSON.parse(textContent.text);
+    const text = (textContent && textContent.text) || '';
+    if (result.isError) throw new Error(text || 'The question could not be answered.');
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { parsed = { answer: text }; }
     if (parsed.error) throw new Error(parsed.error);
 
-    const assistantMsg = { role: 'assistant', content: parsed.reply || '' };
-    _messages = [...messages, assistantMsg];
-    const assistantIdx = _messages.length - 1;
-
-    if (parsed.tool_calls && parsed.tool_calls.length > 0) {
-      _toolCallsMap[assistantIdx] = parsed.tool_calls;
+    let reply;
+    if (parsed.answer) {
+      const cites = (parsed.citations || []).map(c => (typeof c === 'string' ? c : (c && c.id) || '')).filter(Boolean);
+      reply = parsed.answer + (cites.length ? '\n\nSources: ' + cites.join(', ') : '');
+    } else {
+      const why = (parsed.refusal && parsed.refusal.reason) || 'nothing in your notes answers this';
+      reply = 'I found nothing to answer that from: ' + why + '.';
     }
+    const assistantMsg = { role: 'assistant', content: reply };
+    _messages = [...messages, assistantMsg];
 
     await persistMessages();
   } catch (err) {
     console.error('[ChatViewer] turn failed', err);
-    _error = 'Something went wrong. Please try again.';
+    _error = (err && err.message) || 'Something went wrong. Please try again.';
   } finally {
     _loading = false;
     _streamingContent = '';

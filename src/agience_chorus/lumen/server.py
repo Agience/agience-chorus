@@ -1148,7 +1148,7 @@ def _timer_store() -> Optional["_timers.Store"]:
         "Create a Timer card that will run an artifact's operation on a schedule: `every_minutes`, "
         "`daily_at` (HH:MM UTC) or `at` (an ISO time, once). The target is usually a Transform "
         "(a workflow) or an Operator. The timer runs only once its owner arms it from the card, "
-        "which issues the key it acts on."
+        "approving at Origin a job grant over what it reaches."
     )
 )
 async def schedule_action(
@@ -1165,7 +1165,7 @@ async def schedule_action(
 ) -> str:
     """
     Args:
-        workspace_id: Workspace for the Timer card (and what its key will reach).
+        workspace_id: Workspace for the Timer card.
         target_artifact_id: The artifact whose operation runs.
         every_minutes / daily_at / at: The schedule; exactly one.
         operation: The target's operation (default `invoke`).
@@ -1205,45 +1205,107 @@ async def schedule_action(
         return json.dumps({"error": f"could not create the timer ({resp.status_code})"})
     doc = resp.json()
     return json.dumps({"timer_id": doc.get("id"), "armed": False,
-                       "next": "open the Timer card and arm it; it runs on the key arming issues"})
+                       "next": "open the Timer card and arm it; it runs on the job grant you approve "
+                               "at Origin"})
+
+
+#: A timer's job at Origin: `lumen.timer.<timer id>` (`origin.services.authority_ledger`).
+TIMER_JOB_PREFIX = "lumen.timer."
+
+
+def _claims_of(token: str) -> dict:
+    """A JWT's claims, unverified: read only to check what Origin minted for this very call."""
+    import base64
+    try:
+        seg = token.split(".")[1]
+        return json.loads(base64.urlsafe_b64decode(seg + "=" * (-len(seg) % 4)))
+    except Exception:                                             # noqa: BLE001
+        return {}
+
+
+def _timer_tokens(timer_id: str, entry: dict) -> tuple:
+    """A firing's two delegations, from Origin under the timer's job grant, asked on Lumen's own
+    key: `(200, Lumen's server delegation, the one narrowed to Crystal)`, or `(status, None, None)`
+    with the status Origin refused with. Neither is kept past the firing."""
+    job = f"{TIMER_JOB_PREFIX}{timer_id}"
+    principal = str(entry.get("principal") or "")
+    try:
+        with httpx.Client(timeout=15) as client:
+            def mint(audience: str):
+                r = client.post(f"{ORIGIN_URI}/internal/job-delegation",
+                                headers={"Authorization": f"Bearer {_auth.sign_exchange_jwt()}"},
+                                json={"principal": principal, "job": job, "audience": audience,
+                                      "job_grant": str(entry.get("job_grant") or "")})
+                ok = r.status_code == 200
+                return r.status_code, (str(r.json().get("access_token") or "") if ok else "")
+
+            status, mine = mint("lumen")
+            if status != 200 or not mine:
+                return status, None, None
+            status, run = mint("crystal")
+            if status != 200 or not run:
+                return status, None, None
+            # Lumen's own server delegation, from the one narrowed to it: what Mantle takes from
+            # Lumen. It keeps the grant's reach.
+            r = client.post(f"{ORIGIN_URI}/internal/delegation-token",
+                            headers={"Authorization": f"Bearer {_auth.sign_exchange_jwt()}"},
+                            json={"server_client_id": LUMEN_CLIENT_ID, "subject_token": mine})
+            if r.status_code != 200:
+                return r.status_code, None, None
+            return 200, str(r.json().get("token") or "") or None, run
+    except httpx.HTTPError as exc:
+        log.warning("timer %s: Origin could not be reached (%s)", timer_id, type(exc).__name__)
+        return 599, None, None
 
 
 @mcp.tool(
     description=(
-        "Arm a Timer: keep the key it acts on, sealed, and fire it on its schedule. Called by the "
-        "app's host after the owner approves the key; the caller must be able to read the timer, "
-        "and the key must reach it."
+        "Arm a Timer: fire it on its schedule under the job grant its owner approved at Origin "
+        "(`job_grant`, job `lumen.timer.<timer id>`). Called by the app's host once Origin's page "
+        "returns the grant; the caller must be able to read the timer, and Origin must mint under "
+        "the grant now."
     )
 )
-async def arm_timer(timer_id: str, key: str, key_id: str) -> str:
+async def arm_timer(timer_id: str, job_grant: str) -> str:
+    import asyncio as _asyncio
+
     store = _timer_store()
     if store is None:
         return json.dumps({"error": "this node keeps no timers (LUMEN_TIMERS_DIR is not set)"})
     try:
         headers = _require_user_headers()
+        person = _get_delegation_user_id()
     except MissingDelegationError as exc:
         return json.dumps({"error": str(exc)})
     async with httpx.AsyncClient(timeout=20) as client:
         mine = await client.get(artifact_url(MANTLE_URI, timer_id), headers=headers)
-        if mine.status_code != 200 or mine.json().get("content_type") != _timers.TIMER_TYPE:
-            return json.dumps({"error": "no such timer, or you cannot read it"})
-        reach = await client.get(artifact_url(MANTLE_URI, timer_id), headers={"Authorization": f"Bearer {key}"})
-        if reach.status_code != 200:
-            return json.dumps({"error": "the key does not reach this timer"})
+    if mine.status_code != 200 or mine.json().get("content_type") != _timers.TIMER_TYPE:
+        return json.dumps({"error": "no such timer, or you cannot read it"})
     try:
         _timers.check_schedule((_timers._context(mine.json()).get("timer") or {}).get("schedule"))
     except _timers.ScheduleError as exc:
         return json.dumps({"error": f"the timer's schedule: {exc}"})
-    store.arm(timer_id, _timers.seal(key), key_id)
-    log.info("timer armed: %s (key %s)", timer_id, key_id)
-    return json.dumps({"timer_id": timer_id, "armed": True})
+    entry = {"job_grant": job_grant, "principal": person}
+    # Origin proves the grant: a firing's delegations are minted under it now, reaching the timer.
+    status, key, run = await _asyncio.to_thread(_timer_tokens, timer_id, entry)
+    if status != 200 or not key or not run:
+        return json.dumps({"error": f"Origin minted nothing under that job grant ({status}); "
+                                    f"approve it at Origin again"})
+    claims = _claims_of(run)
+    if claims.get("job_grant") != job_grant or timer_id not in (claims.get("job_reach") or []):
+        return json.dumps({"error": "the approved job grant does not reach this timer"})
+    ctx = _timers._context(mine.json())
+    store.arm(timer_id, job_grant, person, schedule=(ctx.get("timer") or {}).get("schedule"),
+              last_run=(ctx.get("timer_state") or {}).get("last_run"))
+    log.info("timer armed: %s (job grant %s)", timer_id, job_grant)
+    return json.dumps({"timer_id": timer_id, "armed": True, "job_grant": job_grant})
 
 
 @mcp.tool(
     description=(
-        "What a Timer's key must reach to run what it runs: its workspace and target, where it records "
-        "runs and raises failures, and for a workflow each operator a step invokes and each artifact a "
-        "step links. The person arming it approves this list."
+        "What a Timer's job grant must reach to run what it runs: the timer and its target, where it "
+        "records runs and raises failures, and for a workflow each operator a step invokes and each "
+        "artifact a step links; never its workspace. The person arming it approves this list at Origin."
     )
 )
 async def timer_reach(timer_id: str) -> str:
@@ -1278,8 +1340,7 @@ async def timer_reach(timer_id: str) -> str:
             if offered.status_code == 200:
                 platform = {(i.get("server"), i.get("tool")): i.get("id")
                             for i in (offered.json() or {}).get("items") or []}
-    return json.dumps({"resources": _timers.reach(mine.json().get("collection_id") or "", spec, workflow, links,
-                                                  tools, platform)})
+    return json.dumps({"resources": _timers.reach(timer_id, spec, workflow, links, tools, platform)})
 
 
 def _raw_tool(ctx: dict) -> list:
@@ -1290,7 +1351,8 @@ def _raw_tool(ctx: dict) -> list:
     return []
 
 
-@mcp.tool(description="Disarm a Timer: forget its key; it does not fire again. The caller must be able to read it.")
+@mcp.tool(description="Disarm a Timer: it does not fire again here, and the job grant it ran on is "
+                       "named so the owner can revoke it at Origin. The caller must be able to read it.")
 async def disarm_timer(timer_id: str) -> str:
     store = _timer_store()
     if store is None:
@@ -1303,7 +1365,9 @@ async def disarm_timer(timer_id: str) -> str:
         mine = await client.get(artifact_url(MANTLE_URI, timer_id), headers=headers)
     if mine.status_code != 200:
         return json.dumps({"error": "no such timer, or you cannot read it"})
-    return json.dumps({"timer_id": timer_id, "disarmed": store.disarm(timer_id)})
+    gone = store.disarm(timer_id)
+    return json.dumps({"timer_id": timer_id, "disarmed": gone is not None,
+                       "job_grant": (gone or {}).get("job_grant")})
 
 
 # ---------------------------------------------------------------------------
@@ -1780,7 +1844,7 @@ async def _run_timers(store: "_timers.Store") -> None:
     while True:
         try:
             report = await _asyncio.to_thread(_timers.fire_due, store, http, MANTLE_URI, CRYSTAL_URI,
-                                              _dt.now(_tz.utc))
+                                              _dt.now(_tz.utc), _timer_tokens)
             for timer_id, what in report.items():
                 if what != "not due":
                     log.info("timer %s: %s", timer_id, what)
