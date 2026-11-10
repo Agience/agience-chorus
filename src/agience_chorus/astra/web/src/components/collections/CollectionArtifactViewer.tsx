@@ -4,7 +4,8 @@ import { toast } from 'sonner';
 
 import CardGrid from '@/components/common/CardGrid';
 import CardList from '@/components/common/CardList';
-import { addArtifactToCollection, listCollectionArtifacts, removeArtifactFromCollection, subscribeCollectionEvents } from '@/api/collections';
+import { addArtifactToCollection, listCollectionArtifacts, removeArtifactFromCollection, setArtifactCollections, subscribeCollectionEvents } from '@/api/collections';
+import { CollectionPicker } from '@/components/modals/CollectionPicker';
 import { AGIENCE_DRAG_CONTENT_TYPE, getDroppedArtifactIds } from '@/dnd/agienceDrag';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import type { Artifact } from '@/context/workspace/workspace.types';
@@ -91,6 +92,9 @@ export default function CollectionArtifactViewer({
   // Remove labels name this container by its title ("Remove from REG-WS").
   const removeTarget = artifactTitle(artifact) || noun;
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The card whose collections the context menu's "Assign to collections…" is changing (BUG-020:
+  // the item did nothing in a collection window, where no handler was passed).
+  const [assignFor, setAssignFor] = useState<Artifact | null>(null);
 
   const [memberItems, setMemberItems] = useState<Artifact[]>([]);
   const memberItemsRef = useRef<Artifact[]>(memberItems);
@@ -340,6 +344,21 @@ export default function CollectionArtifactViewer({
     await handleDropIntoCollection(e.dataTransfer);
   }, [handleDropIntoCollection]);
 
+  const assignCollections = useCallback(async (ids: string[]) => {
+    const card = assignFor;
+    if (!card) return;
+    let now: string[];
+    try {
+      now = await setArtifactCollections(card, ids);
+    } catch (err) {
+      now = (err as { partial?: string[] }).partial ?? (card.committed_collection_ids ?? []).map(String);
+      toast.error('Could not change every collection', { description: errorDetail(err, 'Some changes were not saved') });
+    }
+    const id = String(card.id);
+    setMemberItems(prev => prev.map(c => (String(c.id) === id ? { ...c, committed_collection_ids: now } : c)));
+    setAssignFor(null);
+  }, [assignFor]);
+
   return (
     <div
       className={`h-full min-h-0 bg-white flex flex-col ${dropActive ? 'ring-2 ring-blue-500 ring-inset' : ''}`}
@@ -393,6 +412,7 @@ export default function CollectionArtifactViewer({
               activeSource={collectionId ? { type: 'collection', id: collectionId, noun: removeTarget } : null}
               onOpenArtifact={onOpenArtifact}
               onRemove={handleRemove}
+              onAssignCollections={setAssignFor}
               deleteEnabled
               onArtifactDrop={(_insertIndex, draggedIds, dragPayload) => {
                 void applyDroppedArtifacts(draggedIds, {
@@ -412,6 +432,7 @@ export default function CollectionArtifactViewer({
             containerNoun={removeTarget}
             onOpenArtifact={onOpenArtifact}
             onRemove={handleRemove}
+            onAssignCollections={setAssignFor}
             deleteEnabled
             onArtifactDrop={(_insertIndex, draggedIds, dragPayload) => {
               void applyDroppedArtifacts(draggedIds, {
@@ -425,6 +446,16 @@ export default function CollectionArtifactViewer({
       </div>
 
       <CardTypePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onSelect={handleCreate} />
+      {assignFor !== null && (
+      <CollectionPicker
+        open
+        onClose={() => setAssignFor(null)}
+        onSelect={(ids) => { void assignCollections(ids); }}
+        selectedCollectionIds={(assignFor?.committed_collection_ids ?? []).map(String)}
+        multiple={true}
+        title="Assign to Collections"
+      />
+      )}
     </div>
   );
 }

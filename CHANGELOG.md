@@ -5,6 +5,13 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-11-10
+
+### Fixed
+- The workspace's selection bar stands aside while the person works in a floating window (BUG-019). It acts on the workspace grid's selection, and a right-click on a card in a collection window showed "1 selected" for the collection selected behind it: "Assign to Collections" then nested that collection instead of the card clicked. A press inside a window (`data-floating-window`) hides it; a press on the grid, or closing the window, brings it back (`hooks/useWindowInUse`).
+- "Assign to collections…" works in a collection window (BUG-020): the window's cards had no handler, so the menu item did nothing. It opens the collection picker for that card.
+- A window's Collections panel shows the memberships a change made at once (BUG-021), where it kept the old ones until a reload. The window, the collection window and the change itself share one helper (`api/collections.setArtifactCollections`), which tries every add and removal, reports a partial failure with what did change, and returns the memberships held afterwards.
+
 ## [0.2.11] - 2026-11-09
 
 ### Fixed

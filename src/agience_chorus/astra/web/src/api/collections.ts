@@ -245,3 +245,43 @@ export function subscribeCollectionEvents(
     },
   );
 }
+
+/**
+ * Make `artifact` a member of exactly `nextIds` among the collections it is in now: added to each
+ * new one, removed from each one left. Returns the memberships it holds afterwards, so a view can
+ * show them at once rather than at its next refresh (BUG-021). Every change is tried; the first
+ * failure is thrown after the rest have run, with what did change already in the returned list
+ * of the error (`partial`).
+ */
+export async function setArtifactCollections(
+  artifact: { id?: string | number; root_id?: string | null; committed_collection_ids?: string[] | null },
+  nextIds: string[],
+): Promise<string[]> {
+  const current = (artifact.committed_collection_ids ?? []).map(String);
+  const next = new Set(nextIds.map(String));
+  const held = new Set(current);
+  const rootId = String(artifact.root_id ?? artifact.id);
+  let failure: unknown = null;
+  for (const id of next) {
+    if (held.has(id)) continue;
+    try {
+      await addArtifactToCollection(id, String(artifact.id));
+      held.add(id);
+    } catch (err) {
+      failure ??= err;
+    }
+  }
+  for (const id of current) {
+    if (next.has(id)) continue;
+    try {
+      await removeArtifactFromCollection(id, rootId);
+      held.delete(id);
+    } catch (err) {
+      failure ??= err;
+    }
+  }
+  if (failure) {
+    throw Object.assign(failure instanceof Error ? failure : new Error(String(failure)), { partial: [...held] });
+  }
+  return [...held];
+}

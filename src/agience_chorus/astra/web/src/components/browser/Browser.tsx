@@ -45,6 +45,7 @@ import { artifactTitle, nextUntitledTitle } from '@/utils/untitled';
 import { announceRemoval } from '@/utils/removal';
 import { removeWorkspaceArtifact } from '@/api/workspaces';
 import { removeArtifactFromCollection } from '@/api/collections';
+import { useWindowInUse } from '@/hooks/useWindowInUse';
 
 const INLINE_BYTES_MAX = 128 * 1024; // 128 KiB (~32K tokens, good chunk size for LLM processing)
 const HIDDEN_CONTENT_TYPE_FILTERS_STORAGE_KEY = 'agience.browser.hiddenMimeCategories';
@@ -627,7 +628,12 @@ export default function Browser({
     activeSource?.type === 'workspace' &&
     !isShowingSearchResults &&
     stackedArtifacts.sections.length > 0;
-  const showFloatingToolbar = activeSource?.type === 'workspace' && bulkSelectedArtifacts.length > 0;
+  // The bar acts on the workspace grid's selection, so it stands aside while the person works in a
+  // window over the grid: BUG-019, 2026-11-10, a right-click in a collection window showed
+  // "1 selected" for the collection selected in the grid behind it, and "Assign to Collections"
+  // nested the collection instead of the card clicked.
+  const windowInUse = useWindowInUse();
+  const showFloatingToolbar = activeSource?.type === 'workspace' && bulkSelectedArtifacts.length > 0 && !windowInUse;
   const bulkCanDelete = useMemo(
     () => bulkSelectedArtifacts.some(a => canDeleteArtifact(a, user?.id)),
     [bulkSelectedArtifacts, user?.id]

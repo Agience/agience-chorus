@@ -21,7 +21,8 @@ import { CollectionChip } from '@/components/common/CollectionChip';
 import { CollectionPicker } from '@/components/modals/CollectionPicker';
 import { BindingPicker } from '@/components/modals/BindingPicker';
 import { useDebouncedSave } from '@/hooks/useDebouncedSave';
-import { addArtifactToCollection, removeArtifactFromCollection } from '@/api/collections';
+import { addArtifactToCollection, setArtifactCollections } from '@/api/collections';
+import { errorDetail } from '@/utils/errorDetail';
 import { getArtifact, getChildren } from '@/api/artifacts';
 import { readUiResource } from '@/api/mcp';
 import { toast } from 'sonner';
@@ -262,24 +263,33 @@ function ContextPanel({ artifact }: { artifact: Artifact }) {
 // ─── Collections Panel ───────────────────────────────────────────────────────
 
 function CollectionsPanel({ artifact }: { artifact: Artifact }) {
-	const { artifacts, displayedArtifacts = [], isEditable } = useWorkspace();
+	const { artifacts, displayedArtifacts = [], isEditable, patchArtifactLocally } = useWorkspace();
 	const { collections = [] } = useCollections();
 	const [showPicker, setShowPicker] = useState(false);
+	// What a change here made the memberships, until the artifact this window holds says so too
+	// (BUG-021: the panel kept the old list until a reload).
+	const [changedIds, setChangedIds] = useState<string[] | null>(null);
+	useEffect(() => { setChangedIds(null); }, [artifact.committed_collection_ids]);
 
 	const isReadOnly = !isEditable(artifact);
 
 	const committedCollectionIds = useMemo(
-		() => Array.isArray(artifact.committed_collection_ids)
+		() => changedIds ?? (Array.isArray(artifact.committed_collection_ids)
 			? artifact.committed_collection_ids
-			: [],
-		[artifact.committed_collection_ids],
+			: []),
+		[artifact.committed_collection_ids, changedIds],
 	);
 
 	// Every container it is in, workspaces included: a workspace is a collection is an artifact.
-	const containerIds = useMemo(
-		() => (Array.isArray(artifact.container_ids) ? artifact.container_ids : committedCollectionIds),
-		[artifact.container_ids, committedCollectionIds],
-	);
+	const containerIds = useMemo(() => {
+		const stored = Array.isArray(artifact.container_ids) ? artifact.container_ids : committedCollectionIds;
+		if (!changedIds) return stored;
+		// After a change: the containers that are not collections (workspaces) as stored, then the
+		// collections as the change left them.
+		const before = new Set((artifact.committed_collection_ids ?? []).map(String));
+		return [...stored.map(String).filter((id) => !before.has(id)), ...changedIds]
+			.filter((id, i, all) => all.indexOf(id) === i);
+	}, [artifact.container_ids, artifact.committed_collection_ids, committedCollectionIds, changedIds]);
 	const { workspaces = [] } = useWorkspaces();
 	const [fetchedNames, setFetchedNames] = useState<Record<string, string>>({});
 
@@ -316,21 +326,16 @@ function CollectionsPanel({ artifact }: { artifact: Artifact }) {
 	})), [containerIds, labelMap]);
 
 	const handleSelectCollections = async (collectionIds: string[]) => {
-		const currentIds = new Set(committedCollectionIds);
-		const nextIds = new Set(collectionIds);
-		// Add to new collections
-		for (const id of nextIds) {
-			if (!currentIds.has(id)) {
-				await addArtifactToCollection(id, String(artifact.id));
-			}
+		const current = { ...artifact, committed_collection_ids: committedCollectionIds };
+		let now: string[];
+		try {
+			now = await setArtifactCollections(current, collectionIds);
+		} catch (err) {
+			now = (err as { partial?: string[] }).partial ?? committedCollectionIds;
+			toast.error('Could not change every collection', { description: errorDetail(err, 'Some changes were not saved') });
 		}
-		// Remove from old collections
-		for (const id of currentIds) {
-			if (!nextIds.has(id)) {
-				const rootId = String((artifact as { root_id?: string }).root_id ?? artifact.id);
-				await removeArtifactFromCollection(id, rootId);
-			}
-		}
+		setChangedIds(now);
+		patchArtifactLocally({ id: artifact.id, committed_collection_ids: now });
 		setShowPicker(false);
 	};
 
@@ -923,6 +928,9 @@ export default function FloatingCardWindow(props: {
 	return (
 		<div
 			ref={containerRef}
+			// The workspace's selection bar stands aside while a window is where the person works
+			// (`Browser`, BUG-019).
+			data-floating-window=""
 			className={`fixed bg-white border border-gray-200 rounded-lg shadow-2xl overflow-hidden flex flex-col resize will-change-transform ${
 				dragRef.current.shiftHeld && dragRef.current.dragging ? 'ring-2 ring-blue-500' : ''
 			}`}
