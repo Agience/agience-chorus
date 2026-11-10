@@ -5,6 +5,12 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-11-10
+
+### Fixed
+- A press in a dialog, menu or popover a window opened leaves the selection bar hidden (BUG-019, reopened): those are rendered outside the window, and "Select" in an artifact window's Manage Collections dialog counted as a press on the grid, so the bar came back while the window was in use.
+- A window's Collections panel keeps showing a change until the artifact it holds does (BUG-021, reopened). The change patched the memberships but not `container_ids`, which the panel lists, and a reload of the window's artifact that had not caught up brought the old list back.
+
 ## [0.2.12] - 2026-11-10
 
 ### Fixed

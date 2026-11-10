@@ -269,7 +269,13 @@ function CollectionsPanel({ artifact }: { artifact: Artifact }) {
 	// What a change here made the memberships, until the artifact this window holds says so too
 	// (BUG-021: the panel kept the old list until a reload).
 	const [changedIds, setChangedIds] = useState<string[] | null>(null);
-	useEffect(() => { setChangedIds(null); }, [artifact.committed_collection_ids]);
+	// Kept until the artifact this window holds shows the same memberships: a reload of it that
+	// has not caught up yet must not bring the old list back.
+	useEffect(() => {
+		if (!changedIds) return;
+		const held = new Set((artifact.committed_collection_ids ?? []).map(String));
+		if (held.size === changedIds.length && changedIds.every((id) => held.has(String(id)))) setChangedIds(null);
+	}, [artifact.committed_collection_ids, changedIds]);
 
 	const isReadOnly = !isEditable(artifact);
 
@@ -335,7 +341,13 @@ function CollectionsPanel({ artifact }: { artifact: Artifact }) {
 			toast.error('Could not change every collection', { description: errorDetail(err, 'Some changes were not saved') });
 		}
 		setChangedIds(now);
-		patchArtifactLocally({ id: artifact.id, committed_collection_ids: now });
+		// Both lists the panel reads: the patch reaches this window's artifact and clears the local
+		// override, so a stale `container_ids` would bring the old list back (BUG-021, reopened).
+		const before = new Set(committedCollectionIds.map(String));
+		const stored = Array.isArray(artifact.container_ids) ? artifact.container_ids.map(String) : [];
+		const containers = [...stored.filter((id) => !before.has(id)), ...now]
+			.filter((id, i, all) => all.indexOf(id) === i);
+		patchArtifactLocally({ id: artifact.id, committed_collection_ids: now, container_ids: containers });
 		setShowPicker(false);
 	};
 

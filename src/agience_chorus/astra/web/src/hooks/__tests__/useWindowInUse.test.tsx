@@ -31,4 +31,22 @@ describe('useWindowInUse (BUG-019)', () => {
     expect(getByTestId('probe').textContent).toBe('grid');
     grid.remove();
   });
+
+  it('a press inside a dialog the window opened leaves it in use (BUG-019, reopened)', () => {
+    const { getByTestId } = render(<Probe />);
+    const win = document.createElement('div');
+    win.setAttribute('data-floating-window', '');
+    const card = document.createElement('button');
+    win.appendChild(card);
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    const select = document.createElement('button');
+    dialog.appendChild(select);
+    document.body.append(win, dialog);
+    press(card);
+    press(select);                               // "Select" in Manage Collections
+    expect(getByTestId('probe').textContent).toBe('window');
+    win.remove();
+    dialog.remove();
+  });
 });
