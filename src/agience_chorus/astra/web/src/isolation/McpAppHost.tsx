@@ -426,7 +426,8 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
       // Timers run on a job grant the person approves at Origin (John, 2026-11-10, BUG-024 and
       // BUG-035): over what the timer reaches and nothing else, never its workspace. The host shows
       // that list, opens Origin's page on the person's click, and hands Lumen the grant's id; no
-      // key is issued and none passes through here.
+      // key is issued and none passes through here. Once armed, the grant's own delegation opens
+      // the person's key for the items it lists, and for nothing else.
       case 'arm_timer': {
         if (!confirmDialog) {
           sendError(req.id, -32000, 'arm_timer needs the host confirmation dialog');
@@ -440,8 +441,47 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         const title = typeof ctx.title === 'string' && ctx.title ? ctx.title : 'Timer';
         credentialRequestPending.current = true;
         try {
-          const answer = await proxyToolCall('timer_reach', { timer_id: artifact.id }, 'lumen');
-          const reach = JSON.parse(answer.content?.[0]?.text ?? '{}') as { resources?: unknown; error?: unknown };
+          // Before arming, nothing opens the person's key for Lumen (John, 2026-11-10): Lumen names
+          // what it needs to read, and the host reads it here, in the person's own session.
+          // Only the timer's own chain is read (the timer, its target, the transforms its steps
+          // name), each found here from what was read before, and only the field Lumen parses
+          // (`timer`, `run`): a need for anything else reads nothing and arms nothing.
+          const timerKey = String(artifact.id ?? '');
+          const contexts: Record<string, Record<string, unknown>> = {};
+          const chain = (): Set<string> => {
+            const ids = new Set<string>([timerKey]);
+            const spec = (contexts[timerKey]?.timer ?? {}) as { target?: { artifact_id?: unknown } };
+            const target = spec.target?.artifact_id;
+            if (typeof target === 'string' && target) {
+              ids.add(target);
+              const steps = ((contexts[target]?.run ?? {}) as { steps?: unknown }).steps;
+              for (const step of Array.isArray(steps) ? steps : []) {
+                const s = (step ?? {}) as { transform_id?: unknown; operator_id?: unknown };
+                if (typeof s.transform_id === 'string' && s.transform_id && !s.operator_id) ids.add(s.transform_id);
+              }
+            }
+            return ids;
+          };
+          let reach: { resources?: unknown; error?: unknown; need?: unknown } = {};
+          for (let round = 0; round < 4; round++) {
+            const answer = await proxyToolCall('timer_reach', { timer_id: artifact.id, contexts }, 'lumen');
+            reach = JSON.parse(answer.content?.[0]?.text ?? '{}') as typeof reach;
+            const need = Array.isArray(reach.need)
+              ? reach.need.filter((n): n is string => typeof n === 'string' && n !== '' && !(n in contexts))
+              : [];
+            if (need.length === 0) break;
+            const allowed = chain();
+            const outside = need.find((id) => !allowed.has(id));
+            if (outside) {
+              reach = { error: `Lumen asked to read ${outside}, which this timer does not run; nothing was granted` };
+              break;
+            }
+            for (const id of need) {
+              const doc = id === timerKey ? artifact : await getArtifact(id);
+              const ctxOf = safeParseArtifactContext(doc.context) as Record<string, unknown>;
+              contexts[id] = id === timerKey ? { timer: ctxOf.timer } : { run: ctxOf.run };
+            }
+          }
           const resources = Array.isArray(reach.resources)
             ? reach.resources.filter((r): r is string => typeof r === 'string' && r !== '')
             : [];

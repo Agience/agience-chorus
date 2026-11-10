@@ -629,6 +629,49 @@ describe('McpAppHost', () => {
       expect(JSON.stringify(approveAtOriginMock.mock.calls)).not.toContain('ws-1');
     });
 
+    it('reads nothing Lumen names outside the timer\'s own chain', async () => {
+      proxyToolCallMock.mockImplementation(async () => ({ content: [{ type: 'text', text:
+        JSON.stringify({ need: ['inbox-9'] }) }] }));
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ id: 't1', context: TIMER })} html="" />, [true],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 38, method: 'tools/call',
+                           params: { name: 'arm_timer', arguments: { timer_id: 't1' } } });
+      await waitFor(() => expect(responseFor(posted, 38)?.error).toBeDefined());
+      expect(String(responseFor(posted, 38)!.error!.message)).toContain('does not run');
+      expect(getArtifactMock).not.toHaveBeenCalledWith('inbox-9');
+      expect(approveAtOriginMock).not.toHaveBeenCalled();
+    });
+
+    it('reads what Lumen needs in the person\'s own session, then asks again with it', async () => {
+      const TARGETED = JSON.stringify({ title: 'Digest', note: 'private',
+                                        timer: { results_to: 'log-1', target: { artifact_id: 'wf-1' } } });
+      const WF = { run: { type: 'workflow', steps: [] } };
+      proxyToolCallMock.mockImplementation(async (name: string, args: { contexts?: Record<string, unknown> }) => {
+        const given = args?.contexts ?? {};
+        const body = name !== 'timer_reach' ? { armed: true, job_grant: 'jg-1' }
+          : !('t1' in given) ? { need: ['t1'] }
+          : !('wf-1' in given) ? { need: ['wf-1'] }
+          : { resources: ['t1', 'wf-1'] };
+        return { content: [{ type: 'text', text: JSON.stringify(body) }] };
+      });
+      getArtifactMock.mockResolvedValue({ id: 'wf-1', context: JSON.stringify({ ...WF, title: 'secret' }) });
+      approveAtOriginMock.mockResolvedValue('jg-1');
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ id: 't1', context: TARGETED })} html="" />, [true],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 37, method: 'tools/call',
+                           params: { name: 'arm_timer', arguments: { timer_id: 't1' } } });
+      await waitFor(() => expect(responseFor(posted, 37)?.result).toBeDefined());
+      expect(getArtifactMock).toHaveBeenCalledWith('wf-1');
+      expect(proxyToolCallMock).toHaveBeenCalledWith('timer_reach', {
+        timer_id: 't1', contexts: { t1: { timer: JSON.parse(TARGETED).timer }, 'wf-1': WF } }, 'lumen');
+      expect(JSON.stringify(proxyToolCallMock.mock.calls)).not.toMatch(/secret|private/);
+      expect(approveAtOriginMock).toHaveBeenCalledWith('t1', ['t1', 'wf-1'], 'Digest');
+    });
+
     it('a timer the person does not continue with asks Origin for nothing', async () => {
       proxyToolCallMock.mockImplementation(lumen(['t1', 'wf-1']));
       const { container } = renderWithConfirm(

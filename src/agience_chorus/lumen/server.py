@@ -1281,10 +1281,6 @@ async def arm_timer(timer_id: str, job_grant: str) -> str:
         mine = await client.get(artifact_url(MANTLE_URI, timer_id), headers=headers)
     if mine.status_code != 200 or mine.json().get("content_type") != _timers.TIMER_TYPE:
         return json.dumps({"error": "no such timer, or you cannot read it"})
-    try:
-        _timers.check_schedule((_timers._context(mine.json()).get("timer") or {}).get("schedule"))
-    except _timers.ScheduleError as exc:
-        return json.dumps({"error": f"the timer's schedule: {exc}"})
     entry = {"job_grant": job_grant, "principal": person}
     # Origin proves the grant: a firing's delegations are minted under it now, reaching the timer.
     status, key, run = await _asyncio.to_thread(_timer_tokens, timer_id, entry)
@@ -1294,7 +1290,19 @@ async def arm_timer(timer_id: str, job_grant: str) -> str:
     claims = _claims_of(run)
     if claims.get("job_grant") != job_grant or timer_id not in (claims.get("job_reach") or []):
         return json.dumps({"error": "the approved job grant does not reach this timer"})
-    ctx = _timers._context(mine.json())
+    # The timer's settings are sealed under its owner's key, which only the grant's own delegation
+    # opens, and only for what the grant lists (John, 2026-11-10): read them on it.
+    async with httpx.AsyncClient(timeout=20) as client:
+        granted = await client.get(artifact_url(MANTLE_URI, timer_id),
+                                   headers={"Authorization": f"Bearer {key}"})
+    if granted.status_code != 200:
+        return json.dumps({"error": f"Lumen could not read the timer under its job grant "
+                                    f"({granted.status_code})"})
+    ctx = _timers._context(granted.json())
+    try:
+        _timers.check_schedule((ctx.get("timer") or {}).get("schedule"))
+    except _timers.ScheduleError as exc:
+        return json.dumps({"error": f"the timer's schedule: {exc}"})
     store.arm(timer_id, job_grant, person, schedule=(ctx.get("timer") or {}).get("schedule"),
               last_run=(ctx.get("timer_state") or {}).get("last_run"))
     log.info("timer armed: %s (job grant %s)", timer_id, job_grant)
@@ -1305,42 +1313,72 @@ async def arm_timer(timer_id: str, job_grant: str) -> str:
     description=(
         "What a Timer's job grant must reach to run what it runs: the timer and its target, where it "
         "records runs and raises failures, and for a workflow each operator a step invokes and each "
-        "artifact a step links; never its workspace. The person arming it approves this list at Origin."
+        "artifact a step links; never its workspace. The person arming it approves this list at Origin. "
+        "Answers `need` (ids) when it must read sealed items first: call again with `contexts`, each "
+        "id's context as read in the person's own session."
     )
 )
-async def timer_reach(timer_id: str) -> str:
+async def timer_reach(timer_id: str, contexts: Optional[dict] = None) -> str:
     try:
         headers = _require_user_headers()
     except MissingDelegationError as exc:
         return json.dumps({"error": str(exc)})
+    # Before a timer is armed nothing opens its owner's key for Lumen (John, 2026-11-10: only a
+    # live job grant does), so its settings and its target's steps reach Lumen without their
+    # sealed fields. Lumen names what it needs (`need`); the app reads those in the person's own
+    # session and asks again with their contexts. A context is taken only for an item Mantle shows
+    # the person can read, and what it yields is the list the person approves at Origin.
+    given = {str(k): v for k, v in (contexts or {}).items() if isinstance(v, dict)}
+
+    def context_of(doc_id: str, doc: dict) -> dict:
+        return given[doc_id] if doc_id in given else _timers._context(doc)
+
     async with httpx.AsyncClient(timeout=20) as client:
         mine = await client.get(artifact_url(MANTLE_URI, timer_id), headers=headers)
         if mine.status_code != 200 or mine.json().get("content_type") != _timers.TIMER_TYPE:
             return json.dumps({"error": "no such timer, or you cannot read it"})
-        spec = _timers._context(mine.json()).get("timer") or {}
+        spec = context_of(timer_id, mine.json()).get("timer") or {}
         target = (spec.get("target") or {}).get("artifact_id")
+        if not spec.get("schedule") or not target:
+            if timer_id not in given:
+                return json.dumps({"need": [timer_id]})
+            return json.dumps({"error": "the timer has no schedule or no target to run"})
         workflow, links, tools = None, {}, []
-        if target:
-            got = await client.get(artifact_url(MANTLE_URI, target), headers=headers)
-            if got.status_code == 200:
-                workflow = _timers._context(got.json())
-                run = workflow.get("run") or {}
-                if run.get("type") == "workflow":
-                    links = await _workflow_links(client, target)
-                    # A step made before steps were operators names a Transform calling a tool.
-                    for step in run.get("steps") or []:
-                        if step.get("transform_id") and not step.get("operator_id"):
-                            got = await client.get(artifact_url(MANTLE_URI, step["transform_id"]), headers=headers)
-                            if got.status_code == 200:
-                                tools += _raw_tool(_timers._context(got.json()))
-                tools += _raw_tool(workflow)
+        # Mantle opens a key by the artifact's root id, so the grant names that too.
+        roots = [str(mine.json().get("root_id") or "")]
+        got = await client.get(artifact_url(MANTLE_URI, target), headers=headers)
+        if got.status_code == 200:
+            roots.append(str(got.json().get("root_id") or ""))
+            if "run" not in _timers._context(got.json()) and target not in given:
+                return json.dumps({"need": [target]})
+            workflow = context_of(target, got.json())
+            run = workflow.get("run") or {}
+            if run.get("type") == "workflow":
+                links = await _workflow_links(client, target)
+                # A step made before steps were operators names a Transform calling a tool.
+                need = []
+                for step in run.get("steps") or []:
+                    if step.get("transform_id") and not step.get("operator_id"):
+                        sid = str(step["transform_id"])
+                        got = await client.get(artifact_url(MANTLE_URI, sid), headers=headers)
+                        if got.status_code != 200:
+                            continue
+                        if "run" not in _timers._context(got.json()) and sid not in given:
+                            need.append(sid)
+                            continue
+                        tools += _raw_tool(context_of(sid, got.json()))
+                if need:
+                    return json.dumps({"need": need})
+            tools += _raw_tool(workflow)
         platform = {}
         if tools:
             offered = await client.get(f"{MANTLE_URI}/artifacts/platform-operators", headers=headers)
             if offered.status_code == 200:
                 platform = {(i.get("server"), i.get("tool")): i.get("id")
                             for i in (offered.json() or {}).get("items") or []}
-    return json.dumps({"resources": _timers.reach(timer_id, spec, workflow, links, tools, platform)})
+    resources = _timers.reach(timer_id, spec, workflow, links, tools, platform)
+    resources += [r for r in dict.fromkeys(roots) if r and r not in resources]
+    return json.dumps({"resources": resources})
 
 
 def _raw_tool(ctx: dict) -> list:

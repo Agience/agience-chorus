@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.16] - 2026-11-10
+
+### Fixed
+- A timer can be armed and run (BUG-024): its settings are sealed under its owner's key, which only its job grant opens for Lumen (John, 2026-11-10). Before the grant, `timer_reach` names what it needs to read (`need`) and the host reads those in the person's own session and asks again with their contexts, taken only for items Mantle shows the person can read; the list that results is what the person approves at Origin. Once approved, Lumen reads the timer's schedule on the grant's own delegation.
+
 ## [0.2.15] - 2026-11-10
 
 ### Changed
