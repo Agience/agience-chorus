@@ -5,7 +5,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('../../../api/collections', () => ({
-  listCollections: async () => [
+  listCollections: async (_action?: string, contentType?: string) => contentType?.includes('workspace') ? [] : [
     { id: 'c-all', name: 'All of them', created_time: '2026-10-01T00:00:00Z' },
     { id: 'c-some', name: 'Some of them', created_time: '2026-10-01T00:00:00Z' },
     { id: 'c-none', name: 'None of them', created_time: '2026-10-01T00:00:00Z' },

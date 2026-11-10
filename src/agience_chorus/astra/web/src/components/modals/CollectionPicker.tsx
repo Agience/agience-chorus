@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { FolderOpen, Plus, Search, Check, Minus } from 'lucide-react';
 import { listCollections, createCollection } from '../../api/collections';
 import { CollectionResponse } from '../../api/types';
+import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import toast from 'react-hot-toast';
 
@@ -63,6 +64,7 @@ export function CollectionPicker({
   const [isCreating, setIsCreating] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const { activeWorkspaceId } = useWorkspaces();
+  const [workspaceIds, setWorkspaceIds] = useState<Set<string>>(new Set());
 
   // Load collections when dialog opens
   useEffect(() => {
@@ -83,8 +85,14 @@ export function CollectionPicker({
       // The picker exists to assign artifacts into a collection, so list only
       // collections the caller can add to ('create'). Read-only platform
       // collections are excluded server-side — they are not assignable.
-      const data = await listCollections('create');
-      setCollections(data);
+      // Workspaces hold artifacts as collections do, so they are offered too, after the
+      // collections and marked as workspaces (BUG-014, 2026-11-10: a workspace could not be chosen).
+      const [data, workspaces] = await Promise.all([
+        listCollections('create'),
+        listCollections('create', WORKSPACE_CONTENT_TYPE).catch(() => [] as CollectionResponse[]),
+      ]);
+      setWorkspaceIds(new Set(workspaces.map(w => String(w.id))));
+      setCollections([...data, ...workspaces.filter(w => !data.some(c => c.id === w.id))]);
     } catch (error) {
       console.error('Failed to load collections:', error);
       toast.error('Failed to load collections');
@@ -245,8 +253,11 @@ export function CollectionPicker({
                           <div className="flex items-center gap-2">
                             <FolderOpen className="w-4 h-4 text-gray-400 flex-shrink-0" />
                             <h3 className="font-medium text-gray-900 truncate">
-                              {collection.name || 'Untitled collection'}
+                              {collection.name || (workspaceIds.has(String(collection.id)) ? 'Untitled workspace' : 'Untitled collection')}
                             </h3>
+                            {workspaceIds.has(String(collection.id)) && (
+                              <span className="flex-shrink-0 rounded bg-purple-50 px-1.5 text-xs text-purple-700">Workspace</span>
+                            )}
                           </div>
                           {collection.description && (
                             <p className="text-sm text-gray-500 mt-1 line-clamp-2">

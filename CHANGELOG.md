@@ -5,6 +5,14 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.18] - 2026-11-10
+
+### Fixed
+- An artifact dropped on a workspace's tab goes into that workspace, and out of the open one when it came from it (BUG-018). The drop fell through to the tab bar, which made a new "Untitled Workspace" of it, so the card seemed moved and the workspace named never held it.
+- Assign to Collections offers the workspaces the person may add to, marked as workspaces, after the collections (BUG-014): an artifact can be placed into a workspace shared with them.
+- Docked tabs are no longer lost to another tab or device (BUG-016). The server replaces the docked list whole, and each page wrote it from what it last read, so one holding an older copy undocked what was docked since. A change is now applied as that page's additions and removals, to the server's list as it is now.
+- A workspace can be deleted: right-click its tab (BUG-039). After a confirmation it goes for everyone it is shared with; what it holds is detached, not deleted. The Inbox is never offered.
+
 ## [0.2.17] - 2026-11-10
 
 ### Fixed

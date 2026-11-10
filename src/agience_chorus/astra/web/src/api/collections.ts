@@ -33,13 +33,14 @@ import {
 // only follow a literal, so this one call site was reported as unverifiable on every run — the
 // single blind spot in a gate that otherwise covers the whole api layer. A path a tool cannot read
 // is a path nobody is checking.
-export async function listCollections(action: string = 'read'): Promise<CollectionResponse[]> {
+export async function listCollections(action: string = 'read',
+                                      contentType: string = COLLECTION_CONTENT_TYPE): Promise<CollectionResponse[]> {
   // `encodeURIComponent`, not `URLSearchParams`: the latter is form-encoding and would be a
   // different encoder over the same values. This keeps the bytes on the wire identical.
   const scope = action === 'read' ? '' : `&action=${encodeURIComponent(action)}`;
   // Each is `titled`: its `name` is the title it is shown by.
   const list = await getList<CollectionResponse>(
-    `/artifacts/visible?content_type=${encodeURIComponent(COLLECTION_CONTENT_TYPE)}${scope}`,
+    `/artifacts/visible?content_type=${encodeURIComponent(contentType)}${scope}`,
   );
   return list.map(titled);
 }

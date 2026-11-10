@@ -125,7 +125,7 @@ export default function Browser({
   const latestArtifactsRef = useRef(artifacts);
   useEffect(() => { latestArtifactsRef.current = artifacts; }, [artifacts]);
 
-  const { workspaces, activeWorkspace, createWorkspace, setActiveWorkspaceId, updateWorkspace } = useWorkspaces();
+  const { workspaces, activeWorkspace, createWorkspace, setActiveWorkspaceId, updateWorkspace, deleteWorkspace } = useWorkspaces();
   const { collections } = useCollections();
   const { user } = useAuth();
   // The person's Inbox: their oldest own workspace, as Mantle provisions it. Not their user id.
@@ -1282,6 +1282,59 @@ export default function Browser({
     }
   }, [activeWorkspace, artifacts, browserPrefs, createWorkspace, createWorkspaceFromDroppedArtifacts, displayedArtifacts, dockedWorkspaceTabIdsPref, resolveDroppedIds, resolvedDisplayArtifacts, searchResultArtifacts, setActiveWorkspaceId, sourceArtifacts, updateArtifact, updatePreferences, workspaces]);
 
+  // A workspace is deleted from its tab (BUG-039, 2026-11-10: no control anywhere deleted one, so
+  // stray "Untitled Workspace"s could not be removed). What it holds is detached, not destroyed
+  // (`DELETE /artifacts/{id}` without `cascade`), and the Inbox is never offered.
+  const handleDeleteWorkspace = useCallback(async (id: string) => {
+    const ws = workspaces.find(w => String(w.id) === String(id));
+    if (!ws) return;
+    if (String(id) === String(inboxWorkspaceId)) {
+      toast.error('The Inbox cannot be deleted');
+      return;
+    }
+    const confirmed = await dangerConfirm.confirm({
+      title: `Delete the workspace "${ws.name || 'Untitled workspace'}"?`,
+      description: 'The workspace goes for everyone it is shared with. What it holds is not deleted: '
+        + 'items also elsewhere stay there, and the rest are kept, detached.',
+      confirmLabel: 'Delete workspace',
+      cancelLabel: BUTTON_LABELS.CANCEL,
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await deleteWorkspace(String(id));
+      if (dockedWorkspaceTabIdsPref?.includes(String(id))) {
+        void updatePreferences({ browser: { ...browserPrefs,
+          dockedWorkspaceCardIds: dockedWorkspaceTabIdsPref.filter(d => d !== String(id)) } });
+      }
+      toast.success('Workspace deleted');
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      toast.error(status === 403 ? 'Only someone who may delete this workspace can delete it'
+        : 'Could not delete the workspace', { description: errorDetail(err, '') || undefined });
+    }
+  }, [browserPrefs, dangerConfirm, deleteWorkspace, dockedWorkspaceTabIdsPref, inboxWorkspaceId, updatePreferences, workspaces]);
+
+  // Artifacts dropped on a workspace's tab go into that workspace, and out of the open one when they
+  // came from it (BUG-018, 2026-11-10: a drop on a tab fell through to the tab bar, which made a new
+  // workspace of them, so the card seemed moved and the workspace named never held it). A workspace
+  // card dropped on a tab is docked as before.
+  const handleDropOnTab = useCallback(async (targetId: string, draggedIds: string[]) => {
+    const isWorkspace = (id: string) => workspaces.some(w => String(w.id) === String(id));
+    const ids = draggedIds.filter(id => id !== targetId && !isWorkspace(id));
+    if (ids.length === 0) {
+      await handleDropWorkspace(draggedIds);
+      return;
+    }
+    const added = await addArtifactsToCollectionWithFeedback(targetId, ids);
+    const fromOpen = activeSource?.type === 'workspace' && activeWorkspace?.id && activeWorkspace.id !== targetId;
+    if (added !== ids.length || !fromOpen) return;
+    for (const id of ids) {
+      const card = artifacts.find(a => String(a.id ?? '') === id || String(a.root_id ?? '') === id);
+      if (card) await removeArtifact(String(card.root_id ?? card.id));
+    }
+  }, [activeSource?.type, activeWorkspace?.id, addArtifactsToCollectionWithFeedback, artifacts, handleDropWorkspace, removeArtifact, workspaces]);
+
   const handleSelectArtifactType = useCallback(async (contentType: string) => {
     const type = getContentTypeById(contentType);
     setIsArtifactTypePickerOpen(false);
@@ -1748,6 +1801,8 @@ export default function Browser({
         onUploadFiles={workspaceId ? ((files) => uploadFilesAt(files, latestArtifactsRef.current.length)) : undefined}
         onCreateWorkspace={handleCreateWorkspace}
         onDropWorkspace={handleDropWorkspace}
+        onDropOnTab={handleDropOnTab}
+        onDeleteWorkspace={handleDeleteWorkspace}
         onRenameWorkspace={handleRenameWorkspace}
       />
 

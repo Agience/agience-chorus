@@ -1,5 +1,6 @@
 // context/preferences/PreferencesProvider.tsx
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { withDockedChange } from './dockedChange';
 import { PreferencesContext } from './PreferencesContext';
 import { Preferences, PreferencesProviderProps } from './preferences.types';
 import { getPreferences, updatePreferences as apiUpdatePreferences } from '../../api/preferences';
@@ -9,6 +10,8 @@ export function PreferencesProvider({ children }: PreferencesProviderProps) {
   const { isAuthenticated } = useAuth();
   const [preferences, setPreferences] = useState<Preferences>({});
   const [isLoading, setIsLoading] = useState(true);
+  const latest = useRef<Preferences>({});
+  latest.current = preferences;
 
   // Load preferences on mount (only if authenticated)
   useEffect(() => {
@@ -36,6 +39,8 @@ export function PreferencesProvider({ children }: PreferencesProviderProps) {
   // Update preferences (merges and saves to backend)
   const updatePreferences = useCallback(async (newPrefs: Partial<Preferences>) => {
     try {
+      // A change to the docked tabs is rebased on the server's list (`dockedChange.ts`, BUG-016).
+      newPrefs = await withDockedChange(newPrefs, latest.current, getPreferences);
       // Optimistically update local state
       setPreferences(prev => {
         const merged = { ...prev };

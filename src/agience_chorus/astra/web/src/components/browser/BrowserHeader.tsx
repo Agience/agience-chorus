@@ -34,6 +34,10 @@ type BrowserHeaderProps = {
   onUploadFiles?: (files: File[]) => void;
   onCreateWorkspace?: () => void;
   onDropWorkspace?: (draggedIds: string[]) => void;
+  /** Artifacts dropped on one workspace's tab: into that workspace. */
+  onDropOnTab?: (workspaceId: string, draggedIds: string[]) => void;
+  /** Right-click on a tab: delete that workspace, after a confirmation. */
+  onDeleteWorkspace?: (workspaceId: string) => void;
   onRenameWorkspace?: (id: string, name: string) => void;
 };
 
@@ -44,6 +48,8 @@ export default function BrowserHeader({
   onUploadFiles,
   onCreateWorkspace,
   onDropWorkspace,
+  onDropOnTab,
+  onDeleteWorkspace,
   onRenameWorkspace,
 }: BrowserHeaderProps) {
   const { createArtifact } = useWorkspace();
@@ -195,7 +201,27 @@ export default function BrowserHeader({
               const isActive = activeWorkspace?.id === workspace.id;
               const isEditing = editingTabId === workspace.id;
               return (
-                <div key={workspace.id} className="group relative flex-shrink-0">
+                <div
+                  key={workspace.id}
+                  className="group relative flex-shrink-0"
+                  data-testid={`tab-${workspace.id}`}
+                  onDragOver={(event) => {
+                    if (!onDropOnTab || !isAgienceDrag(event.dataTransfer)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.dataTransfer.dropEffect = 'move';
+                    setIsDropActive(false);
+                  }}
+                  onDrop={(event) => {
+                    if (!onDropOnTab || !isAgienceDrag(event.dataTransfer)) return;
+                    const draggedIds = getDroppedArtifactIds(event.dataTransfer);
+                    if (!draggedIds.length) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setIsDropActive(false);
+                    onDropOnTab(workspace.id, draggedIds);
+                  }}
+                >
                   {isEditing ? (
                     <input
                       ref={editInputRef}
@@ -216,8 +242,13 @@ export default function BrowserHeader({
                       aria-selected={isActive}
                       onClick={() => handleTabClick(workspace.id)}
                       onDoubleClick={() => handleStartRename(workspace.id, workspace.name)}
+                      onContextMenu={(e) => {
+                        if (!onDeleteWorkspace) return;
+                        e.preventDefault();
+                        onDeleteWorkspace(workspace.id);
+                      }}
                       className={`h-10 pl-4 pr-10 rounded-sm border text-sm font-medium whitespace-nowrap transition-none ${isActive ? 'bg-gradient-to-r from-purple-400/20 via-pink-400/20 to-blue-400/20 border-purple-300/40 text-purple-900' : 'bg-white/50 border-purple-200/30 text-gray-700 hover:bg-purple-50/30 hover:border-purple-300/40'}`}
-                      title={`${workspace.name} (double-click to rename)`}
+                      title={`${workspace.name} (double-click to rename${onDeleteWorkspace ? ', right-click to delete' : ''})`}
                     >
                       {workspace.name}
                     </button>
