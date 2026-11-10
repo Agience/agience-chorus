@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.17] - 2026-11-10
+
+### Fixed
+- Every workspace a person reaches can be docked (BUG-016): a Dock menu in the tab bar lists by name each one, their own and those shared with them, not yet a tab, and docks the one chosen. With nothing docked the bar says so and offers them all; before, it pointed to search, which returns no workspace, so an empty tab bar had no way out but a direct link or Ctrl+K.
+
 ## [0.2.16] - 2026-11-10
 
 ### Fixed

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { FiPlus, FiSave, FiUpload, FiX } from 'react-icons/fi';
+import { FiChevronDown, FiPlus, FiSave, FiUpload, FiX } from 'react-icons/fi';
 import { FolderOpen } from 'lucide-react';
 import type { ActiveSource } from '../../types/workspace';
 import { CollectionResponse } from '../../api/types';
@@ -9,6 +9,12 @@ import { useWorkspace } from '../../hooks/useWorkspace';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { usePreferences } from '../../hooks/usePreferences';
 import { isAgienceDrag, getDroppedArtifactIds } from '@/dnd/agienceDrag';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 type ViewOption = 'grid' | 'list';
 
@@ -44,7 +50,7 @@ export default function BrowserHeader({
   const { preferences, updatePreferences } = usePreferences();
   const [collections, setCollections] = useState<CollectionResponse[]>([]);
   const [isDropActive, setIsDropActive] = useState(false);
-  const { workspaces, activeWorkspace, setActiveWorkspaceId } = useWorkspaces();
+  const { workspaces, activeWorkspace, setActiveWorkspaceId, openWorkspaceTab } = useWorkspaces();
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -88,6 +94,14 @@ export default function BrowserHeader({
   );
 
   const showDockHint = visibleWorkspaces.length === 0;
+  // Every workspace the person reaches and has not docked, their own and those shared with them,
+  // offered by name (BUG-016, 2026-11-10: with an empty tab bar there was no way to find one, since
+  // search returns no workspace).
+  const undockedWorkspaces = useMemo(
+    () => (dockedTabIds ? workspaces.filter(w => !dockedTabIds.includes(w.id)) : [])
+      .slice().sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    [workspaces, dockedTabIds]
+  );
 
   const hasActiveWorkspace = activeSource?.type === 'workspace' && Boolean(activeWorkspace?.id);
 
@@ -171,7 +185,9 @@ export default function BrowserHeader({
                 className={`flex min-w-0 flex-1 items-center rounded-md border border-dashed px-4 py-2 text-sm transition-colors ${isDropActive ? 'border-sky-400 bg-sky-50 text-sky-800' : 'border-slate-300 bg-slate-50 text-slate-600'}`}
                 aria-label="Dock a workspace here"
               >
-                <span className="truncate">Find a workspace and dock it here.</span>
+                <span className="truncate">
+                  {undockedWorkspaces.length ? 'Choose a workspace to dock.' : 'Find a workspace and dock it here.'}
+                </span>
               </div>
             )}
 
@@ -218,6 +234,33 @@ export default function BrowserHeader({
                 </div>
               );
             })}
+
+            {undockedWorkspaces.length > 0 && openWorkspaceTab && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex-shrink-0 h-10 px-3 inline-flex items-center gap-1 rounded-sm border border-purple-200/30 bg-white/50 text-sm text-gray-700 hover:bg-purple-50/30"
+                    title="Dock a workspace you can open"
+                    aria-label="Dock a workspace"
+                  >
+                    Dock
+                    <FiChevronDown className="w-4 h-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-80 w-64 overflow-auto">
+                  {undockedWorkspaces.map((workspace) => (
+                    <DropdownMenuItem
+                      key={workspace.id}
+                      onClick={() => openWorkspaceTab(workspace.id)}
+                      className="cursor-pointer truncate"
+                    >
+                      {workspace.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
 
             {/* [+] button: creates workspace on click */}
             <button
