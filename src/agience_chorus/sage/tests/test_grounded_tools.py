@@ -137,6 +137,23 @@ class TestAsk:
         assert "card body" in result["answer"]
 
     @pytest.mark.asyncio
+    async def test_a_workflow_step_answers_from_its_linked_item(self, delegated):
+        """BUG-052 (John, 2026-11-10): inside a workflow, "Answer from my notes" answers from the item
+        linked to the step (`evidence`), which the run's grant lists; a step made earlier names its
+        question `input`."""
+        def handler(method, url, **kw):
+            return MockResponse({"id": "note-1", "content": "the gate note says hello",
+                                 "context": {"title": "Gate note"}})
+
+        with patch("httpx.AsyncClient", return_value=_client(handler)),              patch.object(_sage_server._op_retrieve, "retrieve", return_value=[]):
+            result = json.loads(await ask(input="what does it say?", evidence="note-1"))
+        assert result["citations"] == ["note-1"] and "says hello" in result["answer"]
+
+    @pytest.mark.asyncio
+    async def test_a_question_is_required(self, delegated):
+        assert "question is required" in json.loads(await ask())["error"]
+
+    @pytest.mark.asyncio
     async def test_cited_cards_without_delegation_fail_closed(self):
         result = json.loads(await ask(question="q", artifact_ids=["card-1"]))
         assert result["answer"] is None

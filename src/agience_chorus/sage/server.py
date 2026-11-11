@@ -691,16 +691,27 @@ async def cite_sources(artifact_ids: list[str], answer: str) -> str:
     )
 )
 async def ask(
-    question: str,
+    question: str = "",
     workspace_id: Optional[str] = None,
     artifact_ids: Optional[list[str]] = None,
+    evidence: Optional[str] = None,
+    input: str = "",
 ) -> str:
     """
     Args:
         question: Natural language question.
         workspace_id: Optional workspace to scope cited-card fetches.
         artifact_ids: Optional list of card IDs to use as grounding context.
+        evidence: One item to answer from, as a workflow step links it ("Answer from my notes"
+            inside a workflow answers from the items linked to it, which its grant lists; John,
+            2026-11-10, BUG-052). Added to `artifact_ids`.
+        input: The question, by the name steps made before 2026-11-10 gave it.
     """
+    question = (question or input or "").strip()
+    if not question:
+        return json.dumps({"error": "a question is required"})
+    if evidence:
+        artifact_ids = [*(artifact_ids or []), str(evidence)]
     findings: list[str] = []
     evidence: list[dict] = []
     token = _delegation_token()

@@ -5,6 +5,12 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.26] - 2026-11-10
+
+### Fixed
+- Sage's `ask` answers from an item a workflow step links (`evidence`) and takes a step's earlier `input` as its question (BUG-052); a question is required.
+- The workflow editor refuses a step missing a required value, as it did a missing item; shows each step's values beside its links; reads a run's result as one line per step; and says "Waiting for your approval at Origin…" while a Run now waits, and "Not run." when it is declined (BUG-053, BUG-054).
+
 ## [0.2.25] - 2026-11-10
 
 ### Changed

@@ -314,6 +314,14 @@ function render() {
       const c = document.createElement('span'); c.className = 'chip'; c.textContent = `${arg}: ${link.title || link.id}`;
       row.querySelector('.links').appendChild(c);
     }
+    // Its values too, not only its links (BUG-053).
+    for (const [arg, value] of Object.entries(known.arguments || s.arguments || {})) {
+      if (typeof value === 'string' && value.startsWith('@link.')) continue;
+      const shown = typeof value === 'string' ? value : JSON.stringify(value);
+      const c = document.createElement('span'); c.className = 'chip';
+      c.textContent = `${arg}: ${shown.length > 60 ? shown.slice(0, 57) + '…' : shown}`;
+      row.querySelector('.links').appendChild(c);
+    }
     for (const [label, fn] of [['↑', () => move(i, -1)], ['↓', () => move(i, 1)], ['Remove', () => removeStep(i)]]) {
       const b = document.createElement('button'); b.className = 'small'; b.textContent = label; b.onclick = fn; row.appendChild(b);
     }
@@ -394,8 +402,11 @@ $('addStep').onclick = async () => {
   const op = findOp($('newOp').value); if (!op) { status('Choose the step\'s operator.', true); return; }
   const props = (op.input_schema && op.input_schema.properties) || {};
   const args = readArgs($('newArgForm'));
+  // Every required input, a value as well as an item (BUG-053: a missing question was taken, and
+  // the first run failed on it).
   const missing = ((op.input_schema && op.input_schema.required) || [])
-    .filter((n) => isArtifact(props[n]) && !picks[n] && !(n in args));
+    .filter((n) => isArtifact(props[n]) ? (!picks[n] && !(n in args))
+                                        : (!(n in args) || args[n] === '' || args[n] === null));
   if (missing.length) { status(`Choose ${missing.join(', ')} first.`, true); return; }
   status('Adding…');
   try {
@@ -427,16 +438,41 @@ function unwrap(o) {
 $('run').onclick = async () => {
   if (!currentSteps().length) { status('Add a step first.', true); return; }
   await saveNow(); if ($('status').className === 'err') return;
-  status('Running…'); $('run').disabled = true;
+  // The run waits on the person's approval at Origin before anything runs (BUG-054).
+  status('Waiting for your approval at Origin…'); $('run').disabled = true;
   try {
     const out = unwrap(unwrap(await rpc('tools/call', { name: 'run_now', arguments: { context: ctx } })));
     $('result').classList.remove('hidden');
-    $('result').textContent = typeof out === 'string' ? out : JSON.stringify(out, null, 2);
+    $('result').textContent = typeof out === 'string' ? out : described(out);
     status('Done.');
     tool('workflow_catalog', { workflow_id: artifactId, context: ctx }).then(named).then((c) => { catalog = c; renderRuns(); }).catch(() => {});
-  } catch (e) { $('result').classList.remove('hidden'); $('result').textContent = e.message; status('It failed.', true); }
-  finally { $('run').disabled = false; }
+  } catch (e) {
+    if (/did not run the workflow|did not approve it/i.test(e.message)) { status('Not run.'); return; }
+    $('result').classList.remove('hidden'); $('result').textContent = e.message; status('It failed.', true);
+  } finally { $('run').disabled = false; }
 };
+
+// A run in words (BUG-053): each step, how it ended, and what it gave, briefly.
+function briefly(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'object') {
+    if (typeof v.answer === 'string') return v.answer;
+    if (v.refusal && v.refusal.reason) return `no answer: ${v.refusal.reason}`;
+    let c = v.context; try { c = typeof c === 'string' ? JSON.parse(c) : c; } catch { c = null; }
+    if (c && c.title) return String(c.title);
+    if (v.title) return String(v.title);
+  }
+  return JSON.stringify(v);
+}
+function described(out) {
+  if (!out || typeof out !== 'object' || !Array.isArray(out.results)) return JSON.stringify(out, null, 2);
+  return out.results.map((r, i) => {
+    const what = r.status === 'completed' ? briefly(r.output) : (r.error || r.status);
+    const text = String(what || '');
+    return `${i + 1}. ${r.name || 'Step'}: ${r.status}${text ? ' — ' + (text.length > 300 ? text.slice(0, 297) + '…' : text) : ''}`;
+  }).join(String.fromCharCode(10));
+}
 
 $('schedule').onclick = async () => {
   status('Creating the timer…');
