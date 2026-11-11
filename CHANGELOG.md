@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.28] - 2026-11-11
+
+### Fixed
+- A create refused from the card editor is shown, with the server's reason, instead of only logged to the console (BUG-061).
+
 ## [0.2.27] - 2026-11-10
 
 ### Fixed

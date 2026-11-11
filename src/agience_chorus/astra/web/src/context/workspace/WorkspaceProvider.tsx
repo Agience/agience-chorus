@@ -207,7 +207,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const created = await addArtifactToWorkspace(activeWorkspace.id, payload);
         setArtifacts(prev => withArtifact(prev, created as Artifact));
       } catch (err) {
+        // Said, with the server's reason, as `createArtifact` says it (BUG-061, 2026-11-10: a
+        // refused create left nothing on screen, its 503 only in the console).
         console.error('Failed to create artifact', err);
+        toast.error('Could not create card', {
+          description: refusedWriteDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+        });
       }
     },
     [activeWorkspace?.id]

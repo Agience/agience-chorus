@@ -274,7 +274,10 @@ describe('WorkspaceProvider', () => {
       await waitFor(() => {
         expect(consoleSpy).toHaveBeenCalledWith('Failed to create artifact', expect.any(Error));
       });
-      
+      // Said on screen, not only in the console (BUG-061).
+      expect(toast.error).toHaveBeenCalledWith('Could not create card',
+        expect.objectContaining({ description: expect.any(String) }));
+
       // Artifact count should remain 3
       expect(screen.getByTestId('artifact-count')).toHaveTextContent('3');
       
