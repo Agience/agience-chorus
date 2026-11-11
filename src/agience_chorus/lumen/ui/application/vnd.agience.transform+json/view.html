@@ -118,14 +118,31 @@ async function named(c) {
     const got = (await tool('describe_operators', { ids })).operators || {};
     for (const o of c.operators || []) {
       const d = got[o.id]; if (!d) continue;
+      // Read in the person's session: its form is what it is, even when it takes no arguments.
+      o.described = true;
       if (d.title) o.title = d.title;
       if (d.description) o.description = d.description;
       if (d.input_schema && Object.keys(d.input_schema).length) o.input_schema = d.input_schema;
     }
     for (const st of c.steps || []) { const d = got[st.operator_id]; if (d && d.title) st.operator = d.title; }
   } catch { /* names stay as Lumen could read them */ }
+  // What each step links, by title (BUG-053: the evidence showed as an id).
+  const linked = [...new Set(((c && c.steps) || []).flatMap((st) => Object.values(st.links || {}))
+    .map((l) => l && l.id).filter(Boolean))].slice(0, 100);
+  if (linked.length) {
+    try {
+      const items = (await tool('describe_items', { ids: linked })).items || {};
+      for (const st of c.steps || []) for (const l of Object.values(st.links || {})) {
+        const d = l && items[l.id]; if (d && d.title) l.title = d.title;
+      }
+    } catch { /* links stay as Lumen could name them */ }
+  }
   return c;
 }
+
+// An operator whose form this session could not read (BUG-053, 2026-11-10: on staging an
+// unreadable operator showed no fields, and Add step took a step with no values).
+const unread = (op) => !op.described && !Object.keys((op.input_schema && op.input_schema.properties) || {}).length;
 
 async function tool(name, args) {
   const res = await rpc('tools/call', { name, arguments: args });
@@ -235,7 +252,9 @@ function argForm(host, op, values, sources) {
     }
     if (spec && spec.description && !isArtifact(spec)) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = spec.description; host.appendChild(h); }
   }
-  if (!Object.keys(props).length) { const h = document.createElement('div'); h.className = 'hint'; h.textContent = 'This operator takes no arguments.'; host.appendChild(h); }
+  if (!Object.keys(props).length) { const h = document.createElement('div'); h.className = 'hint';
+    h.textContent = unread(op) ? 'This operator\'s inputs can\'t be read here, so it can\'t be added.' : 'This operator takes no arguments.';
+    host.appendChild(h); }
 }
 
 function onPicked(r) {
@@ -311,8 +330,9 @@ function render() {
     row.querySelector('.muted').textContent = s.operator_id ? (known.operator || 'an operator you can no longer invoke')
       : 'a tool run directly — remove it and add an operator';
     for (const [arg, link] of Object.entries(known.links || {})) {
-      const c = document.createElement('span'); c.className = 'chip'; c.textContent = `${arg}: ${link.title || link.id}`;
-      row.querySelector('.links').appendChild(c);
+      const c = document.createElement('span'); c.className = 'chip'; c.textContent = `${arg}: ${link.title || 'an item'}`;
+      c.title = link.id || '';
+      row.querySelector('.links').append(c, ' ');
     }
     // Its values too, not only its links (BUG-053).
     for (const [arg, value] of Object.entries(known.arguments || s.arguments || {})) {
@@ -320,7 +340,7 @@ function render() {
       const shown = typeof value === 'string' ? value : JSON.stringify(value);
       const c = document.createElement('span'); c.className = 'chip';
       c.textContent = `${arg}: ${shown.length > 60 ? shown.slice(0, 57) + '…' : shown}`;
-      row.querySelector('.links').appendChild(c);
+      row.querySelector('.links').append(c, ' ');
     }
     for (const [label, fn] of [['↑', () => move(i, -1)], ['↓', () => move(i, 1)], ['Remove', () => removeStep(i)]]) {
       const b = document.createElement('button'); b.className = 'small'; b.textContent = label; b.onclick = fn; row.appendChild(b);
@@ -400,6 +420,7 @@ $('save').onclick = saveNow;
 
 $('addStep').onclick = async () => {
   const op = findOp($('newOp').value); if (!op) { status('Choose the step\'s operator.', true); return; }
+  if (unread(op)) { status('This operator\'s inputs can\'t be read, so the step can\'t be added.', true); return; }
   const props = (op.input_schema && op.input_schema.properties) || {};
   const args = readArgs($('newArgForm'));
   // Every required input, a value as well as an item (BUG-053: a missing question was taken, and

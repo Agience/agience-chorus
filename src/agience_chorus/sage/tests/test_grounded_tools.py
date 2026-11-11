@@ -150,6 +150,31 @@ class TestAsk:
         assert result["citations"] == ["note-1"] and "says hello" in result["answer"]
 
     @pytest.mark.asyncio
+    async def test_a_linked_collection_answers_from_what_it_holds(self, delegated):
+        """BUG-052, reopened 2026-11-10: with a collection as evidence the answer cited the
+        collection alone, with no text. It answers from the items it holds, each cited."""
+        docs = {
+            "coll-1": {"id": "coll-1", "content_type": "application/vnd.agience.collection+json",
+                       "content": "", "context": {"title": "Acceptance"}},
+            "note-1": {"id": "note-1", "content_type": "text/markdown",
+                       "content": "the smoke note says hello", "context": {"title": "Smoke note"}},
+            "note-2": {"id": "note-2", "content_type": "text/markdown",
+                       "content": "a second note", "context": {"title": "Second"}},
+        }
+
+        def handler(method, url, **kw):
+            if url.endswith("/coll-1/children"):
+                return MockResponse({"items": [{"id": "note-1"}, {"id": "note-2"}], "has_more": False})
+            return MockResponse(docs[url.rsplit("/", 1)[-1]])
+
+        with patch("httpx.AsyncClient", return_value=_client(handler)), \
+             patch.object(_sage_server._op_retrieve, "retrieve", return_value=[]):
+            result = json.loads(await ask(question="what does it say?", evidence="coll-1"))
+        assert result["citations"] == ["note-1", "note-2"]
+        assert "says hello" in result["answer"] and "Smoke note" in result["answer"]
+        assert "Acceptance" not in result["answer"]
+
+    @pytest.mark.asyncio
     async def test_a_question_is_required(self, delegated):
         assert "question is required" in json.loads(await ask())["error"]
 

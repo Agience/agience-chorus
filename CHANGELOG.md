@@ -5,6 +5,13 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.27] - 2026-11-10
+
+### Fixed
+- Sage's `ask` answers from what a linked collection or workspace holds, each item cited, rather than citing the container alone with no text (BUG-052).
+- "New workspace" opens the workspace it makes, and a second click while the first is on its way makes no second one (BUG-058). The selection kept falling back to the Inbox before the preference that docks the new tab came back.
+- The workflow editor names each linked item by its title, not its id; separates each value it shows; and refuses a step whose operator's inputs it can't read, rather than adding it with no values (BUG-053). The app's host answers `describe_items` (title and type of up to 100 items the person can read) for it.
+
 ## [0.2.26] - 2026-11-10
 
 ### Fixed

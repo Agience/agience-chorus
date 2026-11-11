@@ -736,6 +736,31 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         return;
       }
 
+      // What a step links, by name (BUG-053, 2026-11-10: a step showed its evidence as an id): the
+      // title of each item, read in the person's session, which the picker showed them when they
+      // chose it. Title and type only, for items the person can read.
+      case 'describe_items': {
+        const ids = Array.isArray(toolArgs.ids)
+          ? [...new Set(toolArgs.ids.filter((i): i is string => typeof i === 'string' && i !== ''))]
+          : [];
+        if (ids.length === 0 || ids.length > 100) {
+          sendError(req.id, -32602, 'describe_items takes 1 to 100 item ids');
+          return;
+        }
+        const out: Record<string, { title: string; content_type: string }> = {};
+        await Promise.all(ids.map(async (id) => {
+          try {
+            const doc = await getArtifact(id);
+            const c = safeParseArtifactContext(doc.context) as Record<string, unknown>;
+            const title = typeof c.title === 'string' && c.title ? c.title
+              : (typeof doc.name === 'string' ? doc.name : '');
+            out[id] = { title: title.slice(0, 200), content_type: String(doc.content_type ?? '') };
+          } catch { /* one the person cannot read is left out */ }
+        }));
+        sendResponse(req.id, { content: [{ type: 'text', text: JSON.stringify({ items: out }) }] });
+        return;
+      }
+
       default: {
         // A view calls the tools of the persona that served it (`resource_server`), as an MCP App
         // calls its own server. Without one, the call goes through the artifact's own `invoke`

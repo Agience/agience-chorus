@@ -1015,10 +1015,19 @@ export default function Browser({
   // [+] creates a new workspace (the backend indexes its container artifact for search),
   // then switches to the new workspace. No card is dropped into the current workspace.
   // A failed create is already toasted by WorkspacesProvider.createWorkspace.
+  // One create at a time (BUG-058, 2026-11-10: a second click while the first was on its way made
+  // a second workspace).
+  const creatingWorkspace = useRef(false);
   const handleCreateWorkspace = useCallback(async () => {
-    const ws = await createWorkspace('Untitled Workspace', '', { activate: false }).catch(() => null);
-    if (!ws) return;
-    setActiveWorkspaceId(ws.id);
+    if (creatingWorkspace.current) return;
+    creatingWorkspace.current = true;
+    try {
+      const ws = await createWorkspace('Untitled Workspace', '', { activate: false }).catch(() => null);
+      if (!ws) return;
+      setActiveWorkspaceId(ws.id);
+    } finally {
+      creatingWorkspace.current = false;
+    }
   }, [createWorkspace, setActiveWorkspaceId]);
 
   // "New card" from the no-source empty state: dock the Inbox (its id is the user id),

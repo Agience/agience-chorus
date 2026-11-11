@@ -700,6 +700,40 @@ describe('McpAppHost', () => {
     });
   });
 
+  describe('describe_items', () => {
+    // BUG-053 (2026-11-10): a step showed the item it links as an id. The host names each item the
+    // person can read, by its title and type and nothing else.
+    it('gives the title and type of each item the person can read, and nothing more', async () => {
+      getArtifactMock.mockImplementation(async (id: string) => {
+        if (id === 'note-1') return { id, content_type: 'text/markdown', content: 'body',
+          context: JSON.stringify({ title: 'Smoke note', secret: 'x' }) };
+        if (id === 'coll-1') return { id, name: 'Acceptance', content_type: 'application/vnd.agience.collection+json',
+          context: JSON.stringify({}) };
+        throw new Error('403');
+      });
+      const { container } = renderWithConfirm(
+        <McpAppHost artifact={makeArtifact({ id: 'wf-1', content_type: 'application/vnd.agience.transform+json' })} html="" />, [],
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 53, method: 'tools/call',
+                           params: { name: 'describe_items', arguments: { ids: ['note-1', 'coll-1', 'gone-1'] } } });
+      await waitFor(() => expect(responseFor(posted, 53)?.result).toBeDefined());
+      const out = JSON.parse(responseFor(posted, 53)!.result!.content[0].text);
+      expect(out).toEqual({ items: {
+        'note-1': { title: 'Smoke note', content_type: 'text/markdown' },
+        'coll-1': { title: 'Acceptance', content_type: 'application/vnd.agience.collection+json' } } });
+      expect(proxyToolCallMock).not.toHaveBeenCalled();
+    });
+
+    it('takes at most 100 ids', async () => {
+      const { container } = renderWithConfirm(<McpAppHost artifact={makeArtifact({ id: 'wf-1' })} html="" />, []);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 54, method: 'tools/call',
+                           params: { name: 'describe_items', arguments: { ids: Array.from({ length: 101 }, (_, i) => `i${i}`) } } });
+      await waitFor(() => expect(responseFor(posted, 54)?.error).toBeDefined());
+    });
+  });
+
   describe('timers', () => {
     // A timer runs on a job grant approved at Origin (2026-11-10, BUG-024/BUG-035): no key is issued,
     // and what it reaches is what Lumen names, never its workspace.

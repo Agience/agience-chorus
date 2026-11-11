@@ -156,6 +156,43 @@ describe('WorkspacesProvider deep links', () => {
   });
 });
 
+describe('WorkspacesProvider opens a new workspace', () => {
+  // BUG-058 (2026-11-10): "New workspace" made it (201) and then showed the Inbox: the selection ran
+  // before the preference that docks it came back, and fell back to a docked tab.
+  function NewWorkspace() {
+    const { createWorkspace, setActiveWorkspaceId, activeWorkspaceId, workspaces } = useWorkspaces();
+    return (
+      <>
+        <div data-testid="active">{activeWorkspaceId ?? ''}</div>
+        <div data-testid="count">{workspaces.length}</div>
+        <button onClick={async () => {
+          const ws = await createWorkspace('Untitled Workspace', '', { activate: false });
+          setActiveWorkspaceId(ws.id);
+        }}>new</button>
+      </>
+    );
+  }
+
+  it('keeps the new workspace selected while its tab is being docked', async () => {
+    listWorkspacesMock.mockReset();
+    createWorkspaceMock.mockReset();
+    localStorage.clear();
+    const updates: Record<string, unknown>[] = [];
+    prefs.current = { browser: { dockedWorkspaceCardIds: ['inbox-1'] } };
+    prefs.update = (p) => { updates.push(p); };   // the docked list does not come back yet
+    listWorkspacesMock.mockResolvedValue([{ id: 'inbox-1', name: 'Inbox' }]);
+    createWorkspaceMock.mockResolvedValue({ id: 'new-ws', name: 'Untitled Workspace' });
+    render(<MemoryRouter><WorkspacesProvider><NewWorkspace /></WorkspacesProvider></MemoryRouter>);
+    await waitFor(() => expect(screen.getByTestId('active')).toHaveTextContent('inbox-1'));
+
+    fireEvent.click(screen.getByText('new'));
+    await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('2'));
+    await waitFor(() => expect(updates).toContainEqual(
+      { browser: { dockedWorkspaceCardIds: ['inbox-1', 'new-ws'] } }));
+    expect(screen.getByTestId('active')).toHaveTextContent('new-ws');
+  });
+});
+
 describe('WorkspacesProvider selection on load', () => {
   beforeEach(() => {
     listWorkspacesMock.mockReset();

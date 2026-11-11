@@ -200,6 +200,9 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
     }
     setWorkspaces(prev => [...prev, created]);
     if (dockedWorkspaceTabIds) {
+      // Selected while the preference that docks it comes back, as a tab being opened is (BUG-058,
+      // 2026-11-10: "New workspace" made it, then the selection fell back to the Inbox).
+      opening.current = created.id;
       void updatePreferences({
         browser: { ...preferences.browser, dockedWorkspaceCardIds: [...dockedWorkspaceTabIds, created.id] },
       });

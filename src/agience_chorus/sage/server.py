@@ -541,6 +541,27 @@ def _grounded_extract(evidence: list[dict]) -> tuple[str, list[str]]:
     return "\n\n".join(blocks), cited
 
 
+#: Containers whose evidence is what they hold: a step's evidence names a collection as readily as
+#: a note (BUG-052, 2026-11-10: "answer from" a collection cited the collection, with no text).
+_CONTAINER_TYPES = frozenset({"application/vnd.agience.collection+json",
+                              "application/vnd.agience.workspace+json"})
+
+
+async def _members(client: httpx.AsyncClient, headers: dict, container_id: str) -> list[str]:
+    """The ids of the items in `container_id` the caller may read, one page (Mantle pages by what
+    the caller may read; the grounding budget bounds what is used of it)."""
+    try:
+        resp = await client.get(artifact_url(MANTLE_URI, container_id, "children"), headers=headers,
+                                timeout=30)
+    except Exception:
+        return []
+    if resp.status_code != 200:
+        return []
+    body = resp.json()
+    items = body.get("items") if isinstance(body, dict) else body
+    return [str(i.get("id")) for i in (items or []) if isinstance(i, dict) and i.get("id")]
+
+
 async def _fetch_artifact_json(client: httpx.AsyncClient, headers: dict, aid: str,
                                ws: Optional[str] = None) -> Optional[dict]:
     """GET one artifact with the supplied headers — auth is decided by the caller, never in here.
@@ -724,10 +745,22 @@ async def ask(
             findings.append(f"cited-card fetch refused: {exc}")
         else:
             async with httpx.AsyncClient() as client:
-                for aid in artifact_ids:
+                queue, seen_ids = list(artifact_ids), set()
+                while queue:
+                    aid = str(queue.pop(0))
+                    if aid in seen_ids:
+                        continue
+                    seen_ids.add(aid)
                     art = await _fetch_artifact_json(client, headers, aid, workspace_id)
                     if art is None:
                         findings.append(f"card {aid}: not fetchable under the caller's grants")
+                        continue
+                    if art.get("content_type") in _CONTAINER_TYPES and aid in artifact_ids:
+                        # A linked collection answers from what it holds, each item cited.
+                        held = await _members(client, headers, aid)
+                        if not held:
+                            findings.append(f"collection {aid}: holds nothing the caller may read")
+                        queue.extend(held)
                         continue
                     ctx = art.get("context") or {}
                     if isinstance(ctx, str):
