@@ -54,6 +54,13 @@ vi.mock('@/hooks/useWorkspaces', () => ({
 }));
 
 // Dynamic imports inside the component — stubbed so we never hit axios.
+const eventHandlers: Array<{ filter: { event_names?: string[] }; on: (e: unknown) => void }> = [];
+vi.mock('@/api/events', () => ({
+  subscribeEvents: (filter: { event_names?: string[] }, on: (e: unknown) => void) => {
+    eventHandlers.push({ filter, on });
+    return () => {};
+  },
+}));
 const getArtifactMock = vi.fn();
 const invokeWithContextMock = vi.fn();
 vi.mock('@/api/artifacts', () => ({
@@ -314,6 +321,24 @@ describe('McpAppHost', () => {
       expect(payload.artifact_id).toBe('art-99');
       expect(payload.context).toEqual({ content_type: 'text/plain' });
       expect(payload.content).toBe('BODY');
+    });
+  });
+
+  describe('a change to the hosted artifact', () => {
+    it('reaches the open view: a timer that records its run shows it without a reload', async () => {
+      getArtifactMock.mockResolvedValue({ id: 't9', context: JSON.stringify({ title: 'T', timer_state: { runs: 1 } }) });
+      const { container } = render(<McpAppHost artifact={makeArtifact({ id: 't9', context: '{"title":"T"}' })} html="" />);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 1, method: 'ui/initialize' });
+      await nextTick();
+      const updated = eventHandlers.filter((h) => (h.filter.event_names || []).includes('artifact.updated'));
+      expect(updated.length).toBeGreaterThan(0);
+      updated[updated.length - 1].on({ event: 'artifact.updated', artifact_id: 't9' });
+      await waitFor(() => {
+        const results = posted.filter((p) => (p.message as { method?: string }).method === 'ui/notifications/tool-result');
+        const last = JSON.parse((results[results.length - 1].message as { params: { content: Array<{ text: string }> } }).params.content[0].text);
+        expect(last.context.timer_state).toEqual({ runs: 1 });
+      });
     });
   });
 
