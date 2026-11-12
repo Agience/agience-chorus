@@ -248,3 +248,46 @@ def test_only_allowlisted_token_endpoints_pass():
                 "https://oauth2.googleapis.com/token/../x", "http://169.254.169.254/"):
         with pytest.raises(_egress.EgressRefused):
             _egress.require_token_endpoint(bad)
+
+
+# ── the home test node's one allowance (John, 2026-11-12) ───────────────────────────────────────
+
+import logging as _logging
+import socket as _socket
+
+import pytest as _pytest
+
+from agience_chorus import _egress as _E
+
+_NAME = "echo-mcp.home.agience.ai"
+
+
+def _local(monkeypatch):
+    monkeypatch.setattr(_socket, "getaddrinfo",
+                        lambda host, port, proto=0: [(2, 1, 6, "", ("127.0.0.1", port))])
+
+
+@_pytest.mark.parametrize("plane", ["", "prod", "rc", "staging", "Home-ish"])
+def test_the_allowance_is_ignored_on_every_plane_but_home(monkeypatch, plane):
+    _local(monkeypatch)
+    monkeypatch.setenv("AGIENCE_PLANE", plane)
+    monkeypatch.setenv(_E.TEST_ALLOW_SETTING, _NAME)
+    assert not _E.test_allowance(_NAME)
+    with _pytest.raises(_E.EgressRefused):
+        _E.check_url(f"http://{_NAME}/mcp")
+
+
+def test_on_home_only_an_exact_listed_name_passes_and_is_logged(monkeypatch, caplog):
+    _local(monkeypatch)
+    monkeypatch.setenv("AGIENCE_PLANE", "home")
+    monkeypatch.setenv(_E.TEST_ALLOW_SETTING, f"*.home.agience.ai, 127.0.0.1 ,{_NAME}")
+    with caplog.at_level(_logging.WARNING):
+        assert _E.check_url(f"http://{_NAME}/mcp").address == "127.0.0.1"
+    assert any("home test allowance" in r.getMessage() for r in caplog.records)
+    for other in ("other.home.agience.ai", "x." + _NAME):
+        with _pytest.raises(_E.EgressRefused):
+            _E.check_url(f"http://{other}/mcp")
+    monkeypatch.setenv(_E.TEST_ALLOW_SETTING, "*.home.agience.ai")
+    assert not _E.test_allowance(_NAME), "a pattern is never an allowance"
+    monkeypatch.delenv(_E.TEST_ALLOW_SETTING)
+    assert not _E.test_allowance(_NAME)

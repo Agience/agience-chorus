@@ -145,6 +145,23 @@ class _Target:
     address: str             # the checked address the connection goes to
 
 
+#: The home test node's one allowance (John, 2026-11-12): a host named exactly in this setting may
+#: resolve to a local address, only while the plane is `home` (71/test). Never anywhere else, never a
+#: pattern or an address, and every use is logged.
+TEST_ALLOW_SETTING = "IRIS_TEST_EGRESS_ALLOW"
+
+
+def test_allowance(host: str) -> bool:
+    """Whether `host` may resolve to a local address here: only on the `home` plane, and only when
+    it is one of the exact names in `IRIS_TEST_EGRESS_ALLOW` (comma-separated). Patterns are ignored."""
+    import os
+    if (os.environ.get("AGIENCE_PLANE") or "").strip().lower() != "home":
+        return False
+    names = {n.strip().lower().rstrip(".") for n in (os.environ.get(TEST_ALLOW_SETTING) or "").split(",")}
+    names = {n for n in names if n and not any(c in n for c in "*?[]/") and not host_refused(n)}
+    return (host or "").strip().lower().rstrip(".") in names
+
+
 def _resolve(host: str, port: int) -> str:
     """The address to connect to. Every address the name resolves to must pass, not just one:
     a name with one public and one private record would otherwise be reachable on the private one
@@ -154,12 +171,18 @@ def _resolve(host: str, port: int) -> str:
     except (socket.gaierror, UnicodeError) as exc:
         raise EgressError("cannot resolve %s: %s" % (host, exc)) from None
     addresses = []
+    allowed = test_allowance(host)
     for _family, _type, _proto, _canon, sockaddr in infos:
         addr = sockaddr[0].split("%", 1)[0]
         why = address_refused(addr)
-        if why:
+        if why and not allowed:
             raise EgressRefused("refusing %s: %s" % (host, why))
         addresses.append(addr)
+    if allowed:
+        import logging
+        logging.getLogger(__name__).warning(
+            "egress: %s reached at %s under the home test allowance (%s)", host, addresses[0] if addresses else "?",
+            TEST_ALLOW_SETTING)
     if not addresses:
         raise EgressError("cannot resolve %s" % host)
     return addresses[0]
