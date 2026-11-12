@@ -21,3 +21,16 @@ def test_the_sealed_key_then_the_referenced_secret_then_none(monkeypatch):
     assert run({"transport": {"secret_id": "s-1"}}) == "from-secret"
     assert fetched == [("s-1", "srv-1", "https://x.example/mcp")]
     assert run({"transport": {"type": "http"}}) is None
+
+
+def test_a_server_tool_step_sends_one_tools_call(monkeypatch):
+    sent = []
+
+    async def call(server_id, method, params=None):
+        sent.append((server_id, method, params))
+        return '{"result": {}}'
+    monkeypatch.setattr(server, "call_mcp_server", call)
+    asyncio.run(server.use_server_tool("srv-1", "echo", {"text": "hi"}))
+    asyncio.run(server.use_server_tool("srv-1", "ping"))
+    assert sent == [("srv-1", "tools/call", {"name": "echo", "arguments": {"text": "hi"}}),
+                    ("srv-1", "tools/call", {"name": "ping", "arguments": {}})]

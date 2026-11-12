@@ -1305,12 +1305,25 @@ def _server_endpoint(context: dict) -> str:
 
 @mcp.tool(
     description=(
+        "Run one tool on an MCP server a person added as an artifact: `tools/call` with `tool` and "
+        "its `arguments`, as `call_mcp_server` sends it (the same egress guard, the server's own key, "
+        "never the caller's credential). A workflow's \"Use a server tool\" step runs this."
+    ),
+    annotations=ToolAnnotations(openWorldHint=True),
+)
+async def use_server_tool(server_artifact_id: str, tool: str, arguments: Optional[dict] = None) -> str:
+    return await call_mcp_server(server_artifact_id, "tools/call",
+                                 {"name": tool, "arguments": arguments or {}})
+
+
+@mcp.tool(
+    description=(
         "Send one MCP request (tools/list, tools/call, resources/list, resources/read, "
         "prompts/list, prompts/get) to an MCP server a person added as an artifact, and return its "
-        "result. The server's card is read as the caller, so only a caller who can read it reaches "
+        "result. The server artifact is read as the caller, so only a caller who can read it reaches "
         "the server. Only an HTTP endpoint is reached, through the platform's egress guard (no "
         "private or local addresses, no redirects). The caller's Agience credential is never sent "
-        "to the server; a server that needs one names a secret artifact (`transport.secret_id`)."
+        "to the server; a server's own key is sealed with the server artifact, or named as a secret artifact (`transport.secret_id`)."
     ),
     annotations=ToolAnnotations(openWorldHint=True),
 )
