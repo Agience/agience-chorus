@@ -838,10 +838,25 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
       {
         container_id: activeWorkspaceId ?? undefined,
         artifact_id: artifact.id,
-        event_names: ['artifact.chat.*'],
+        event_names: ['artifact.chat.*', 'artifact.updated'],
       },
       (evt) => {
         const payload = (evt.payload ?? {}) as Record<string, unknown>;
+        if (evt.event === 'artifact.updated') {
+          // A change made elsewhere (a timer recording its run) reaches the open view: read it again
+          // and send it as at initialize; the merge base moves with it. One subscription per view,
+          // shared with chat (2026-11-12: a second one per view slowed the first load).
+          getArtifact(String(artifact.id))
+            .then((a) => {
+              const fresh = safeParseArtifactContext((a as { context?: unknown }).context as string) as Record<string, unknown>;
+              viewContextBase.current = fresh;
+              sendNotification('ui/notifications/tool-result', {
+                content: [{ type: 'text', text: JSON.stringify({ artifact_id: artifact.id, context: fresh, content: resolvedContent }) }],
+              });
+            })
+            .catch(() => { /* the view keeps what it shows; the next open reads it again */ });
+          return;
+        }
         if (evt.event === 'artifact.chat.delta') {
           sendNotification('ui/notifications/chat-delta', payload);
         } else if (evt.event === 'artifact.chat.status') {
@@ -852,30 +867,6 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
 
     return unsub;
   }, [initialized, artifact.id, activeWorkspaceId]);
-
-  // A change to the hosted artifact made elsewhere (a timer recording its run, another tab) reaches
-  // the open view: the host reads it again and sends it as at initialize, and the merge base moves
-  // with it, so the view's next save starts from what is stored (2026-11-12: "Runs 0" stayed on
-  // screen after a successful run until a reload).
-  useEffect(() => {
-    if (!initialized) return;
-    const unsub = subscribeEvents(
-      { artifact_id: artifact.id, event_names: ['artifact.updated'] },
-      () => {
-        getArtifact(String(artifact.id))
-          .then((a) => {
-            const fresh = safeParseArtifactContext((a as { context?: unknown }).context as string) as Record<string, unknown>;
-            viewContextBase.current = fresh;
-            sendNotification('ui/notifications/tool-result', {
-              content: [{ type: 'text', text: JSON.stringify({ artifact_id: artifact.id, context: fresh, content: resolvedContent }) }],
-            });
-          })
-          .catch(() => { /* the view keeps what it shows; the next open reads it again */ });
-      },
-    );
-    return unsub;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialized, artifact.id]);
 
   // ------ Drag-drop bridge ------
   // The iframe runs under sandbox="allow-scripts" (no allow-same-origin),
