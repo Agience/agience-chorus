@@ -739,6 +739,25 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
       // What a step links, by name (BUG-053, 2026-11-10: a step showed its evidence as an id): the
       // title of each item, read in the person's session, which the picker showed them when they
       // chose it. Title and type only, for items the person can read.
+      case 'server_tools': {
+        // A server artifact's view lists its tools: Iris relays tools/list for the hosted server
+        // artifact, and for no other (the id is the host's, never the view's).
+        const hostedType = String(
+          (safeParseArtifactContext(artifact.context) as { content_type?: string }).content_type
+          ?? (artifact as { content_type?: string }).content_type ?? '');
+        if (hostedType !== 'application/vnd.agience.mcp-server+json') {
+          sendError(req.id, -32000, 'server_tools is for a server artifact');
+          return;
+        }
+        try {
+          const answer = await proxyToolCall(
+            'call_mcp_server', { server_artifact_id: String(artifact.id), method: 'tools/list' }, 'iris');
+          sendResponse(req.id, { content: [{ type: 'text', text: answer.content?.[0]?.text ?? '{}' }] });
+        } catch (e) {
+          sendError(req.id, -32000, `Could not reach the server: ${e}`);
+        }
+        return;
+      }
       case 'describe_items': {
         const ids = Array.isArray(toolArgs.ids)
           ? [...new Set(toolArgs.ids.filter((i): i is string => typeof i === 'string' && i !== ''))]

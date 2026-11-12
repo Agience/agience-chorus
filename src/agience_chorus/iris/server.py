@@ -1266,6 +1266,23 @@ def _mcp_exchange(endpoint: str, method: str, params: dict, auth: Optional[str])
     return _mcp_rpc_result(resp)
 
 
+async def _server_auth(client: httpx.AsyncClient, context: dict, server_artifact_id: str,
+                       endpoint: str) -> Optional[str]:
+    """The one place a server artifact's credential is read, so where it lives can change here alone
+    (John, 2026-11-12: later, secrets become their own artifact that servers reference).
+
+    Now: the `access_key` sealed on the server artifact itself, which travels with the artifact to
+    whoever it is shared with; or a referenced secret (`transport.secret_id`), released for this
+    endpoint only, and only if the credential names it (review 10, R1)."""
+    key = context.get("access_key")
+    if isinstance(key, str) and key.strip():
+        return key.strip()
+    secret_id = (context.get("transport") or {}).get("secret_id")
+    if secret_id:
+        return await _fetch_secret_material(client, secret_id, server_artifact_id, endpoint=endpoint)
+    return None
+
+
 def _server_endpoint(context: dict) -> str:
     """The server's MCP endpoint from its card: an HTTP transport, never a command to run here."""
     transport = context.get("transport") or {}
@@ -1326,16 +1343,10 @@ async def call_mcp_server(server_artifact_id: str, method: str, params: Optional
             return json.dumps({"error": str(exc), "status": 403})
         except (_egress.EgressError, ValueError) as exc:
             return json.dumps({"error": str(exc), "status": 503})
-        auth = None
-        secret_id = (context.get("transport") or {}).get("secret_id")
-        if secret_id:
-            try:
-                # The secret is for this endpoint only, and only if the credential names it: the
-                # caller wrote the card, not the credential (review 10, R1).
-                auth = await _fetch_secret_material(client, secret_id, server_artifact_id,
-                                                    endpoint=endpoint)
-            except SecretUnavailable as exc:
-                return json.dumps({"error": str(exc), "status": 403})
+        try:
+            auth = await _server_auth(client, context, server_artifact_id, endpoint)
+        except SecretUnavailable as exc:
+            return json.dumps({"error": str(exc), "status": 403})
     try:
         result = await asyncio.to_thread(_mcp_exchange, endpoint, method, params or {}, auth)
     except _egress.EgressRefused as exc:

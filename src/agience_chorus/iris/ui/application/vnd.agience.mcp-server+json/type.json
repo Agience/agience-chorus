@@ -4,7 +4,7 @@
   "inherits": [
     "application/json"
   ],
-  "description": "MCP Server — transport configuration stored as an artifact.  Creating an artifact of this type in a workspace registers an external MCP server for that workspace.",
+  "description": "MCP Server \u2014 an external MCP server this workspace uses: its address, and optionally its own access key, sealed with the server artifact. Creating one in a workspace registers the server for that workspace; its tools can then run as workflow steps.",
   "context_schema": {
     "title": {
       "type": "string",
@@ -50,6 +50,17 @@
       "type": "string",
       "description": "User notes",
       "mutable": true
+    },
+    "url": {
+      "type": "string",
+      "description": "The server's MCP endpoint (https://\u2026/mcp) or its /.well-known/mcp.json",
+      "mutable": true
+    },
+    "access_key": {
+      "type": "string",
+      "description": "The server's own access key, sent as a Bearer token to this server only. Sealed with the server artifact; never an Agience credential.",
+      "mutable": true,
+      "secret": true
     }
   },
   "relationships": {
@@ -158,7 +169,7 @@
     "is_container": false,
     "creatable": true,
     "viewer": "mcp-server",
-    "description": "External MCP server — add one to a workspace to expose its tools, resources, and prompts as artifacts.",
+    "description": "External MCP server \u2014 add one to a workspace to expose its tools, resources, and prompts as artifacts.",
     "fields": [
       {
         "key": "title",

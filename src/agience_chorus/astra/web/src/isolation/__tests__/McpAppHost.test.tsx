@@ -343,6 +343,33 @@ describe('McpAppHost', () => {
     });
   });
 
+  describe('a server artifact', () => {
+    it("lists its tools through Iris for the hosted server artifact alone, and refuses any other artifact", async () => {
+      proxyToolCallMock.mockResolvedValue({ content: [{ type: 'text', text: '{"result":{"tools":[{"name":"echo"}]}}' }] });
+      const server = makeArtifact({ id: 's1', context: JSON.stringify({ content_type: 'application/vnd.agience.mcp-server+json' }) });
+      const { container } = render(<McpAppHost artifact={server} html="" />);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 1, method: 'ui/initialize' });
+      await waitFor(() => expect(responseFor(posted, 1)).toBeDefined());
+      dispatchFromIframe({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'server_tools', arguments: { server_artifact_id: 'other' } } });
+      await waitFor(() => expect(responseFor(posted, 2)).toBeDefined());
+      expect(proxyToolCallMock).toHaveBeenCalledWith('call_mcp_server', { server_artifact_id: 's1', method: 'tools/list' }, 'iris');
+      expect(JSON.stringify(responseFor(posted, 2))).toContain('echo');
+    });
+
+    it('refuses server_tools on an artifact that is not a server', async () => {
+      proxyToolCallMock.mockClear();
+      const { container } = render(<McpAppHost artifact={makeArtifact({ id: 'n1' })} html="" />);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 1, method: 'ui/initialize' });
+      await waitFor(() => expect(responseFor(posted, 1)).toBeDefined());
+      dispatchFromIframe({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'server_tools', arguments: {} } });
+      await waitFor(() => expect(responseFor(posted, 3)).toBeDefined());
+      expect(JSON.stringify(responseFor(posted, 3))).toContain('server artifact');
+      expect(proxyToolCallMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('tools/call platform tools', () => {
     it("a view's context save keeps what an operator wrote to the card while the view was open", async () => {
       // 2026-10-19, on staging: disarming a timer from its card wiped Lumen's record of its runs.

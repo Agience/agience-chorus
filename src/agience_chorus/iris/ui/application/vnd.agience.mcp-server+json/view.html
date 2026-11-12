@@ -206,6 +206,7 @@ function toggleEdit() {
       cwd: t.cwd || '',
       args: (t.args || []).join('\n'),
       env: t.env ? JSON.stringify(t.env, null, 2) : '',
+      access_key: '',
     };
   }
   _editing = !_editing;
@@ -233,8 +234,11 @@ async function save() {
     if (_draft.env.trim()) {
       try { transport.env = JSON.parse(_draft.env); } catch {}
     }
+    // The server's own access key, sealed with the server artifact. Left blank, the key it has stays.
+    const key = (_draft.access_key || '').trim();
     const newCtx = {
       ...c,
+      ...(key ? { access_key: key } : {}),
       name: _draft.name || undefined,
       title: _draft.name || undefined,
       notes: _draft.notes || undefined,
@@ -293,6 +297,10 @@ function render() {
           <div class="field-label">Well-Known URL</div>
           <input class="edit-input" id="f-url" value="${esc(_draft.well_known)}" placeholder="https://example.com/.well-known/mcp.json or /mcp endpoint" />
         </div>
+        <div class="field-group">
+          <div class="field-label">Access key ${c.access_key ? '(set; leave blank to keep it)' : '(optional)'}</div>
+          <input class="edit-input" id="f-key" type="password" autocomplete="off" value="" placeholder="The server's own key, sent to this server only" />
+        </div>
       ` : `
         <div class="field-group">
           <div class="field-label">Command</div>
@@ -320,6 +328,7 @@ function render() {
     bindInput('f-name', 'name');
     bindInput('f-notes', 'notes');
     bindInput('f-url', 'well_known');
+    bindInput('f-key', 'access_key');
     bindInput('f-command', 'command');
     bindInput('f-cwd', 'cwd');
     bindInput('f-args', 'args');
@@ -359,6 +368,14 @@ function render() {
       <div class="section">
         <div class="field-label">URL</div>
         <div class="field-value mono">${esc(t.well_known || c.url || 'Not set')}</div>
+      </div>
+      <div class="section">
+        <div class="field-label">Access key</div>
+        <div class="field-value">${c.access_key ? 'Set' : 'None'}</div>
+      </div>
+      <div class="section">
+        <div class="field-label">Tools <button class="btn btn-outline" onclick="loadTools()">${_tools === null ? 'List tools' : 'Refresh'}</button></div>
+        <div class="field-value">${_toolsError ? esc(_toolsError) : (_tools === null ? '' : (_tools.length ? `<ul>${_tools.map(x => `<li><span class="mono">${esc(x.name)}</span>${x.description ? ' — ' + esc(x.description) : ''}</li>`).join('')}</ul>` : 'This server lists no tools.'))}</div>
       </div>` : `
       <div class="section">
         <div class="field-label">Command</div>
@@ -385,6 +402,23 @@ function render() {
       </div>` : ''}
     `;
   }
+}
+
+// The server's tools, read through the host (Iris relays tools/list for this server artifact only).
+let _tools = null;
+let _toolsError = '';
+async function loadTools() {
+  _toolsError = '';
+  try {
+    const res = await sendRpc('tools/call', { name: 'server_tools', arguments: {} });
+    const text = ((res && res.content) || []).map(b => b.text || '').join('');
+    const data = JSON.parse(text || '{}');
+    if (data.error) { _toolsError = data.error; _tools = null; }
+    else { _tools = ((data.result || {}).tools || []).map(x => ({ name: x.name, description: x.description || '' })); }
+  } catch (err) {
+    _toolsError = 'Could not reach the server: ' + (err && err.message ? err.message : err);
+  }
+  render();
 }
 
 function bindInput(elId, draftKey) {
