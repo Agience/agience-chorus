@@ -16,10 +16,27 @@ import { formatShortcutCombo } from '@/context/shortcuts/shortcut-utils';
 type HelpDialogProps = {
   isOpen: boolean;
   onClose: () => void;
-  defaultTab?: 'glossary' | 'shortcuts';
+  defaultTab?: 'start' | 'glossary' | 'shortcuts';
 };
 
-export default function HelpDialog({ isOpen, onClose, defaultTab = 'glossary' }: HelpDialogProps) {
+/** Where "Send feedback" writes to: the address the app's privacy and cookie pages name. */
+export const FEEDBACK_HREF = 'mailto:connect@agience.ai?subject=Agience%20feedback';
+
+/** The five things a new person does first, in order. */
+export const GET_STARTED_STEPS: Array<{ title: string; body: string }> = [
+  { title: 'Open a workspace', body: 'A workspace holds your work. Pick one from the sidebar, or make a new one with New workspace.' },
+  { title: 'Add a card', body: 'New card adds a note, a file or any other kind of item to the workspace you are in.' },
+  { title: 'Group cards in a collection', body: 'A collection gathers related cards. Drag cards into it, or add them from the card menu.' },
+  { title: 'Build a workflow', body: 'A workflow runs steps for you. Add a step, choose what it does, and Run now; arm a timer to run it on a schedule.' },
+  { title: 'Share it', body: 'Share a workspace or collection with someone, and choose what they may do: read, add or edit.' },
+];
+
+/** "a" or "an" for the word that follows. */
+export function article(word: string): string {
+  return /^[aeiou]/i.test(word) ? 'an' : 'a';
+}
+
+export default function HelpDialog({ isOpen, onClose, defaultTab = 'start' }: HelpDialogProps) {
   const [tab, setTab] = useState<string>(defaultTab);
   const { groups, openDialog: openShortcutDialog } = useShortcuts();
 
@@ -42,20 +59,33 @@ export default function HelpDialog({ isOpen, onClose, defaultTab = 'glossary' }:
         <DialogHeader>
           <DialogTitle>Help</DialogTitle>
           <DialogDescription>
-            Quick definitions and shortcuts for working with {PRODUCT_NOUN.plural.toLowerCase()}.
+            Getting started, definitions and shortcuts for working with {PRODUCT_NOUN.plural.toLowerCase()}.{' '}
+            <a href={FEEDBACK_HREF} className="font-medium text-primary hover:underline">Send feedback</a>
           </DialogDescription>
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
+            <TabsTrigger value="start">Get started</TabsTrigger>
             <TabsTrigger value="glossary">Glossary</TabsTrigger>
             <TabsTrigger value="shortcuts">Shortcuts</TabsTrigger>
           </TabsList>
 
+          <TabsContent value="start">
+            <ol className="mt-3 space-y-3">
+              {GET_STARTED_STEPS.map((step, i) => (
+                <li key={step.title} className="rounded-lg border border-gray-200 p-4">
+                  <h3 className="text-base font-semibold text-foreground">{i + 1}. {step.title}</h3>
+                  <p className="text-sm text-muted-foreground mt-1">{step.body}</p>
+                </li>
+              ))}
+            </ol>
+          </TabsContent>
+
           <TabsContent value="glossary">
             <div className="mt-3">
               <p className="text-sm text-muted-foreground">
-                In Agience, a “knowledge unit” is just a {nounLower}. Different kinds of {PRODUCT_NOUN.plural.toLowerCase()} (decisions, actions, constraints, claims) are represented by metadata and evidence.
+                In Agience, a “knowledge unit” is just {article(nounLower)} {nounLower}. Different kinds of {PRODUCT_NOUN.plural.toLowerCase()} (decisions, actions, constraints, claims) are represented by metadata and evidence.
               </p>
 
               <Separator className="my-4" />

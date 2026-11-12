@@ -336,7 +336,7 @@ export default function HeaderBar({
       <HelpDialog
         isOpen={showHelp}
         onClose={() => setShowHelp(false)}
-        defaultTab="glossary"
+        defaultTab="start"
       />
 
       {activeWorkspaceId && (
