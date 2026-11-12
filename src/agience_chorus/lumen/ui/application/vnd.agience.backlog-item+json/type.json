@@ -1,0 +1,71 @@
+{
+  "content_type": "application/vnd.agience.backlog-item+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Backlog item — one piece of work the platform loop carries from open to shipped: open, then working (on next), in cut (on the day's release branch), validated (on 71/test), shipped (promoted). The chair report reads its state.",
+  "ui": {
+    "label": "Backlog item",
+    "icon": "list-checks",
+    "color": "#b45309",
+    "badge_class": "bg-amber-100 text-amber-800",
+    "tile_class": "",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view",
+      "edit"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "viewer": "record"
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "mutable": true
+    },
+    "state": {
+      "type": "enum",
+      "values": [
+        "open",
+        "working",
+        "in_cut",
+        "validated",
+        "shipped"
+      ],
+      "description": "Where the item is in the loop: open → working → in_cut → validated → shipped.",
+      "mutable": true
+    },
+    "size": {
+      "type": "enum",
+      "values": [
+        "S",
+        "M",
+        "L"
+      ],
+      "description": "Rough size.",
+      "mutable": true
+    },
+    "raised_by": {
+      "type": "string",
+      "description": "Who raised it (a person or a session).",
+      "mutable": true
+    },
+    "commits": {
+      "type": "object",
+      "description": "The commits that carry it, by repository, once it is worked.",
+      "mutable": true
+    },
+    "release": {
+      "type": "string",
+      "description": "The release that shipped it (YYYYMM.DD.N), once shipped.",
+      "mutable": true
+    }
+  }
+}
