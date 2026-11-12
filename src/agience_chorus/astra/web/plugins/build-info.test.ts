@@ -7,6 +7,11 @@ describe('buildInfo', () => {
       .toEqual({ release: '2026.11.4', sha: '6da03e5' })
   })
 
+  it('a daily release id, YYYYMM.DD.N, is a release too', () => {
+    expect(buildInfo({ APP_RELEASE: '202611.12.1', GIT_SHA: 'a' }, () => '').release).toBe('202611.12.1')
+    expect(() => buildInfo({ APP_RELEASE: '202611.12' }, () => '')).toThrow()
+  })
+
   it('a build with no release is not one, and takes the tree\'s commit', () => {
     expect(buildInfo({}, () => 'abc1234')).toEqual({ release: '', sha: 'abc1234' })
     expect(buildInfo({ APP_RELEASE: '' }, () => 'abc1234').release).toBe('')

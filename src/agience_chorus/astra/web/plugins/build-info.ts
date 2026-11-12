@@ -2,11 +2,12 @@
 // commit it was built from. Both are read here, at build time, and nowhere else.
 //
 // `APP_RELEASE` is set by whatever builds a platform release (the publish workflow on a
-// `release/<id>` branch, the release tool's own site build) and must be a release id, YYYY.MM.N;
+// `release/<id>` branch, the release tool's own site build) and must be a release id: YYYYMM.DD.N
+// (from 2026-11-12), or YYYY.MM.N for the releases before it;
 // a build without one is `dev`. `package.json`'s `version` is not a displayed number.
 import { execSync } from 'child_process'
 
-export const RELEASE_ID = /^\d{4}\.\d{2}\.\d+$/
+export const RELEASE_ID = /^(\d{6}\.\d{2}|\d{4}\.\d{2})\.\d+$/
 
 export interface BuildInfo {
   /** The platform release, or '' for a build that is not one. */
@@ -18,7 +19,7 @@ export interface BuildInfo {
 export function buildInfo(env: Record<string, string | undefined>, gitSha: () => string = headSha): BuildInfo {
   const raw = (env.APP_RELEASE ?? '').trim()
   if (raw && !RELEASE_ID.test(raw)) {
-    throw new Error(`APP_RELEASE=${JSON.stringify(raw)} is not a platform release id (YYYY.MM.N)`)
+    throw new Error(`APP_RELEASE=${JSON.stringify(raw)} is not a platform release id (YYYYMM.DD.N)`)
   }
   return { release: raw, sha: (env.GIT_SHA ?? '').trim() || gitSha() }
 }
