@@ -278,45 +278,45 @@ function render() {
         <span class="status-badge status-gray"><span class="dot"></span>Editing</span>
       </div>
       <div class="field-group">
-        <div class="field-label">Server Name</div>
+        <label class="field-label" for="f-name">Server Name</label>
         <input class="edit-input" id="f-name" value="${esc(_draft.name)}" placeholder="Display name" />
       </div>
       <div class="field-group">
-        <div class="field-label">Notes</div>
+        <label class="field-label" for="f-notes">Notes</label>
         <input class="edit-input" id="f-notes" value="${esc(_draft.notes)}" placeholder="Optional notes" />
       </div>
       <div class="field-group">
-        <div class="field-label">Transport</div>
-        <div class="transport-tabs">
-          <button class="transport-tab ${isHttp ? 'active' : ''}" onclick="setTransportType('http')">HTTP</button>
-          <button class="transport-tab ${!isHttp ? 'active' : ''}" onclick="setTransportType('stdio')">stdio</button>
+        <div class="field-label" id="transport-label">Transport</div>
+        <div class="transport-tabs" role="group" aria-labelledby="transport-label">
+          <button type="button" class="transport-tab ${isHttp ? 'active' : ''}" aria-pressed="${isHttp}" onclick="setTransportType('http')">HTTP</button>
+          <button type="button" class="transport-tab ${!isHttp ? 'active' : ''}" aria-pressed="${!isHttp}" onclick="setTransportType('stdio')">stdio</button>
         </div>
       </div>
       ${isHttp ? `
         <div class="field-group">
-          <div class="field-label">Well-Known URL</div>
+          <label class="field-label" for="f-url">Well-Known URL</label>
           <input class="edit-input" id="f-url" value="${esc(_draft.well_known)}" placeholder="https://example.com/.well-known/mcp.json or /mcp endpoint" />
         </div>
         <div class="field-group">
-          <div class="field-label">Access key ${c.access_key ? '(set; leave blank to keep it)' : '(optional)'}</div>
+          <label class="field-label" for="f-key">Access key ${c.access_key ? '(set; leave blank to keep it)' : '(optional)'}</label>
           <input class="edit-input" id="f-key" type="password" autocomplete="off" value="" placeholder="The server's own key, sent to this server only" />
         </div>
       ` : `
         <div class="field-group">
-          <div class="field-label">Command</div>
+          <label class="field-label" for="f-command">Command</label>
           <input class="edit-input" id="f-command" value="${esc(_draft.command)}" placeholder="e.g. npx, python" />
         </div>
         <div class="field-group">
-          <div class="field-label">Working Directory</div>
+          <label class="field-label" for="f-cwd">Working Directory</label>
           <input class="edit-input" id="f-cwd" value="${esc(_draft.cwd)}" placeholder="Optional working directory" />
         </div>
         <div class="field-group">
-          <div class="field-label">Arguments (one per line)</div>
+          <label class="field-label" for="f-args">Arguments (one per line)</label>
           <textarea class="edit-input" id="f-args" placeholder="One argument per line">${esc(_draft.args)}</textarea>
         </div>
       `}
       <div class="field-group">
-        <div class="field-label">Environment Variables (JSON)</div>
+        <label class="field-label" for="f-env">Environment Variables (JSON)</label>
         <textarea class="edit-input" id="f-env" placeholder='{"KEY": "value"}'>${esc(_draft.env)}</textarea>
       </div>
       <div class="actions">
