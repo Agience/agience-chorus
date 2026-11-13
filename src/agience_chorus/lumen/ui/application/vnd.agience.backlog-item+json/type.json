@@ -4,7 +4,7 @@
   "inherits": [
     "application/json"
   ],
-  "description": "Backlog item — one piece of work the platform loop carries from open to shipped: open, then working (on next), in cut (on the day's release branch), validated (on 71/test), shipped (promoted). The chair report reads its state.",
+  "description": "Backlog item — one piece of work the platform loop carries from open to closed: open, then working (on next), in cut (on the day's release branch), validated (on 71/test), shipped (promoted), closed (done, out of the open Backlog; closed_in names the release). The chair report reads its state.",
   "ui": {
     "label": "Backlog item",
     "icon": "list-checks",
@@ -37,9 +37,10 @@
         "working",
         "in_cut",
         "validated",
-        "shipped"
+        "shipped",
+        "closed"
       ],
-      "description": "Where the item is in the loop: open → working → in_cut → validated → shipped.",
+      "description": "Where the item is in the loop: open → working → in_cut → validated → shipped → closed.",
       "mutable": true
     },
     "size": {
@@ -65,6 +66,11 @@
     "release": {
       "type": "string",
       "description": "The release that shipped it (YYYYMM.DD.N), once shipped.",
+      "mutable": true
+    },
+    "closed_in": {
+      "type": "string",
+      "description": "The release it was closed in (YYYYMM.DD.N): set when the release that shipped it is recorded, or by hand for work verified earlier.",
       "mutable": true
     }
   }
