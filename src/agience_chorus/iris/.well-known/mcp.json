@@ -70,6 +70,10 @@
     {
       "name": "call_mcp_server",
       "description": "Send one MCP request to an MCP server a person added, through the platform's egress guard; the caller's credential is never sent to it"
+    },
+    {
+      "name": "use_server_tool",
+      "description": "Run one tool on an MCP server a person added as an artifact (tools/call through the same egress guard, with the server's own key); a workflow's \"Use a server tool\" step runs this"
     }
   ],
   "resources": [],
