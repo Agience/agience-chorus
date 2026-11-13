@@ -1,0 +1,60 @@
+{
+  "content_type": "application/vnd.agience.agent-memory+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Agent memory (FR-019): one fact an agent keeps across sessions, in that agent's own memory collection. Its kind says what it is: feedback (how the chair wants the work done, with why), project (ongoing work and its constraints), reference (where something is), user (who someone is and how they work). The agent loads its collection at session start; the body is the artifact's content (Markdown).",
+  "ui": {
+    "label": "Agent memory",
+    "icon": "brain",
+    "color": "#4f46e5",
+    "badge_class": "bg-indigo-100 text-indigo-800",
+    "tile_class": "",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view",
+      "edit"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "viewer": "record"
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "mutable": true
+    },
+    "kind": {
+      "type": "enum",
+      "values": [
+        "feedback",
+        "project",
+        "reference",
+        "user"
+      ],
+      "description": "What the memory is: feedback, project, reference or user.",
+      "mutable": true
+    },
+    "name": {
+      "type": "string",
+      "description": "A short kebab-case slug, unique in the agent's collection; other memories link to it as [[name]].",
+      "mutable": true
+    },
+    "summary": {
+      "type": "string",
+      "description": "One line, used to decide relevance when the agent loads its index.",
+      "mutable": true
+    },
+    "agent": {
+      "type": "string",
+      "description": "The agent whose memory it is (Deployment, Ikailo, Brand, …).",
+      "mutable": true
+    }
+  }
+}
