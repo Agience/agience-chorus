@@ -1,0 +1,18 @@
+{
+  "description": "The one rule for a Markdown Backlog report's state (G6). The Backlog's older reports are text/markdown, not typed backlog items; their state is their Status line. Every reader (the web app's Closed view, the chair report, the release record, the drive scripts) parses it this way and tests against these cases.",
+  "rule": {
+    "status": "The first line of the report's text that starts with \"Status:\" (at the start of a line; case as written). The status is the rest of that line, trimmed. A report with no such line has no status.",
+    "closed": "The report is closed when its status, lower-cased, starts with the word \"closed\" (regex ^closed\b): \"closedown\" is not closed.",
+    "write": "Closing a report rewrites that line to \"Status: closed in <release id>\" (YYYYMM.DD.N), keeping any text after a \". \" that followed the old status; a report with no Status line gets one after its title line."
+  },
+  "cases": [
+    {"text": "FR-020 Fleet\nStatus: Open. Raised by John (chair), 2026-11-12.", "status": "Open. Raised by John (chair), 2026-11-12.", "closed": false},
+    {"text": "BUG-050 Runs\nPriority: P2\nStatus: verified 2026.11.24", "status": "verified 2026.11.24", "closed": false},
+    {"text": "BUG-012 Old\nStatus: closed in 202611.12.2", "status": "closed in 202611.12.2", "closed": true},
+    {"text": "BUG-013 Old\nStatus:   Closed in 202611.12.2 (verified)", "status": "Closed in 202611.12.2 (verified)", "closed": true},
+    {"text": "BUG-014 Quote\nThe log said Status: closed\nStatus: open", "status": "open", "closed": false},
+    {"text": "BUG-015 First wins\nStatus: closed in 202611.12.2\nStatus: open", "status": "closed in 202611.12.2", "closed": true},
+    {"text": "FR-099 No status line", "status": null, "closed": false},
+    {"text": "BUG-016 Prefix only\nStatus: closedown planned", "status": "closedown planned", "closed": false}
+  ]
+}
