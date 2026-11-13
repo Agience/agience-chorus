@@ -12,6 +12,7 @@ vi.mock('@/api/collections', () => ({
   createGrant: vi.fn(),
 }));
 vi.mock('@/api/authority', async (orig) => ({
+  AuthorityRefused: ((await orig()) as { AuthorityRefused: unknown }).AuthorityRefused,
   describeParent: ((await orig()) as { describeParent: unknown }).describeParent,
   describeItem: ((await orig()) as { describeItem: unknown }).describeItem,
   describeGrantee: ((await orig()) as { describeGrantee: unknown }).describeGrantee,

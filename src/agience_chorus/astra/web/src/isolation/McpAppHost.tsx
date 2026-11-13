@@ -427,7 +427,10 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
             content: [{ type: 'text', text: JSON.stringify(record) }],
           });
         } catch (e) {
-          sendError(req.id, -32000, `Create API key failed: ${e}`);
+          // The server's own reason, not "AxiosError: …409": a key refused on a node with Origin's
+          // ledger says where keys are made (2026-11-13, the Tester read the bare 409 as a hang).
+          const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+          sendError(req.id, -32000, `The key was not created: ${typeof detail === 'string' && detail ? detail : String(e)}`);
         } finally {
           credentialRequestPending.current = false;
         }

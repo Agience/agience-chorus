@@ -8,7 +8,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { describeGrantee, describeItem, describeParent, previewAtOrigin, resendInviteAtOrigin, type OriginPreview } from '@/api/authority';
+import { AuthorityRefused, describeGrantee, describeItem, describeParent, previewAtOrigin, resendInviteAtOrigin, type OriginPreview } from '@/api/authority';
 import { createGrant } from '@/api/collections';
 import { deleteGrant, listGrants } from '@/api/collections';
 import type { GrantResponse } from '@/api/types/grant';
@@ -70,7 +70,23 @@ function roleOf(grant: GrantResponse): string {
 }
 
 function errorDetailOf(err: unknown, fallback: string): string {
+  // Origin's session routes throw AuthorityRefused(status, detail); the store's, an axios error.
+  if (err instanceof AuthorityRefused) return err.detail || fallback;
   return (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback;
+}
+
+/** Why an invite was not sent, in words that say what to do (FR-004, 2026-11-13: a new account's
+ *  invite was refused for its unverified address and the dialog said nothing). */
+export function inviteRefusal(err: unknown): string {
+  const status = err instanceof AuthorityRefused ? err.status
+    : (err as { response?: { status?: number } })?.response?.status;
+  const detail = errorDetailOf(err, (err as Error)?.message || 'The invite could not be sent.');
+  if (status === 403 && /verif/i.test(detail)) {
+    return 'Verify your email address before sending invites: the invite names you to its '
+      + 'recipient by your verified address. Use the link in the sign-up email from Agience, '
+      + 'then send the invite again.';
+  }
+  return detail;
 }
 
 // Origin's preview, in words, for a confirmation the owner answers (review 15).
@@ -95,6 +111,8 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('viewer');
   const [sending, setSending] = useState(false);
+  // Shown in the dialog itself: a toast behind an open dialog can go unseen.
+  const [inviteError, setInviteError] = useState<string | null>(null);
   // What Origin said it sent, for the last invite: the item and the address. Facet never holds an
   // invite's link.
   const [sentTo, setSentTo] = useState<{ email: string; resource_id?: string;
@@ -197,6 +215,7 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
       return;
     }
     if (!preview || preview.resource_id !== routeId) return;
+    setInviteError(null);
     setSending(true);
     try {
       // Made at Origin, in the person's Origin session, for this one address (round 13): Origin
@@ -219,7 +238,9 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
                   resource_name: echo?.resource_name });
       loadGrants();
     } catch (err: unknown) {
-      toast.error(errorDetailOf(err, (err as Error)?.message || 'Failed to create invite'));
+      const why = inviteRefusal(err);
+      setInviteError(why);
+      toast.error(why);
     } finally {
       setSending(false);
     }
@@ -275,6 +296,12 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
                 ))}
               </select>
             </div>
+            {inviteError && (
+              <p role="alert" data-testid="share-invite-error"
+                 className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                {inviteError}
+              </p>
+            )}
             <button
               onClick={handleInvite}
               disabled={mayNotShare || sending || !email.trim()}

@@ -86,16 +86,18 @@ describe('api/apiKeys — createKeyOver (the Key card)', () => {
 
   it('one collection is a plain key on it, at the chosen access', async () => {
     mockPost.mockResolvedValueOnce({ data: { id: 'k1', key: 'agk_s' } });
-    await createKeyOver('agent', 'editor', ['c-1']);
+    await createKeyOver('agent', 'editor', ['c-1'], '2026-12-13T00:00:00.000Z');
     expect(mockPost).toHaveBeenCalledTimes(1);
-    expect(mockPost).toHaveBeenCalledWith('/grants/keys', { name: 'agent', role: 'editor', resource_id: 'c-1' });
+    // FR-019: the key carries the expiry the view asked for.
+    expect(mockPost).toHaveBeenCalledWith('/grants/keys', { name: 'agent', role: 'editor', resource_id: 'c-1',
+                                                           expires_at: '2026-12-13T00:00:00.000Z' });
   });
 
   it('several collections are a bundle with one member each', async () => {
     mockPost.mockResolvedValueOnce({ data: { id: 'k2', key: 'agk_s' } }).mockResolvedValue({ data: {} });
     await createKeyOver('agent', 'viewer', ['c-1', 'c-2']);
     expect(mockPost.mock.calls).toEqual([
-      ['/grants/keys', { name: 'agent', role: 'viewer' }],
+      ['/grants/keys', { name: 'agent', role: 'viewer', expires_at: null }],
       ['/grants/keys/k2/members', { resource_id: 'c-1', role: 'viewer' }],
       ['/grants/keys/k2/members', { resource_id: 'c-2', role: 'viewer' }],
     ]);

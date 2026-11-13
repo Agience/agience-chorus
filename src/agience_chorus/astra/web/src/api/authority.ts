@@ -34,7 +34,7 @@ export interface LedgerGrant {
 }
 
 export class AuthorityRefused extends Error {
-  constructor(public status: number, detail: string) {
+  constructor(public status: number, public detail: string) {
     super(`Origin refused the change (${status}): ${detail}`)
   }
 }
