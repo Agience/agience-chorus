@@ -14,7 +14,13 @@ vi.mock('@/api/authority', () => ({
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
 vi.mock('sonner', () => ({ toast: { success: (...a: unknown[]) => toastSuccess(...a),
-                                    error: (...a: unknown[]) => toastError(...a) } }));
+                                    error: (...a: unknown[]) => toastError(...a),
+                                    loading: vi.fn(() => 'joining'), dismiss: vi.fn(),
+                                    info: vi.fn() } }));
+// The store answers at once here, so Accept opens the item.
+vi.mock('@/api/artifacts', () => ({ getArtifact: vi.fn().mockResolvedValue({ id: 'W' }) }));
+const assign = vi.fn();
+Object.defineProperty(window, 'location', { value: { ...window.location, assign }, writable: true });
 
 import { IncomingInvites, roleOf } from '../IncomingInvites';
 
@@ -40,6 +46,7 @@ describe('IncomingInvites — invites arrive in the Inbox', () => {
     await waitFor(() => expect(acceptMock).toHaveBeenCalledWith('inv-1'));
     await waitFor(() => expect(screen.queryByText('Ann Lee')).toBeNull());
     expect(toastSuccess).toHaveBeenCalled();
+    expect(assign).toHaveBeenCalledWith('/W');
     expect(declineMock).not.toHaveBeenCalled();
   });
 
@@ -76,5 +83,26 @@ describe('IncomingInvites — invites arrive in the Inbox', () => {
     expect(roleOf(['create', 'read', 'update', 'delete'])).toBe('Editor');
     expect(roleOf(['read', 'share'])).toBe('Collaborator');
     expect(roleOf(['read', 'admin'])).toBe('Admin');
+  });
+});
+
+// After Accept the grant reaches the store a few seconds later (2026-11-13, the Tester): Accept
+// waits for it, then opens the item; past the wait it says access is on its way, never "not shared".
+import { waitForAccess } from '../IncomingInvites';
+
+describe('waitForAccess', () => {
+  const noSleep = () => Promise.resolve();
+
+  it('opens as soon as the store lets the person read it', async () => {
+    const read = vi.fn().mockRejectedValueOnce(new Error('403')).mockRejectedValueOnce(new Error('403'))
+      .mockResolvedValue({ id: 'W' });
+    await expect(waitForAccess('W', 20000, 1000, read, noSleep)).resolves.toBe(true);
+    expect(read).toHaveBeenCalledTimes(3);
+  });
+
+  it('gives up after the wait, without throwing', async () => {
+    const read = vi.fn().mockRejectedValue(new Error('403'));
+    await expect(waitForAccess('W', 5000, 1000, read, noSleep)).resolves.toBe(false);
+    expect(read).toHaveBeenCalledTimes(5);
   });
 });
