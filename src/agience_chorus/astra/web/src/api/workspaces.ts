@@ -1,7 +1,7 @@
 // api/workspaces.ts
 
 import type { RemoveResult } from '../utils/removal';
-import { get, getList, post, postList, patch, del } from './api';
+import { get, getList, LIST_PAGE, post, postList, patch, del } from './api';
 import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 import { subscribeEvents, type BusEvent } from './events';
 import { completeFromFeed } from './feedArtifact';
@@ -53,8 +53,16 @@ export function deleteWorkspace(id: string): Promise<void> {
 export async function listWorkspaceArtifacts(
   workspaceId: string
 ): Promise<{ items: ArtifactResponse[]; order_version?: number }> {
-  const res = await get(`/artifacts/${encodeURIComponent(workspaceId)}/children`) as ArtifactResponse[] | { items: ArtifactResponse[]; order_version?: number };
-  return Array.isArray(res) ? { items: res } : res;
+  const url = `/artifacts/${encodeURIComponent(workspaceId)}/children`;
+  const res = await get(url, { params: { limit: LIST_PAGE } }) as ArtifactResponse[]
+    | { items: ArtifactResponse[]; order_version?: number; has_more?: boolean };
+  if (Array.isArray(res)) return { items: res };
+  if (!res.has_more) return res;
+  // Past one page (2026-11-13: lists stopped at the first 100): the rest, followed and kept once by
+  // id, after the first page that carries `order_version`.
+  const rest = await getList<ArtifactResponse>(url, { params: { offset: res.items.length } });
+  const seen = new Set(res.items.map((a) => a.id));
+  return { ...res, items: [...res.items, ...rest.filter((a) => !seen.has(a.id))] };
 }
 
 // add an artifact
