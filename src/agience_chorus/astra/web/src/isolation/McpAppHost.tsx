@@ -15,6 +15,7 @@ import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useArtifactContent } from '@/hooks/useArtifactContent';
 import { subscribeEvents } from '@/api/events';
 import { proxyToolCall } from '@/api/mcp';
+import { keyExpiry } from '@/api/apiKeys';
 import { buildHostContext } from './hostContext';
 import { buildCspMetaTag } from './csp';
 import { isWebUrl } from './openLink';
@@ -369,6 +370,10 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         credentialRequestPending.current = true;
         try {
           const keyName = typeof toolArgs.name === 'string' && toolArgs.name ? toolArgs.name : 'API key';
+          if (!keyExpiry(toolArgs.expires_at)) {
+            sendError(req.id, -32000, 'create_api_key needs expires_at: a time within the next year');
+            return;
+          }
           const approved = await confirmDialog.confirm({
             title: 'Create an API key?',
             description: `This artifact's view is asking to create the API key "${keyName}" with the settings below. Anyone holding the key can act with them.`,
@@ -393,7 +398,13 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
             ? (toolArgs.resources as unknown[]).filter((r): r is string => typeof r === 'string')
             : [];
           const role = toolArgs.role === 'editor' ? 'editor' : 'viewer';
-          const created = await createKeyOver(keyName, role, resources);
+          // Every key a view asks for expires (FR-019): a time within a year, never none.
+          const expiresAt = keyExpiry(toolArgs.expires_at);
+          if (!expiresAt) {
+            sendError(req.id, -32000, 'create_api_key needs expires_at: a time within the next year');
+            return;
+          }
+          const created = await createKeyOver(keyName, role, resources, expiresAt);
           const { key: secret, ...record } = created;
           if (secret) {
             await confirmDialog.confirm({

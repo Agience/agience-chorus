@@ -117,6 +117,10 @@
         <span class="info-value" id="keyAccess">—</span>
       </div>
       <div class="info-row">
+        <span class="info-label">Expires</span>
+        <span class="info-value" id="keyExpires">—</span>
+      </div>
+      <div class="info-row">
         <span class="info-label">Status</span>
         <span id="keyStatusBadge">
           <span class="status-badge none"><span class="status-dot none"></span>No key</span>
@@ -144,6 +148,10 @@
             <option value="viewer">Read only</option>
             <option value="editor">Read and write</option>
           </select>
+        </div>
+        <div class="form-group">
+          <label for="inputDays">Expires in <span style="font-weight:400;color:#9ca3af">— days, 1 to 365. The key stops working then; revoke it sooner if you need to.</span></label>
+          <input id="inputDays" type="number" min="1" max="365" value="30">
         </div>
         <button class="btn btn-generate" id="generateBtn" onclick="handleGenerate()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
@@ -258,6 +266,8 @@
       document.getElementById('keyScope').textContent = resources?.length ? resources.join('\n') : '—';
       document.getElementById('keyAccess').textContent =
         keyMeta.role === 'editor' ? 'Read and write' : keyMeta.role === 'viewer' ? 'Read only' : '—';
+      const expEl = document.getElementById('keyExpires');
+      if (expEl) expEl.textContent = keyMeta.expires_at ? new Date(keyMeta.expires_at).toLocaleDateString() : 'never';
 
       // Status badge
       const badgeEl = document.getElementById('keyStatusBadge');
@@ -281,15 +291,25 @@
     // A key is a grant on the collections it names (`POST /grants/keys`): `role` is `viewer` or
     // `editor`, and `resources` are what it reaches. The host creates it, shows its secret once in
     // its own dialog, and returns the record without the secret.
-    async function issue(name, role, resources) {
+    // Every key expires (FR-019, John 2026-11-13): 1 to 365 days, 30 by default.
+    function expiryIn(days) {
+      const d = Math.round(Number(days));
+      if (!Number.isFinite(d) || d < 1 || d > 365) throw new Error('Expires in is 1 to 365 days.');
+      return { days: d, at: new Date(Date.now() + d * 86400000).toISOString() };
+    }
+
+    async function issue(name, role, resources, days) {
+      const exp = expiryIn(days);
       const result = await sendRpc('tools/call', {
         name: 'create_api_key',
-        arguments: { name, role, resources }
+        arguments: { name, role, resources, expires_at: exp.at }
       });
       const resultText = result?.content?.[0]?.text;
       if (!resultText) return;
       const created = JSON.parse(resultText);
-      artifactContext = { ...artifactContext, key: { api_key_id: created.id, name, role, resources } };
+      artifactContext = { ...artifactContext, key: { api_key_id: created.id, name, role, resources,
+                                                     expires_at: created.expires_at || exp.at,
+                                                     expires_in_days: exp.days } };
       await sendRpc('tools/call', {
         name: 'update_artifact',
         arguments: { id: artifactId, patch: { context: JSON.stringify(artifactContext) } }
@@ -301,6 +321,7 @@
       const name = artifactContext.title || 'api-key';
       const resources = document.getElementById('inputCollections').value.split('\n').map(s => s.trim()).filter(Boolean);
       const role = document.getElementById('inputAccess').value;
+      const days = document.getElementById('inputDays').value;
       clearError();
       if (!resources.length) {
         showError('Name at least one collection the key reaches.');
@@ -308,7 +329,7 @@
       }
       setWorking(true);
       try {
-        await issue(name, role, resources);
+        await issue(name, role, resources, days);
       } catch (err) {
         showError(err.message || 'Failed to generate key.');
       } finally {
@@ -324,7 +345,8 @@
         if (keyMeta.api_key_id) {
           await sendRpc('tools/call', { name: 'delete_api_key', arguments: { id: keyMeta.api_key_id } });
         }
-        await issue(artifactContext.title || keyMeta.name || 'api-key', keyMeta.role || 'viewer', keyMeta.resources || []);
+        await issue(artifactContext.title || keyMeta.name || 'api-key', keyMeta.role || 'viewer', keyMeta.resources || [],
+                    keyMeta.expires_in_days || 30);
       } catch (err) {
         showError(err.message || 'Failed to rotate key.');
       } finally {

@@ -261,6 +261,8 @@ async function generateKey() {
       arguments: {
         name: c.title || _artifactData.description || 'MCP Client Key',
         role: 'editor',
+        // Every key expires (FR-019): this client's, a year from now; rotate it before then.
+        expires_at: new Date(Date.now() + 365 * 86400000).toISOString(),
         resources,
       }
     });

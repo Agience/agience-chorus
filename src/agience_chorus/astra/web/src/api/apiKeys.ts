@@ -101,11 +101,13 @@ export async function createKeyOver(
   name: string,
   role: 'viewer' | 'editor' | 'collaborator',
   resources: string[],
+  expiresAt?: string | null,
 ): Promise<GrantKeyCreated> {
   const ids = resources.map((r) => r.trim()).filter(Boolean);
   if (!ids.length) throw new Error('A key must name at least one collection it reaches');
-  if (ids.length === 1) return createAPIKey({ name, role, resource_id: ids[0] });
-  const created = await createAPIKey({ name, role });
+  const expires_at = expiresAt ?? null;
+  if (ids.length === 1) return createAPIKey({ name, role, resource_id: ids[0], expires_at });
+  const created = await createAPIKey({ name, role, expires_at });
   for (const resource_id of ids) {
     await addAPIKeyMember(created.id, { resource_id, role });
   }
@@ -126,4 +128,13 @@ export async function getAPIKey(keyId: string): Promise<GrantKey> {
 export async function deleteAPIKey(keyId: string): Promise<GrantKeyRevoked> {
   const response = await api.delete<GrantKeyRevoked>(`/grants/keys/${encodeURIComponent(keyId)}`);
   return response.data;
+}
+
+/** A key's expiry as a view asked for it: an ISO time in the future and within a year (FR-019),
+ *  or null when it is absent, unparseable, past, or further out. */
+export function keyExpiry(value: unknown, now: number = Date.now()): string | null {
+  if (typeof value !== 'string' || !value) return null;
+  const t = Date.parse(value);
+  if (!Number.isFinite(t) || t <= now || t > now + 366 * 86400000) return null;
+  return new Date(t).toISOString();
 }

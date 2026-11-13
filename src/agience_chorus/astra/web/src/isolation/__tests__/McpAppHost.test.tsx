@@ -85,10 +85,15 @@ vi.mock('@/api/jobGrants', () => ({
   approveRunAtOrigin: (...args: unknown[]) => approveRunMock(...args),
   revokeAtOrigin: (...args: unknown[]) => revokeAtOriginMock(...args),
 }));
-vi.mock('@/api/apiKeys', () => ({
+vi.mock('@/api/apiKeys', async (orig) => ({
+  keyExpiry: ((await orig()) as { keyExpiry: unknown }).keyExpiry,
   createKeyOver: (...args: unknown[]) => createAPIKeyMock(...args),
   deleteAPIKey: (...args: unknown[]) => deleteAPIKeyMock(...args),
 }));
+
+// ---------------------------------------------------------------------------
+// Every key a view asks for carries an expiry (FR-019).
+const IN_30_DAYS = new Date(Date.now() + 30 * 86400000).toISOString();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -529,6 +534,22 @@ describe('McpAppHost', () => {
       expect(responseFor(posted, 10)!.error).toBeDefined();
     });
 
+    it('create_api_key with no expiry, or one past or over a year out, asks nothing and creates nothing', async () => {
+      for (const [id, expires_at] of [[30, undefined], [31, '2000-01-01T00:00:00Z'],
+                                      [32, new Date(Date.now() + 400 * 86400000).toISOString()]] as const) {
+        const { container, confirmMock } = renderWithConfirm(
+          <McpAppHost artifact={makeArtifact()} html="" />, [true, true]);
+        const { posted, dispatchFromIframe } = wireIframe(container);
+        dispatchFromIframe({ jsonrpc: '2.0', id, method: 'tools/call',
+          params: { name: 'create_api_key', arguments: { name: 't', role: 'editor', resources: ['c-1'],
+                                                         ...(expires_at ? { expires_at } : {}) } } });
+        await waitFor(() => expect(responseFor(posted, id)).toBeDefined());
+        expect(responseFor(posted, id)!.error).toBeDefined();
+        expect(confirmMock).not.toHaveBeenCalled();
+      }
+      expect(createAPIKeyMock).not.toHaveBeenCalled();
+    });
+
     it('create_api_key declined in the host dialog creates nothing', async () => {
       createAPIKeyMock.mockResolvedValue({ id: 'k-1', key: 'agc_secret' });
       const { container, confirmMock } = renderWithConfirm(
@@ -541,7 +562,7 @@ describe('McpAppHost', () => {
         jsonrpc: '2.0',
         id: 16,
         method: 'tools/call',
-        params: { name: 'create_api_key', arguments: { name: 'test' } },
+        params: { name: 'create_api_key', arguments: { name: 'test', expires_at: IN_30_DAYS } },
       });
       await waitFor(() => expect(responseFor(posted, 16)).toBeDefined());
 
@@ -562,12 +583,13 @@ describe('McpAppHost', () => {
         jsonrpc: '2.0',
         id: 17,
         method: 'tools/call',
-        params: { name: 'create_api_key', arguments: { name: 'test', role: 'editor', resources: ['c-1'] } },
+        params: { name: 'create_api_key', arguments: { name: 'test', role: 'editor', resources: ['c-1'],
+                                                       expires_at: IN_30_DAYS } },
       });
       await waitFor(() => expect(responseFor(posted, 17)).toBeDefined());
 
-      // The key reaches the collection the view named, at the access it chose.
-      expect(createAPIKeyMock).toHaveBeenCalledWith('test', 'editor', ['c-1']);
+      // The key reaches the collection the view named, at the access it chose, until it expires.
+      expect(createAPIKeyMock).toHaveBeenCalledWith('test', 'editor', ['c-1'], IN_30_DAYS);
       // The second host dialog carries the secret.
       const secretDialog = confirmMock.mock.calls[1][0];
       const shown = render(<>{secretDialog.customContent}</>);
