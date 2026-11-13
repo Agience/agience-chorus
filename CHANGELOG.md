@@ -23,6 +23,9 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 - `McpAppHost` now passes `artifact.updated` events to an open view, which receives the refreshed artifact, so changes made elsewhere, such as a timer recording a run, appear without a reload.
 - The help dialog opens on "Get started" instead of the glossary, and its glossary text uses "an" before vowel-initial nouns.
 
+### Fixed
+- The shipped `fetch` bundle is rebuilt from source, so it carries the egress test allowance it ships with. Iris declares `use_server_tool` in its manifest and README, as it registers it.
+
 ## [0.2.28] - 2026-11-11
 
 ### Fixed

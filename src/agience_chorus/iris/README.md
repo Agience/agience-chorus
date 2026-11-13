@@ -20,6 +20,7 @@ Implemented (live):
 |---|---|
 | `send_email` | Send an email via an Authorizer artifact (Gmail API) |
 | `call_mcp_server` | Send one MCP request to an MCP server a person added, through the platform's egress guard; the caller's credential is never sent to it |
+| `use_server_tool` | Run one tool on an MCP server a person added as an artifact, through the same egress guard with the server's own key; a workflow's "Use a server tool" step runs this |
 | `notify_inbound` | Notify the operator about an inbound lead/artifact (contact form, newsletter subscribe, webhook, etc.) |
 | `send_templated_email` | Send a templated transactional email driven by a triggering artifact (autoresponder, welcome, receipt, usage warning, etc.) |
 | `send_message` | Send a message via a registered channel adapter (Telegram, Slack, email). The message is routed through the platform's channel infrastructure |
