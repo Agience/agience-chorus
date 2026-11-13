@@ -5,6 +5,26 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-13
+
+### Breaking
+- `create_api_key` (the host tool views call) now requires `expires_at`, a time within the next year; a call without it is refused. Affects any view or persona calling `create_api_key`.
+
+### Added
+- Invites addressed to the signed-in person appear in their Inbox with Accept and Decline (`IncomingInvites`), so an invite can be answered without the mailed link, which still works. Accept waits for access to reach the store, up to 20 seconds, then opens the shared item. If access has not arrived by then, a toast says it is on its way.
+- `api/authority` adds `incomingInvites`, `acceptInvite` and `declineInvite`, which call `/invites/incoming`, `/invites/{id}/accept` and `/invites/{id}/decline`.
+- `ShareDialog` lists an invite declined in the app as "invite declined", with no Resend button. Revoked invites stay out of the list.
+- Backlog items (`application/vnd.agience.backlog-item+json`) have a `closed` state and a `closed_in` field naming the release they closed in. Their record window edits `state`, `priority` and `size` as selects limited to the type's values, and `closed_in` as text.
+- Closed Backlog items, and Markdown reports whose `Status:` line starts with "closed", leave the open Backlog. A Closed chip appears in the filter chips when there are any, and shows them alone. Search results still include closed items.
+- The record viewer supports a `select` field editor with an `options` list. A stored value outside the list is shown as is, and nothing new can be typed.
+- New content type `application/vnd.agience.agent-memory+json`, for an agent's memory facts. Its `kind` is feedback, project, reference or user, and it has `name`, `summary`, `agent` and `title` fields.
+
+### Changed
+- Keys made through `createKeyOver` carry `expires_at`; the Key card asks for 1 to 365 days (30 by default) and shows the expiry, and the `application/vnd.agience.mcp-client+json` view asks for keys that expire a year from creation.
+- `ShareDialog` shows invite failures inside the dialog. An unverified sender is told to verify their email address and then send the invite again. Other refusals show the reason Origin gave.
+- A refused `create_api_key` call returns the server's own reason, such as where keys are made, instead of a bare HTTP error.
+- The `application/vnd.agience.mcp-server+json` edit form has labels tied to its inputs, and its transport buttons expose their pressed state.
+
 ## [0.3.0] - 2026-11-12
 
 ### Breaking
