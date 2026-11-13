@@ -23,7 +23,65 @@
     "default_state": "view",
     "is_container": false,
     "creatable": true,
-    "viewer": "record"
+    "viewer": "record",
+    "record": {
+      "titlePath": "title",
+      "fields": [
+        {
+          "path": "state",
+          "label": "State",
+          "editable": true,
+          "editor": "select",
+          "options": [
+            "open",
+            "working",
+            "in_cut",
+            "validated",
+            "shipped",
+            "closed"
+          ]
+        },
+        {
+          "path": "priority",
+          "label": "Priority",
+          "editable": true,
+          "editor": "select",
+          "options": [
+            "P0",
+            "P1",
+            "P2",
+            "P3",
+            "P4"
+          ]
+        },
+        {
+          "path": "size",
+          "label": "Size",
+          "editable": true,
+          "editor": "select",
+          "options": [
+            "S",
+            "M",
+            "L"
+          ]
+        },
+        {
+          "path": "closed_in",
+          "label": "Closed in",
+          "editable": true
+        },
+        {
+          "path": "release",
+          "label": "Shipped in",
+          "editable": true
+        },
+        {
+          "path": "raised_by",
+          "label": "Raised by",
+          "editable": true
+        }
+      ]
+    }
   },
   "context_schema": {
     "title": {
@@ -41,6 +99,18 @@
         "closed"
       ],
       "description": "Where the item is in the loop: open → working → in_cut → validated → shipped → closed.",
+      "mutable": true
+    },
+    "priority": {
+      "type": "enum",
+      "values": [
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+        "P4"
+      ],
+      "description": "How urgent: P0 (now) to P4.",
       "mutable": true
     },
     "size": {

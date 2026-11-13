@@ -9,7 +9,9 @@ declare module 'virtual:content-types' {
     path: string;
     label?: string;
     editable?: boolean;
-    editor?: 'text' | 'number' | 'url' | 'textarea' | 'boolean';
+    editor?: 'text' | 'number' | 'url' | 'textarea' | 'boolean' | 'select';
+    /** With `editor: "select"`: the values the field may take. */
+    options?: string[];
   }
 
   export interface RecordConfig {

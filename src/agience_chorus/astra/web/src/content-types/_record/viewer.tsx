@@ -18,7 +18,9 @@ type FieldDescriptor = {
   path: string;
   label?: string;
   editable?: boolean;
-  editor?: 'text' | 'number' | 'url' | 'textarea' | 'boolean';
+  editor?: 'text' | 'number' | 'url' | 'textarea' | 'boolean' | 'select';
+  /** With `editor: "select"`: the values it may take, in order (a type's enum). */
+  options?: string[];
 };
 
 type RecordDefinition = {
@@ -135,6 +137,24 @@ function renderScalarEditor({ id, descriptor, value, onChange }: ScalarEditorPro
         onChange={(event) => onChange(event.target.value)}
         className="min-h-[88px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
       />
+    );
+  }
+
+  // A field limited to its type's values (G6: a Backlog item's state). A stored value the list does
+  // not hold is shown as it is, and choosing a listed one replaces it; nothing else can be typed.
+  if (editor === 'select') {
+    const options = descriptor.options ?? [];
+    const listed = options.includes(normalizedValue);
+    return (
+      <select
+        id={id}
+        value={normalizedValue}
+        onChange={(event) => onChange(event.target.value)}
+        className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+      >
+        {!listed && <option value={normalizedValue}>{normalizedValue || '—'}</option>}
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
     );
   }
 
@@ -261,6 +281,9 @@ function recordDefinitionFromConfig(
     objects: cfg.objects,
   };
 }
+
+/** For tests: the one scalar editor every record field uses. */
+export { renderScalarEditor as renderScalarEditorForTest };
 
 export default function RecordViewer({
   artifact,

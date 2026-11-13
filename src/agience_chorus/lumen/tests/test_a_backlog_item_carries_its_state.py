@@ -25,3 +25,18 @@ def test_a_closed_item_names_the_release_it_closed_in():
     closed_in = t["context_schema"]["closed_in"]
     assert closed_in["type"] == "string" and closed_in["mutable"] is True
     assert "YYYYMM.DD.N" in closed_in["description"]
+
+
+def test_its_window_edits_the_state_within_its_values():
+    """G6 (the Tester, 2026-11-13): a Backlog item's window could not set its state, because the
+    type had no record UI. The record viewer offers state, priority and size as selects limited to
+    the type's own values, and closed_in as text."""
+    t = json.loads(TYPE.read_text(encoding="utf-8"))
+    fields = {f["path"]: f for f in t["ui"]["record"]["fields"]}
+    for path in ("state", "priority", "size"):
+        f = fields[path]
+        assert f["editable"] is True and f["editor"] == "select"
+        assert f["options"] == t["context_schema"][path]["values"]
+    assert "closed" in fields["state"]["options"]
+    assert fields["closed_in"]["editable"] is True and fields["closed_in"].get("editor", "text") == "text"
+    assert t["context_schema"]["priority"]["values"] == ["P0", "P1", "P2", "P3", "P4"]
