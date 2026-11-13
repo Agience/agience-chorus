@@ -45,6 +45,7 @@ import { errorDetail } from '../../utils/errorDetail';
 import { artifactTitle, nextUntitledTitle } from '@/utils/untitled';
 import { announceRemoval } from '@/utils/removal';
 import { removeWorkspaceArtifact } from '@/api/workspaces';
+import { CLOSED, isClosedBacklogItem } from '@/utils/backlog';
 import { removeArtifactFromCollection } from '@/api/collections';
 import { useWindowInUse } from '@/hooks/useWindowInUse';
 
@@ -561,9 +562,18 @@ export default function Browser({
       result = [...result, ...archivedMembers.filter(c => !seen.has(String(c.root_id ?? c.id)))];
     }
 
+    // A Backlog item its loop closed (G6) leaves the open Backlog; the Closed chip shows the closed
+    // ones alone. That state is the item's own (`context.state`), not the artifact's.
+    // A search still finds closed items unless the chip asks for them alone.
+    const showingClosed = activeStateFilters.has(CLOSED);
+    if (showingClosed || !isShowingSearchResults) {
+      result = result.filter((c: Artifact) => isClosedBacklogItem(c) === showingClosed);
+    }
+
     // Apply additional state filters from FilterChips
-    if (activeStateFilters.size > 0) {
-      result = result.filter((c: Artifact) => activeStateFilters.has(c.state || ''));
+    const artifactStates = new Set([...activeStateFilters].filter((s) => s !== CLOSED));
+    if (artifactStates.size > 0) {
+      result = result.filter((c: Artifact) => artifactStates.has(c.state || ''));
     }
     
     // Apply MIME type filters from FilterChips
@@ -1836,6 +1846,7 @@ export default function Browser({
       <FilterChips
         artifacts={sourceArtifacts}
         archivedCount={archivedContainerId ? archivedMembers.length : undefined}
+        closedCount={sourceArtifacts.filter(isClosedBacklogItem).length}
         activeStates={activeStateFilters}
         activeContentTypes={activeContentTypeFilters}
         hiddenContentTypes={hiddenContentTypeFilters}

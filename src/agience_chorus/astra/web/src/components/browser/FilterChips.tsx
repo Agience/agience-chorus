@@ -20,6 +20,9 @@ interface FilterChipsProps {
   /** The container's archived members as the server counts them; overrides the count of
    * `artifacts`, which holds only what is loaded (archived members are not). */
   archivedCount?: number;
+  /** Closed Backlog items in the list (G6): hidden from it unless the Closed chip is on. The chip
+   *  shows only when there are some. */
+  closedCount?: number;
 }
 
 function getArtifactContentTypeCategory(artifact: Artifact): string {
@@ -44,6 +47,7 @@ export default function FilterChips({
   onHiddenContentTypeToggle,
   onClearAll,
   archivedCount,
+  closedCount,
 }: FilterChipsProps) {
   // Calculate counts for each state
   const stateCounts = useMemo(() => {
@@ -118,6 +122,7 @@ export default function FilterChips({
   
   const states = [
     { key: 'archived', label: 'Archived', count: archivedCount ?? stateCounts.archived },
+    ...(closedCount ? [{ key: 'closed', label: 'Closed', count: closedCount }] : []),
   ];
   
   // Sort content types by count (descending)
