@@ -4,6 +4,7 @@ vi.mock('../api', () => {
   return {
     get: vi.fn(),
     getList: vi.fn(),
+    LIST_PAGE: 500,
     post: vi.fn(),
     patch: vi.fn(),
     del: vi.fn(),
@@ -45,14 +46,14 @@ describe('api/workspaces', () => {
   it('listWorkspaceArtifacts normalizes array response to { items }', async () => {
     get.mockResolvedValueOnce([{ id: 'c1' }, { id: 'c2' }]);
     const res = await listWorkspaceArtifacts('w1');
-    expect(get).toHaveBeenCalledWith('/artifacts/w1/children');
+    expect(get).toHaveBeenCalledWith('/artifacts/w1/children', { params: { limit: 500 } });
     expect(res).toEqual({ items: [{ id: 'c1' }, { id: 'c2' }] });
   });
 
   it('listWorkspaceArtifacts preserves object response with order_version', async () => {
     get.mockResolvedValueOnce({ items: [{ id: 'c1' }], order_version: 3 });
     const res = await listWorkspaceArtifacts('w2');
-    expect(get).toHaveBeenCalledWith('/artifacts/w2/children');
+    expect(get).toHaveBeenCalledWith('/artifacts/w2/children', { params: { limit: 500 } });
     expect(res).toEqual({ items: [{ id: 'c1' }], order_version: 3 });
   });
 

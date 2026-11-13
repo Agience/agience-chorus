@@ -210,24 +210,52 @@ export async function get<T>(
   return res.data;
 }
 
+/** Rows per page a list asks for: well under the server's ceiling (1000), well over its default. */
+export const LIST_PAGE = 500;
+/** Pages a list follows before it stops: a bound on one listing, never a silent one in practice. */
+export const LIST_MAX_PAGES = 40;
+
 /**
- * A LIST endpoint's rows.
+ * A LIST endpoint's rows, every page of them.
  *
  * `/artifacts/visible`, `/children`, `/batch` and `/access-log` return
  * `{ items, total, has_more }` since 2026-08-25 (P-6/P-7). The bare array is still accepted so a
  * browser pointed at an older node keeps working, and so does a mixed fleet mid-rollout.
  *
- * NOTE: this takes ONE page. `has_more` says whether there are others; nothing here follows them
- * yet. A list that silently stopped at a page boundary reads as "you have none of those", which is
- * the exact failure the envelope was introduced to make visible.
+ * `has_more` is followed: 2026-11-13, production, a Backlog of 102 listed exactly its first 100
+ * and the rest read as "not there". The server's `offset` counts every member and its pages hold the
+ * readable ones, so a row can come round twice where some members are not the caller's: rows are
+ * kept once by id, and a page that adds nothing new ends the listing.
  */
 export async function getList<T>(
   url: string,
   config?: Record<string, unknown>
 ): Promise<T[]> {
-  const body = await get<T[] | { items?: T[] }>(url, config);
+  const params = ((config?.params as Record<string, unknown>) ?? {});
+  const limit = Number(params.limit ?? LIST_PAGE);
+  const ask = (offset: number) =>
+    get<T[] | { items?: T[]; has_more?: boolean }>(url, {
+      ...(config ?? {}), params: { ...params, limit, ...(offset ? { offset } : {}) },
+    });
+  let body = await ask(Number(params.offset ?? 0));
   if (Array.isArray(body)) return body;
-  return body?.items ?? [];
+  const rows: T[] = [...(body?.items ?? [])];
+  const seen = new Set(rows.map((r) => String((r as { id?: unknown })?.id ?? '')));
+  let offset = Number(params.offset ?? 0) + rows.length;
+  for (let page = 1; body?.has_more && page < LIST_MAX_PAGES; page++) {
+    body = await ask(offset);
+    if (Array.isArray(body)) break;
+    const more = (body?.items ?? []).filter((r) => {
+      const id = String((r as { id?: unknown })?.id ?? '');
+      if (id && seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    if (!more.length) break;
+    rows.push(...more);
+    offset += (body?.items ?? []).length;
+  }
+  return rows;
 }
 
 /**
