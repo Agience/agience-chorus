@@ -234,9 +234,13 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
   // member, by the grant the claim made.
   const spent = (g: GrantResponse) => g.grantee_type === 'invite' && g.max_claims != null
     && (g.claims_count ?? 0) >= g.max_claims;
+  // An invite its target declined in the app is retired with no claim (FR-004): it stays listed
+  // as declined, so its sender learns the answer instead of seeing the invite vanish.
+  const declined = (g: GrantResponse) => g.grantee_type === 'invite' && g.state === 'retired'
+    && (g.claims_count ?? 0) === 0;
   const members = Array.isArray(grants)
-    ? grants.filter((g) => g.state === 'active' && !spent(g)
-        && (g.grantee_type === 'user' || g.grantee_type === 'invite'))
+    ? grants.filter((g) => (g.state === 'active' && !spent(g)
+        && (g.grantee_type === 'user' || g.grantee_type === 'invite')) || declined(g))
     : [];
 
   return (
@@ -345,9 +349,10 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
                       <li key={g.id} className="flex items-center gap-2 px-3 py-2 text-xs">
                         <div className="flex-1 min-w-0">
                           <div className="truncate text-gray-800">{who}</div>
-                          <div className="text-gray-500">{roleOf(g)}{pending ? ' · invite not yet accepted' : ''}</div>
+                          <div className="text-gray-500">{roleOf(g)}{declined(g) ? ' · invite declined'
+                            : pending ? ' · invite not yet accepted' : ''}</div>
                         </div>
-                        {pending && g.target_entity_type === 'email' && (
+                        {pending && !declined(g) && g.target_entity_type === 'email' && (
                           <button disabled={busy === g.id} onClick={() => { void handleResend(g); }}
                             className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50">Resend</button>
                         )}

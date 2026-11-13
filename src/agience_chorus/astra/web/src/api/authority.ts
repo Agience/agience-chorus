@@ -321,3 +321,31 @@ export interface InviteContext {
 export async function inviteContext(token: string): Promise<InviteContext> {
   return (await session('POST', '/invite-context', { token })) as InviteContext
 }
+
+/** A live invite that names the signed-in person (their id or their verified address), as Origin
+ *  lists it in their Origin session (FR-004). Origin keeps no name for what is shared. */
+export interface IncomingInvite {
+  invite_id: string
+  resource_id: string
+  actions: string[]
+  expires_at?: string | null
+  /** The sender's display name at Origin. */
+  from: string
+}
+
+export async function incomingInvites(): Promise<IncomingInvite[]> {
+  const r = (await session('GET', '/invites/incoming')) as { invites?: IncomingInvite[] }
+  return r.invites ?? []
+}
+
+/** Accept an invite in the app: the same claim as the mailed link, proven by the Origin session. */
+export async function acceptInvite(inviteId: string): Promise<Record<string, unknown>> {
+  return (await session('POST', `/invites/${encodeURIComponent(inviteId)}/accept`, {})) as
+    Record<string, unknown>
+}
+
+/** Decline an invite in the app: Origin retires it, and its sender sees it declined. */
+export async function declineInvite(inviteId: string): Promise<Record<string, unknown>> {
+  return (await session('POST', `/invites/${encodeURIComponent(inviteId)}/decline`, {})) as
+    Record<string, unknown>
+}

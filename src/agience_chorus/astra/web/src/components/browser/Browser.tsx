@@ -40,6 +40,7 @@ import CardTypePickerDialog from './CardTypePickerDialog';
 import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 import { AGIENCE_DRAG_CONTENT_TYPE, getDroppedArtifactIds } from '@/dnd/agienceDrag';
 import { toast } from 'sonner';
+import { IncomingInvites } from './IncomingInvites';
 import { errorDetail } from '../../utils/errorDetail';
 import { artifactTitle, nextUntitledTitle } from '@/utils/untitled';
 import { announceRemoval } from '@/utils/removal';
@@ -1825,6 +1826,11 @@ export default function Browser({
         onDeleteWorkspace={handleDeleteWorkspace}
         onRenameWorkspace={handleRenameWorkspace}
       />
+
+      {/* Invites addressed to this person arrive in their Inbox (FR-004). */}
+      {workspaceId && inboxWorkspaceId && String(workspaceId) === String(inboxWorkspaceId) && (
+        <IncomingInvites />
+      )}
 
       {/* Filter Chips - Always visible so the grey bar stays as a consistent landmark */}
       <FilterChips
