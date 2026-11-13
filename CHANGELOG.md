@@ -5,6 +5,27 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-12
+
+### Breaking
+- `APP_RELEASE` for the `astra` web build now takes a daily release id, `YYYYMM.DD.N` (from 2026-11-12), alongside the earlier `YYYY.MM.N`. Any other value, such as `202611.12`, fails the build.
+
+### Added
+- `_egress` accepts a new `IRIS_TEST_EGRESS_ALLOW` setting: a comma-separated list of exact host names that may resolve to local addresses, honoured only when `AGIENCE_PLANE` is `home`. Patterns and addresses are ignored, and every use is logged as a warning.
+- `iris` has a new `use_server_tool` tool that runs one tool on an MCP server artifact with `tools/call`, through the same egress guard and the server's own key. A workflow's "Use a server tool" step runs it.
+- The `application/vnd.agience.mcp-server+json` type has `url` and `access_key` fields. The key is sealed with the server artifact and sent as a Bearer token to that server only, and the view can set it and shows whether it is set.
+- The MCP server view has a "List tools" button, backed by a new `server_tools` call in `McpAppHost` that relays `tools/list` through `iris` for the hosted server artifact only.
+- A new `application/vnd.agience.backlog-item+json` type in `lumen` carries a `state` (`open`, `working`, `in_cut`, `validated`, `shipped`), a `size` (`S`, `M`, `L`), `raised_by`, `commits` and `release`.
+- The `HelpDialog` has a "Get started" tab with five first steps and a "Send feedback" link to `connect@agience.ai`.
+
+### Changed
+- `call_mcp_server` reads a server artifact's `access_key` first, then falls back to the secret named by `transport.secret_id`. The secret is released only for that endpoint.
+- `McpAppHost` now passes `artifact.updated` events to an open view, which receives the refreshed artifact, so changes made elsewhere, such as a timer recording a run, appear without a reload.
+- The help dialog opens on "Get started" instead of the glossary, and its glossary text uses "an" before vowel-initial nouns.
+
+### Fixed
+- The shipped `fetch` bundle is rebuilt from source, so it carries the egress test allowance it ships with. Iris declares `use_server_tool` in its manifest and README, as it registers it.
+
 ## [0.2.28] - 2026-11-11
 
 ### Fixed
