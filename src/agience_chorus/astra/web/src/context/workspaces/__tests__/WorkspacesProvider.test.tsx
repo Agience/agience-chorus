@@ -19,6 +19,11 @@ vi.mock('../../../api/workspaces', () => ({
   deleteWorkspace: vi.fn(),
 }));
 
+const { getArtifactMock } = vi.hoisted(() => ({ getArtifactMock: vi.fn() }));
+vi.mock('../../../api/artifacts', () => ({
+  getArtifact: (...args: unknown[]) => getArtifactMock(...args),
+}));
+
 vi.mock('../../../hooks/useAuth', () => ({
   useAuth: () => ({ isAuthenticated: true, loading: false, user: { id: 'user-1' } }),
 }));
@@ -316,5 +321,38 @@ describe('WorkspacesProvider keeps the route on the open workspace', () => {
     fireEvent.click(screen.getByText('tab b'));
     await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/ws-b'));
     expect(screen.getByTestId('active')).toHaveTextContent('ws-b');
+  });
+});
+
+// FR-030: any artifact can be shared, so a link can name one that is not a workspace. 2026-11-14,
+// 71/test: an invitee who claimed one, and its owner opening its link, were told "You can't open
+// this workspace".
+describe('a link to one artifact', () => {
+  beforeEach(() => {
+    listWorkspacesMock.mockReset();
+    toastErrorMock.mockReset();
+    getArtifactMock.mockReset();
+    prefs.current = {};
+    localStorage.clear();
+  });
+
+  it('opens it in its own window when it can be read', async () => {
+    const { onLinkedArtifact } = await import('../../../utils/linkedArtifact');
+    const opened = vi.fn();
+    const off = onLinkedArtifact(opened);
+    listWorkspacesMock.mockResolvedValue([{ id: 'inbox-1', name: 'Inbox' }]);
+    getArtifactMock.mockResolvedValue({ id: 'y-1', context: JSON.stringify({ title: 'Y' }) });
+    render(<MemoryRouter initialEntries={['/y-1']}><Routes><Route path="/:artifactId?" element={<WorkspacesProvider><div /></WorkspacesProvider>} /></Routes></MemoryRouter>);
+    await waitFor(() => expect(opened).toHaveBeenCalledWith(expect.objectContaining({ id: 'y-1' })));
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    off();
+  });
+
+  it('is refused, as a workspace link is, when it cannot be read', async () => {
+    listWorkspacesMock.mockResolvedValue([{ id: 'inbox-1', name: 'Inbox' }]);
+    getArtifactMock.mockRejectedValue(Object.assign(new Error('404'), { response: { status: 404 } }));
+    render(<MemoryRouter initialEntries={['/y-2']}><Routes><Route path="/:artifactId?" element={<WorkspacesProvider><div /></WorkspacesProvider>} /></Routes></MemoryRouter>);
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith(
+      "You can't open this workspace", expect.anything()));
   });
 });

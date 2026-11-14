@@ -17,6 +17,7 @@ import { inboxWorkspaceId } from '../../utils/inbox';
 import { safeParseArtifactContext, stringifyArtifactContext } from '../../utils/artifactContext';
 import { WORKSPACE_CONTENT_TYPE } from '../../utils/content-type';
 import { ARTIFACT_CHANGED_EVENT, changeOf } from '../../constants/strings';
+import { openLinkedArtifact, readLinkedArtifact } from '../../utils/linkedArtifact';
 
 // The tab a person last selected, kept per browser and account so a reload reopens it. A
 // convenience only: unreadable storage falls back to the Inbox.
@@ -170,12 +171,27 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
       // The list may predate the link: an invite claimed in this tab navigates here with the list
       // loaded before the claim. Read it again before refusing. 2026-10-23, a tester claimed a
       // Viewer invite and was told the workspace had not been shared with them.
+      // Not a workspace: a link to one artifact (FR-030) opens it in its own window, once it can
+      // be read; only a workspace link is opened as a tab.
       listWorkspaces()
-        .then((fresh) => {
+        .then(async (fresh) => {
           const list = Array.isArray(fresh) ? fresh : [];
-          if (!list.some((w) => w.id === targetWsId)) return refuse();
-          setWorkspaces(list);
-          openWorkspaceTab(targetWsId);
+          if (list.some((w) => w.id === targetWsId)) {
+            setWorkspaces(list);
+            openWorkspaceTab(targetWsId);
+            return;
+          }
+          const linked = await readLinkedArtifact(targetWsId);
+          if (!linked) return refuse();
+          if (safeParseArtifactContext(linked.context)?.content_type === WORKSPACE_CONTENT_TYPE) {
+            const again = await listWorkspaces();
+            const fresher = Array.isArray(again) ? again : [];
+            if (!fresher.some((w) => w.id === targetWsId)) return refuse();
+            setWorkspaces(fresher);
+            openWorkspaceTab(targetWsId);
+            return;
+          }
+          openLinkedArtifact(linked);
         })
         .catch(refuse);
     }

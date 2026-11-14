@@ -15,6 +15,7 @@ import type { Artifact } from "../../context/workspace/workspace.types";
 import FloatingCardWindow from "../windows/FloatingCardWindow";
 import { getContentType } from "@/registry/content-types";
 import { resolveSearchHitsToArtifacts } from "../../utils/resolveSearchHits";
+import { onLinkedArtifact } from "../../utils/linkedArtifact";
 
 function MainLayout() {
   const [activeSource, setActiveSource] = useState<ActiveSource>(null);
@@ -135,6 +136,14 @@ function MainLayout() {
     },
     [artifacts, keepOpenedArtifact, openOrFocusArtifactWindow],
   );
+
+  // A link to one artifact that is not a workspace (FR-030) opens it in its own window, kept as
+  // opened, as an artifact opened from outside the active workspace is.
+  useEffect(() => onLinkedArtifact((artifact) => {
+    if (!artifact.id) return;
+    keepOpenedArtifact(artifact);
+    openOrFocusArtifactWindow(String(artifact.id));
+  }), [keepOpenedArtifact, openOrFocusArtifactWindow]);
 
   const openWindows = useMemo(() => {
     return openArtifactWindowIds
