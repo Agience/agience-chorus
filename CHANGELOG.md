@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-13
+
+### Fixed
+- A collection lists every item it holds. `getList` (`api/api.ts`) and `listWorkspaceArtifacts` (`api/workspaces.ts`) ask for 500 rows a page and follow `has_more` to the end, up to 40 pages; each row appears once, by `id`. The Backlog's Closed chip counts every closed item.
+
 ## [0.4.0] - 2026-11-13
 
 ### Breaking
