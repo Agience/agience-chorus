@@ -5,6 +5,19 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-14
+
+### Breaking
+- API keys are minted on Origin's own `/key` page, in the person's Origin session (`createKeyOver`). The app receives the key's id, never the token, so the returned key carries no `key` value.
+- A key's term is at most 90 days: `keyExpiry` refuses a later expiry, and the `create_api_key` tool asks for `expires_at` within 90 days.
+- `deleteAPIKey` revokes a key through Origin's `/key` page.
+
+### Added
+- Any artifact can be shared (FR-030). Share… is on every live artifact's context menu and in its window's header, and opens the share dialog for that artifact's own id.
+- The share dialog loads the artifact's title from the store by its id, shows a preview and which parents it inherits access from, and for a container notes that access reaches everything inside. It refuses an artifact the store does not return.
+- A link to one artifact that is not a workspace (`/<id>`) opens it in its own window when the person can read it, and is refused as a workspace link is otherwise.
+- `askOrigin` (`api/jobGrants`) opens any of Origin's own pages, `/job-grant` by default.
+
 ## [0.4.1] - 2026-11-13
 
 ### Fixed
