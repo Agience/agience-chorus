@@ -5,6 +5,11 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-14
+
+### Security
+- The web app serves DM Sans from its own build (`@fontsource-variable/dm-sans`: latin and latin-ext, normal and italic, the weight and optical-size axes), loaded first from `index.tsx` through `src/fonts.css` (FR-023). A page load reaches no font host, so no third party learns the app's address or who opens it.
+
 ## [0.5.0] - 2026-11-14
 
 ### Breaking
