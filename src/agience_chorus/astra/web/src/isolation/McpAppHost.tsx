@@ -371,7 +371,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         try {
           const keyName = typeof toolArgs.name === 'string' && toolArgs.name ? toolArgs.name : 'API key';
           if (!keyExpiry(toolArgs.expires_at)) {
-            sendError(req.id, -32000, 'create_api_key needs expires_at: a time within the next year');
+            sendError(req.id, -32000, 'create_api_key needs expires_at: a time within the next 90 days');
             return;
           }
           const approved = await confirmDialog.confirm({
@@ -401,7 +401,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           // Every key a view asks for expires (FR-019): a time within a year, never none.
           const expiresAt = keyExpiry(toolArgs.expires_at);
           if (!expiresAt) {
-            sendError(req.id, -32000, 'create_api_key needs expires_at: a time within the next year');
+            sendError(req.id, -32000, 'create_api_key needs expires_at: a time within the next 90 days');
             return;
           }
           const created = await createKeyOver(keyName, role, resources, expiresAt);

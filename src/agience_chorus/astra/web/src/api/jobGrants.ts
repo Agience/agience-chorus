@@ -20,12 +20,14 @@ function originBase(): URL {
 
 export class JobGrantRefused extends Error {}
 
-/** Open Origin's page and resolve with the first answer `accept` takes from it. */
-function askOrigin<T>(params: Record<string, string>, accept: (data: Record<string, unknown>) => T | undefined): Promise<T> {
+/** Open one of Origin's own pages (`/job-grant`, `/key`) and resolve with the first answer
+ *  `accept` takes from it. */
+export function askOrigin<T>(params: Record<string, string>, accept: (data: Record<string, unknown>) => T | undefined,
+  page = '/job-grant'): Promise<T> {
   const base = originBase();
-  const url = new URL('/job-grant', base);
+  const url = new URL(page, base);
   url.search = new URLSearchParams({ ...params, back: window.location.origin }).toString();
-  const popup = window.open(url.toString(), 'agience-job-grant', 'popup,width=520,height=720');
+  const popup = window.open(url.toString(), `agience${page.replace(/\//g, '-')}`, 'popup,width=520,height=720');
   if (!popup) {
     return Promise.reject(new JobGrantRefused('The browser blocked Origin\'s window; allow pop-ups for this site and try again.'));
   }

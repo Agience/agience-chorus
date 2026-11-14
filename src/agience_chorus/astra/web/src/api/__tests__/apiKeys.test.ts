@@ -21,12 +21,16 @@ vi.mock('../api', () => ({
   },
 }));
 
+vi.mock('../jobGrants', () => ({ askOrigin: vi.fn() }));
+
 import api from '../api';
+import { askOrigin } from '../jobGrants';
 import { createAPIKey, createKeyOver, deleteAPIKey, getAPIKey, listAPIKeys } from '../apiKeys';
 
 const mockGet = api.get as ReturnType<typeof vi.fn>;
 const mockPost = api.post as ReturnType<typeof vi.fn>;
 const mockDelete = api.delete as ReturnType<typeof vi.fn>;
+const mockAsk = askOrigin as ReturnType<typeof vi.fn>;
 
 describe('api/apiKeys', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -73,34 +77,37 @@ describe('api/apiKeys', () => {
     expect(mockGet).toHaveBeenCalledWith('/grants/keys/a%2Fb');
   });
 
-  it('revokes rather than deletes, and reports the resulting state', async () => {
-    mockDelete.mockResolvedValueOnce({ data: { id: 'k1', state: 'revoked' } });
+  it("revokes at Origin's own key page, and reports the resulting state", async () => {
+    mockAsk.mockResolvedValueOnce(true);
     const revoked = await deleteAPIKey('k1');
-    expect(mockDelete).toHaveBeenCalledWith('/grants/keys/k1');
-    expect(revoked.state).toBe('revoked');
+    expect(mockAsk).toHaveBeenCalledWith({ revoke: 'k1' }, expect.any(Function), '/key');
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(revoked).toEqual({ id: 'k1', state: 'revoked' });
   });
 });
 
 describe('api/apiKeys — createKeyOver (the Key card)', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('one collection is a plain key on it, at the chosen access', async () => {
-    mockPost.mockResolvedValueOnce({ data: { id: 'k1', key: 'agk_s' } });
-    await createKeyOver('agent', 'editor', ['c-1'], '2026-12-13T00:00:00.000Z');
-    expect(mockPost).toHaveBeenCalledTimes(1);
-    // FR-019: the key carries the expiry the view asked for.
-    expect(mockPost).toHaveBeenCalledWith('/grants/keys', { name: 'agent', role: 'editor', resource_id: 'c-1',
-                                                           expires_at: '2026-12-13T00:00:00.000Z' });
+  const NOW = Date.parse('2026-11-14T00:00:00.000Z');
+
+  it("a key is minted at Origin's own page, at the chosen access and term, and no token comes back", async () => {
+    mockAsk.mockResolvedValueOnce('k1');
+    const made = await createKeyOver('agent', 'editor', ['c-1'], '2026-12-14T00:00:00.000Z', NOW);
+    // FR-019: the key carries the term the view asked for (30 days here).
+    expect(mockAsk).toHaveBeenCalledWith(
+      { name: 'agent', members: 'c-1:create+read+update+delete+evict', days: '30' },
+      expect.any(Function), '/key');
+    expect(made.id).toBe('k1');
+    expect(made.key).toBeUndefined();
+    expect(mockPost).not.toHaveBeenCalled();
   });
 
-  it('several collections are a bundle with one member each', async () => {
-    mockPost.mockResolvedValueOnce({ data: { id: 'k2', key: 'agk_s' } }).mockResolvedValue({ data: {} });
-    await createKeyOver('agent', 'viewer', ['c-1', 'c-2']);
-    expect(mockPost.mock.calls).toEqual([
-      ['/grants/keys', { name: 'agent', role: 'viewer', expires_at: null }],
-      ['/grants/keys/k2/members', { resource_id: 'c-1', role: 'viewer' }],
-      ['/grants/keys/k2/members', { resource_id: 'c-2', role: 'viewer' }],
-    ]);
+  it('several collections are one key with one member each, and the term is at most 90 days', async () => {
+    mockAsk.mockResolvedValueOnce('k2');
+    await createKeyOver('agent', 'viewer', ['c-1', 'c-2'], '2027-11-14T00:00:00.000Z', NOW);
+    expect(mockAsk).toHaveBeenCalledWith({ name: 'agent', members: 'c-1:read,c-2:read', days: '90' },
+                                         expect.any(Function), '/key');
   });
 
   it('a key that names nothing is refused before anything is created', async () => {
