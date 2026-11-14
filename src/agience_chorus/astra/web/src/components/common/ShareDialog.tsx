@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
 import {
   Dialog,
   DialogContent,
@@ -9,7 +8,9 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { AuthorityRefused, describeGrantee, describeItem, describeParent, previewAtOrigin, resendInviteAtOrigin, type OriginPreview } from '@/api/authority';
+import { getArtifact } from '@/api/artifacts';
 import { createGrant } from '@/api/collections';
+import { safeParseArtifactContext } from '@/utils/artifactContext';
 import { deleteGrant, listGrants } from '@/api/collections';
 import type { GrantResponse } from '@/api/types/grant';
 import { useAuth } from '@/hooks/useAuth';
@@ -17,9 +18,16 @@ import { useAuth } from '@/hooks/useAuth';
 interface ShareDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  workspaceId: string;
+  /** The artifact shared: any artifact, opened from first-party UI only (FR-030). */
+  resourceId?: string;
+  /** The workspace header's name for the same id. Kept for that caller; the dialog shows only the
+   *  title it loads itself. */
+  workspaceId?: string;
   workspaceName?: string;
 }
+
+/** The shared item as the store holds it, loaded by the dialog itself, never a caller's name. */
+interface SharedItem { title: string; contentType: string; isContainer: boolean }
 
 const ROLES = [
   { value: 'viewer', label: 'Viewer' },
@@ -107,7 +115,14 @@ function copy(text: string) {
   );
 }
 
-export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: ShareDialogProps) {
+export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legacyId }: ShareDialogProps) {
+  // FR-030: any artifact is shared by its own id. What the person confirms is bound to Origin's
+  // preview digest of exactly this id (review 14's intent, "what you confirm is what you share"),
+  // which replaces the old check that the page's route named it.
+  const workspaceId = resourceId || legacyId || '';
+  const [item, setItem] = useState<SharedItem | 'loading' | 'missing'>('loading');
+  const [parentNames, setParentNames] = useState<Record<string, string>>({});
+  const workspaceName = typeof item === 'object' ? item.title : undefined;
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('viewer');
   const [sending, setSending] = useState(false);
@@ -122,8 +137,7 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
   const [routeMismatch, setRouteMismatch] = useState(false);
   // What Origin holds about the item, for the owner to confirm (review 15, L4).
   const [preview, setPreview] = useState<OriginPreview | null>(null);
-  // The item is the one open in the route, never an id handed from Mantle's object (review 14).
-  const { artifactId: routeId } = useParams<{ artifactId?: string }>();
+  const routeId = workspaceId;
   const [grants, setGrants] = useState<GrantResponse[] | 'loading' | 'hidden'>('loading');
   const [busy, setBusy] = useState<string | null>(null);
   const { user } = useAuth();
@@ -140,6 +154,51 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
       .catch(() => { if (!cancelled) setGrants('hidden'); });
     return () => { cancelled = true; };
   }, [workspaceId]);
+
+  // The dialog names the item from the store, by its id, when it opens (FR-030). A caller cannot put a
+  // name in front of a different id; an id the store does not give this person is refused.
+  useEffect(() => {
+    if (!open || !workspaceId) return;
+    let cancelled = false;
+    setItem('loading');
+    getArtifact(workspaceId)
+      .then((a) => {
+        if (cancelled) return;
+        if (!a || String(a.id) !== String(workspaceId)
+            && String((a as { root_id?: string }).root_id ?? '') !== String(workspaceId)) {
+          setItem('missing');
+          return;
+        }
+        const ctx = safeParseArtifactContext(a.context) as Record<string, unknown>;
+        const contentType = String(ctx.content_type || (a as { content_type?: string }).content_type || '');
+        setItem({ title: String(ctx.title || (a as { name?: string }).name || 'Untitled'), contentType,
+                  isContainer: /collection|workspace/.test(contentType)
+                    || Boolean((a as { has_children?: boolean }).has_children) });
+      })
+      .catch(() => { if (!cancelled) setItem('missing'); });
+    return () => { cancelled = true; };
+  }, [open, workspaceId]);
+
+  // Who it inherits access from (FR-030): the parents Origin's preview names, by the title the store
+  // gives each. Read-only for now; BUG-074 adds "blocked from" and the Admin switch here.
+  useEffect(() => {
+    if (!open || typeof item !== 'object') return;
+    let cancelled = false;
+    previewAtOrigin(workspaceId)
+      .then(async (p) => {
+        const names: Record<string, string> = {};
+        for (const pid of p.parents ?? []) {
+          try {
+            const a = await getArtifact(pid);
+            const ctx = safeParseArtifactContext(a.context) as Record<string, unknown>;
+            names[pid] = String(ctx.title || (a as { name?: string }).name || pid);
+          } catch { names[pid] = describeParent(p, pid); }
+        }
+        if (!cancelled) setParentNames(names);
+      })
+      .catch(() => { if (!cancelled) setParentNames({}); });
+    return () => { cancelled = true; };
+  }, [open, item, workspaceId]);
 
   useEffect(() => {
     if (!open) return;
@@ -192,9 +251,9 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
       toast.error('Please enter an email address');
       return;
     }
-    if (!routeId || routeId !== workspaceId) {
+    if (item === 'missing') {
       setRouteMismatch(true);
-      toast.error('Open this workspace before sharing it: the page and the workspace differ');
+      toast.error("Couldn't load this artifact, so it can't be shared");
       return;
     }
     setRouteMismatch(false);
@@ -206,11 +265,11 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
         setPendingTo(null);
         toast.error(errorDetailOf(err, 'Origin could not show what it holds about this'));
       });
-  }, [email, routeId, workspaceId]);
+  }, [email, routeId, item]);
 
   const handleConfirm = useCallback(async () => {
     const to = pendingTo;
-    if (!to || !routeId || routeId !== workspaceId) {
+    if (!to || !routeId || typeof item !== 'object') {
       setRouteMismatch(true);
       return;
     }
@@ -244,7 +303,7 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
     } finally {
       setSending(false);
     }
-  }, [pendingTo, routeId, workspaceId, workspaceName, role, loadGrants, preview]);
+  }, [pendingTo, routeId, item, workspaceName, role, loadGrants, preview]);
 
   // Origin lists a resource's grants only to someone who may share it, so a refused listing means
   // this person cannot invite either (2026-10-31, a tester: a Viewer got an enabled Send invite form
@@ -268,7 +327,7 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Share {workspaceName || 'workspace'}</DialogTitle>
+          <DialogTitle>Share {workspaceName || (item === 'missing' ? 'this artifact' : '…')}</DialogTitle>
           <DialogDescription>Invite someone by email or copy a link.</DialogDescription>
         </DialogHeader>
 
@@ -316,7 +375,7 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
             )}
             {routeMismatch && (
               <p className="text-xs text-red-600" data-testid="invite-route-mismatch">
-                The open page is not this workspace. Open it, then share it.
+                Couldn&rsquo;t load this artifact, so it can&rsquo;t be shared.
               </p>
             )}
             {pendingTo && (
@@ -328,6 +387,9 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
                 {preview ? (
                   <div data-testid="invite-preview" className="space-y-1">
                     <p>Origin holds {describeItem(preview)}.</p>
+                    {typeof item === 'object' && item.isContainer && (
+                      <p data-testid="invite-scope">The access reaches everything inside it, which inherits it.</p>
+                    )}
                     <p>Origin holds it {preview.parents.length
                       ? <>inside {preview.parents.map((id) => describeParent(preview, id)).join(' \u2190 ')}</>
                       : <>as a top-level item</>}.</p>
@@ -338,7 +400,7 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
                   </div>
                 ) : <p className="text-gray-400">Reading what Origin holds\u2026</p>}
                 <div className="flex gap-2">
-                  <button onClick={() => { void handleConfirm(); }} disabled={sending || !preview}
+                  <button onClick={() => { void handleConfirm(); }} disabled={sending || !preview || typeof item !== 'object'}
                     className="px-2 py-1 bg-gray-900 text-white rounded disabled:opacity-50">
                     Confirm and send
                   </button>
@@ -360,6 +422,11 @@ export function ShareDialog({ open, onOpenChange, workspaceId, workspaceName }: 
           {grants !== 'hidden' && (
             <div className="space-y-2" data-testid="share-members">
               <label className="text-sm font-medium text-gray-700">People with access</label>
+              {Object.keys(parentNames).length > 0 && (
+                <p className="text-xs text-gray-500" data-testid="share-inherits">
+                  Inherits from {Object.values(parentNames).join(', ')}
+                </p>
+              )}
               {grants === 'loading' ? (
                 <p className="text-xs text-gray-400">Loading…</p>
               ) : members.length === 0 ? (

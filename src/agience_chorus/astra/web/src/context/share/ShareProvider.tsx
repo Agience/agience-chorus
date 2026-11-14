@@ -1,0 +1,27 @@
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+
+import { ShareDialog } from '@/components/common/ShareDialog';
+
+/** Share any artifact (FR-030). Opened only from first-party UI: an artifact's window header and
+ *  its context menu. A view, an MCP app or an iframe never reaches it, so no artifact view can open
+ *  Share for an id it chose. The dialog loads the item's own name by that id. */
+interface ShareContextValue { openShare: (artifactId: string) => void }
+
+const ShareContext = createContext<ShareContextValue | null>(null);
+
+export function ShareProvider({ children }: { children: ReactNode }) {
+  const [id, setId] = useState<string | null>(null);
+  const openShare = useCallback((artifactId: string) => { if (artifactId) setId(String(artifactId)); }, []);
+  const value = useMemo(() => ({ openShare }), [openShare]);
+  return (
+    <ShareContext.Provider value={value}>
+      {children}
+      {id && <ShareDialog open onOpenChange={(o) => { if (!o) setId(null); }} resourceId={id} />}
+    </ShareContext.Provider>
+  );
+}
+
+/** `openShare(id)`, or null outside a ShareProvider (a host without Share offers no Share item). */
+export function useShare(): ShareContextValue | null {
+  return useContext(ShareContext);
+}

@@ -1,6 +1,7 @@
 // "Artifact Floating" – full-size movable window for a single artifact on the desktop.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, FolderOpen, Info, Pencil, Tag, Calendar, Folder, Layers, History } from 'lucide-react';
+import { X, FolderOpen, Info, Pencil, Tag, Calendar, Folder, Layers, History, Share2 } from 'lucide-react';
+import { useShare } from '@/context/share/ShareProvider';
 import { HistoryPanel } from './HistoryPanel';
 import { IconButton } from '@/components/ui/icon-button';
 import { useWorkspace } from '@/hooks/useWorkspace';
@@ -490,6 +491,7 @@ export default function FloatingCardWindow(props: {
 	windowIndex?: number;
 }) {
 	const { artifactId, zIndex, onClose, onFocus, onSnapToGrid, initialRect, initialViewState, onOpenCollection, onOpenArtifact, windowIndex = 0 } = props;
+	const share = useShare();
 	const containerRef = useRef<HTMLDivElement>(null);
 
 	const { artifacts, openedArtifacts, displayedArtifacts = [], updateArtifact, isEditable } = useWorkspace();
@@ -1002,6 +1004,24 @@ export default function FloatingCardWindow(props: {
 					>
 						<FolderOpen />
 					</IconButton>
+
+					{/* Share this artifact (FR-030): first-party, by this window's artifact id. */}
+					{share && artifact?.id && (
+						<IconButton
+							size="sm"
+							variant="ghost"
+							onPointerDown={(e) => e.stopPropagation()}
+							onClick={(e) => {
+								e.preventDefault();
+								e.stopPropagation();
+								share.openShare(String(artifact.id));
+							}}
+							title="Share"
+							aria-label="Share"
+						>
+							<Share2 />
+						</IconButton>
+					)}
 
 					{/* History — who reached this card, and how */}
 					<IconButton

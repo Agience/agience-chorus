@@ -17,6 +17,7 @@ import {
   FiTrash2 as TrashIcon,
   FiArrowDownRight as RemoveIcon,
   FiArchive as ArchiveIcon,
+  FiShare2 as ShareIcon,
   FiRefreshCcw as RestoreIcon,
   FiEye as OpenIcon,
   FiPlus as AddIcon,
@@ -37,6 +38,8 @@ import { WorkspacesContext } from '@/context/workspaces/WorkspacesContext';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
 import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 
+import { useShare } from '@/context/share/ShareProvider';
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /** Well-known action IDs understood by all artifact hosts. */
@@ -48,7 +51,8 @@ export type CardActionId =
   | 'archive'
   | 'restore'
   | 'add-to-workspace'
-  | 'assign-collections';
+  | 'assign-collections'
+  | 'share';
 
 export interface CardContextItemsProps {
   artifact: Artifact;
@@ -90,6 +94,8 @@ const DEFAULT_ACTIONS: DefaultAction[] = [
   { id: 'open-tab', label: 'Open as tab',    icon: TabIcon,       states: ['live'],
     when: (artifact, _userId, _deleteEnabled, canOpenTab) => canOpenTab && isWorkspaceCard(artifact) },
   { id: 'assign-collections', label: 'Assign to collections…', icon: CollectionIcon, states: [] },
+  // FR-030: any artifact is shared from here, by its own id. Taken in this component, not by hosts.
+  { id: 'share',   label: 'Share…',          icon: ShareIcon,     states: ['live'] },
   { id: 'archive', label: 'Archive',         icon: ArchiveIcon,   states: ['live'], separator: 'before' },
   { id: 'restore', label: 'Restore',         icon: RestoreIcon,   states: ['archived'] },
   { id: 'remove',  label: 'Remove from workspace', icon: RemoveIcon, states: ['live'] },
@@ -126,8 +132,10 @@ export function CardContextItems({
   // Opening a tab is the workspaces' own act, not a host's, so it is taken here when offered.
   const tabs = useContext(WorkspacesContext);
   const canOpenTab = Boolean(tabs?.workspaces.some((w) => w.id === String(artifact.id)));
+  const share = useShare();
   const act = (actionId: CardActionId | string) => {
     if (actionId === 'open-tab' && tabs) tabs.openWorkspaceTab(String(artifact.id));
+    else if (actionId === 'share' && share) share.openShare(String(artifact.id));
     else onAction(actionId, artifact);
   };
 
@@ -163,6 +171,13 @@ export function CardContextItems({
             {action.label}
           </ContextMenuItem>
         ))}
+        {/* Share is every artifact's, whatever its type declares (FR-030). */}
+        {share && state === 'live' && !applicable.some((a) => a.id === 'share') && (
+          <ContextMenuItem key="share" onClick={(e) => { e.stopPropagation(); act('share'); }}>
+            <ShareIcon className="mr-2 h-4 w-4" />
+            Share…
+          </ContextMenuItem>
+        )}
       </>
     );
   }
@@ -171,6 +186,7 @@ export function CardContextItems({
   const pool = isSearchResult ? SEARCH_RESULT_ACTIONS : DEFAULT_ACTIONS;
 
   const applicable = pool.filter((a) => {
+    if (a.id === 'share' && !share) return false;
     if (a.when && !a.when(artifact, userId, deleteEnabled, canOpenTab)) return false;
     if ((!a.states || a.states.length === 0) && !isArtifactActionBlocked(artifact, a.id)) return true;
     return a.states.includes(state) && !isArtifactActionBlocked(artifact, a.id);

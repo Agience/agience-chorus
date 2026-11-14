@@ -9,6 +9,7 @@ import { WorkspacesProvider } from './context/workspaces/WorkspacesProvider';
 
 import LoginProtected from './auth/LoginProtected';
 import { ContentTypesProvider } from './context/contenttypes/ContentTypesProvider';
+import { ShareProvider } from './context/share/ShareProvider';
 
 import Login from './pages/Login';
 import Privacy from './pages/Privacy';
@@ -175,7 +176,10 @@ function AppRoutes() {
               <CollectionsProvider>
                 <WorkspacesProvider>
                   <WorkspaceProvider>
+                    {/* Share any artifact, from its window or context menu (FR-030). */}
+                    <ShareProvider>
                       <WorkspacePage />
+                    </ShareProvider>
                     </WorkspaceProvider>
                 </WorkspacesProvider>
               </CollectionsProvider>

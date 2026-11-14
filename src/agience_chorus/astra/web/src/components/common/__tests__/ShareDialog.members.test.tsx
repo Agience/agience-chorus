@@ -27,6 +27,11 @@ vi.mock('@/api/authority', async (orig) => ({
   previewAtOrigin: async (id: string) => ({ resource_id: id, parents: [], grantees: [],
                                             preview: 'D' }),
 }));
+// FR-030: the dialog names the item from the store by its id.
+vi.mock('@/api/artifacts', () => ({
+  getArtifact: vi.fn(async (id: string) => ({ id, context: JSON.stringify({
+    title: 'Plans', content_type: 'application/vnd.agience.workspace+json' }) })),
+}));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'me-1' } }) }));
 const toastSuccess = vi.fn();
 vi.mock('sonner', () => ({ toast: { success: (...a: unknown[]) => toastSuccess(...a), error: vi.fn() } }));
