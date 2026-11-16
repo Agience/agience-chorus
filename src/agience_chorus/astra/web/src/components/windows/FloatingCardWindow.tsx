@@ -1,7 +1,7 @@
 // "Artifact Floating" – full-size movable window for a single artifact on the desktop.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, FolderOpen, Info, Pencil, Tag, Calendar, Folder, Layers, History, Share2 } from 'lucide-react';
-import { useShare } from '@/context/share/ShareProvider';
+import { X, FolderOpen, Info, Pencil, Tag, Calendar, Folder, Layers, History, Share2, Copy } from 'lucide-react';
+import { useShare } from '@/context/share/useShare';
 import { HistoryPanel } from './HistoryPanel';
 import { IconButton } from '@/components/ui/icon-button';
 import { useWorkspace } from '@/hooks/useWorkspace';
@@ -21,6 +21,7 @@ import type { McpAppHostHandle, PickerRequestParams } from '@/isolation/McpAppHo
 import { CollectionChip } from '@/components/common/CollectionChip';
 import { CollectionPicker } from '@/components/modals/CollectionPicker';
 import { BindingPicker } from '@/components/modals/BindingPicker';
+import { copyId } from '@/utils/copyId';
 import { useDebouncedSave } from '@/hooks/useDebouncedSave';
 import { addArtifactToCollection, setArtifactCollections } from '@/api/collections';
 import { errorDetail } from '@/utils/errorDetail';
@@ -888,6 +889,7 @@ export default function FloatingCardWindow(props: {
 							onSelect={handlePickerSelect}
 							label={bindingPickerParams?.label}
 							contentTypes={bindingPickerParams?.content_types}
+							action={bindingPickerParams?.action}
 						/>
 					</>
 				);
@@ -1021,6 +1023,24 @@ export default function FloatingCardWindow(props: {
 						>
 							<Share2 />
 						</IconButton>
+					)}
+
+					{/* Copy ID: this artifact's own id, as every artifact's menu offers it (BUG-075). */}
+					{artifact && (
+					<IconButton
+						size="sm"
+						variant="ghost"
+						onPointerDown={(e) => e.stopPropagation()}
+						onClick={(e) => {
+							e.preventDefault();
+							e.stopPropagation();
+							void copyId(String(artifact.id));
+						}}
+						title="Copy ID"
+						aria-label="Copy ID"
+					>
+						<Copy />
+					</IconButton>
 					)}
 
 					{/* History — who reached this card, and how */}

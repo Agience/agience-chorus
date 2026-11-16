@@ -36,8 +36,10 @@ describe('the app serves its own font', () => {
     const urls = [...css.matchAll(/url\('([^']+)'\)/g)].map((m) => m[1]);
     expect(urls.length).toBe(4);
     for (const u of urls) {
-      expect(u.startsWith('@fontsource-variable/dm-sans/files/')).toBe(true);
-      expect(existsSync(join(WEB, 'node_modules', u))).toBe(true);
+      // A path relative to the stylesheet, so Vite resolves the file and emits it as an asset; a
+      // bare package name is copied through unresolved and the browser gets index.html.
+      expect(u.startsWith('../node_modules/@fontsource-variable/dm-sans/files/')).toBe(true);
+      expect(existsSync(join(WEB, 'src', u))).toBe(true);
     }
     const entry = readFileSync(join(WEB, 'src', 'index.tsx'), 'utf8');
     expect(entry.indexOf("import './fonts.css'")).toBeGreaterThan(-1);

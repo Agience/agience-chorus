@@ -15,6 +15,9 @@ import EmptyState from "./EmptyState";
 import MultiCardToolbar from "./MultiCardToolbar";
 import { CollectionPicker } from '../modals/CollectionPicker';
 import { BulkTagDialog, type BulkTagApplyRequest } from '../modals/BulkTagDialog';
+import WorkspaceDetailModal from '../modals/WorkspaceDetailModal';
+import { useAddToWorkspace } from '@/hooks/useAddToWorkspace';
+import { UNTITLED_WORKSPACE } from '@/utils/workspaceLabels';
 import { Artifact } from "../../context/workspace/workspace.types";
 import { ArtifactCreate, ArtifactUpdate } from "../../api/types";
 import { addArtifactToWorkspace, importCollectionArtifactToWorkspace, initiateUpload, updateUploadStatus, getWorkspaceArtifactsBatchGlobal } from "../../api/workspaces";
@@ -1028,18 +1031,39 @@ export default function Browser({
   // A failed create is already toasted by WorkspacesProvider.createWorkspace.
   // One create at a time (BUG-058, 2026-11-10: a second click while the first was on its way made
   // a second workspace).
+  // BUG-001: [+] asks for the name first, offering the first free "Untitled workspace" number, so
+  // new workspaces are not all called the same.
   const creatingWorkspace = useRef(false);
-  const handleCreateWorkspace = useCallback(async () => {
+  const freeWorkspaceName = useCallback(
+    () => nextUntitledTitle(UNTITLED_WORKSPACE, workspaces.map((w) => String(w.name ?? ''))),
+    [workspaces],
+  );
+  // The name offered, fixed when the prompt opens; null while it is closed.
+  const [offeredWorkspaceName, setOfferedWorkspaceName] = useState<string | null>(null);
+  const newWorkspaceInitial = useMemo(
+    () => ({ name: offeredWorkspaceName ?? '', description: '' }),
+    [offeredWorkspaceName],
+  );
+  const handleCreateWorkspace = useCallback(
+    () => setOfferedWorkspaceName(freeWorkspaceName()),
+    [freeWorkspaceName],
+  );
+  const createNamedWorkspace = useCallback(async (name: string, description: string) => {
     if (creatingWorkspace.current) return;
     creatingWorkspace.current = true;
     try {
-      const ws = await createWorkspace('Untitled Workspace', '', { activate: false }).catch(() => null);
+      const ws = await createWorkspace(name.trim() || freeWorkspaceName(), description.trim(),
+        { activate: false }).catch(() => null);
       if (!ws) return;
+      setOfferedWorkspaceName(null);
       setActiveWorkspaceId(ws.id);
     } finally {
       creatingWorkspace.current = false;
     }
-  }, [createWorkspace, setActiveWorkspaceId]);
+  }, [createWorkspace, freeWorkspaceName, setActiveWorkspaceId]);
+
+  // BUG-075: "Add to workspace" asks which workspace and links the artifact there.
+  const { addToWorkspace, picker: addToWorkspacePicker } = useAddToWorkspace();
 
   // "New card" from the no-source empty state: dock the Inbox (its id is the user id),
   // make it active, and open the type picker. The created card lands in the Inbox.
@@ -1215,7 +1239,7 @@ export default function Browser({
     if (importIds.length === 0 && workspaceCopies.length === 0) return false;
 
     // A failed create is already toasted by WorkspacesProvider.createWorkspace.
-    const ws = await createWorkspace('Untitled Workspace', '', { activate: false }).catch(() => null);
+    const ws = await createWorkspace(freeWorkspaceName(), '', { activate: false }).catch(() => null);
     if (!ws) return false;
 
     for (const rootId of importIds) {
@@ -1239,7 +1263,7 @@ export default function Browser({
 
     setActiveWorkspaceId(ws.id);
     return true;
-  }, [activeWorkspace, createWorkspace, resolveDroppedIds, setActiveWorkspaceId]);
+  }, [activeWorkspace, createWorkspace, freeWorkspaceName, resolveDroppedIds, setActiveWorkspaceId]);
 
   // Drop a workspace card on the header: check workspace_id from context or use the
   // artifact's root_id directly. If no matching workspace, create one on the fly.
@@ -1293,7 +1317,7 @@ export default function Browser({
         return;
       }
 
-      const title = typeof ctx.title === 'string' ? ctx.title : 'Untitled Workspace';
+      const title = typeof ctx.title === 'string' && ctx.title.trim() ? ctx.title : freeWorkspaceName();
       const ws = await createWorkspace(title, '').catch(() => null);
       if (!ws) return;
       if (artifact.id) {
@@ -1311,7 +1335,7 @@ export default function Browser({
     if (hasItemsToImport) {
       await createWorkspaceFromDroppedArtifacts(draggedIds);
     }
-  }, [activeWorkspace, artifacts, browserPrefs, createWorkspace, createWorkspaceFromDroppedArtifacts, displayedArtifacts, dockedWorkspaceTabIdsPref, resolveDroppedIds, resolvedDisplayArtifacts, searchResultArtifacts, setActiveWorkspaceId, sourceArtifacts, updateArtifact, updatePreferences, workspaces]);
+  }, [activeWorkspace, artifacts, browserPrefs, createWorkspace, createWorkspaceFromDroppedArtifacts, freeWorkspaceName, displayedArtifacts, dockedWorkspaceTabIdsPref, resolveDroppedIds, resolvedDisplayArtifacts, searchResultArtifacts, setActiveWorkspaceId, sourceArtifacts, updateArtifact, updatePreferences, workspaces]);
 
   // A workspace is deleted from its tab (BUG-039, 2026-11-10: no control anywhere deleted one, so
   // stray "Untitled Workspace"s could not be removed). What it holds is detached, not destroyed
@@ -1694,10 +1718,16 @@ export default function Browser({
       return;
     }
     if (activeSource?.type === 'workspace' && workspaceId) {
-      announceRemoval(await removeWorkspaceArtifact(workspaceId, removableId), {
-        from: 'this workspace',
-        relink: () => addArtifactToCollection(workspaceId, removableId),
-      });
+      try {
+        announceRemoval(await removeWorkspaceArtifact(workspaceId, removableId), {
+          from: 'this workspace',
+          relink: () => addArtifactToCollection(workspaceId, removableId),
+        });
+      } catch (err) {
+        // The server's own words, such as why an item made here stays (2026-11-15, the Tester).
+        toast.error('Could not remove the card', { description: errorDetail(err, '') || undefined });
+        return;
+      }
       setSourceArtifacts(prev => prev.filter(candidate => String(candidate.root_id ?? candidate.id) !== removableId));
       return;
     }
@@ -1746,9 +1776,7 @@ export default function Browser({
             onRemove={handleBrowserRemove}
             deleteEnabled
             onSelectionAction={handleSelectionAction}
-            onAddToWorkspace={(artifact: Artifact) => {
-              addExistingArtifact(artifact);
-            }}
+            onAddToWorkspace={addToWorkspace}
             onOrder={sectionKey === 'primary' ? ((ids) => orderArtifacts(ids)) : undefined}
             onFileDrop={sectionKey === 'primary' && !!workspaceId ? ((index, files) => uploadFilesAt(files, index)) : undefined}
             onArtifactDrop={sectionKey === 'primary' && (!!workspaceId || activeSource?.type === 'collection')
@@ -1776,6 +1804,7 @@ export default function Browser({
           }}
           containerNoun={containerName}
           onOpenArtifact={onOpenArtifact}
+          onAddToWorkspace={addToWorkspace}
           onAssignCollections={(artifact: Artifact) => {
             openAssignFor(artifact);
           }}
@@ -1812,7 +1841,7 @@ export default function Browser({
         />
       </div>
     );
-  }, [activeSource, namedSource, containerName, addExistingArtifact, artifactCountsByOwnerId, handleBrowserRemove, handleResolvedDrop, handleSelectionAction, reloadArchived, isShowingSearchResults, openAssignFor, onArtifactSelect, onOpenArtifact, orderArtifacts, selectArtifact, selectedArtifactIds, undockWorkspaceIfNeeded, updateArtifact, uploadFilesAt, viewMode, workspaceId]);
+  }, [activeSource, namedSource, containerName, addToWorkspace, artifactCountsByOwnerId, handleBrowserRemove, handleResolvedDrop, handleSelectionAction, reloadArchived, isShowingSearchResults, openAssignFor, onArtifactSelect, onOpenArtifact, orderArtifacts, selectArtifact, selectedArtifactIds, undockWorkspaceIfNeeded, updateArtifact, uploadFilesAt, viewMode, workspaceId]);
 
   return (
     <div className="h-full flex flex-col">
@@ -1983,6 +2012,14 @@ export default function Browser({
         />
       )}
 
+      {addToWorkspacePicker}
+      <WorkspaceDetailModal
+        open={offeredWorkspaceName !== null}
+        mode="create"
+        initial={newWorkspaceInitial}
+        onSave={createNamedWorkspace}
+        onClose={() => setOfferedWorkspaceName(null)}
+      />
       <CollectionPicker
         open={showBulkCollectionPicker}
         onClose={() => { setShowBulkCollectionPicker(false); setAssignIds(null); }}

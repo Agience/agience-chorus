@@ -48,6 +48,12 @@ export function askOrigin<T>(params: Record<string, string>, accept: (data: Reco
         finish(() => reject(new JobGrantRefused('You did not approve it at Origin.')));
         return;
       }
+      // Origin refused it, and says why: the wait ends there, with Origin's reason (2026-11-15).
+      if (typeof data.type === 'string' && data.type.endsWith('-refused')) {
+        const why = typeof data.detail === 'string' && data.detail ? data.detail : 'Origin refused it.';
+        finish(() => reject(new JobGrantRefused(why)));
+        return;
+      }
       const got = accept(data);
       if (got !== undefined) finish(() => resolve(got));
     };

@@ -23,7 +23,9 @@ import {
   FiPlus as AddIcon,
   FiFolder as CollectionIcon,
   FiExternalLink as TabIcon,
+  FiCopy as CopyIcon,
 } from 'react-icons/fi';
+import { copyId } from '@/utils/copyId';
 import {
   ContextMenuItem,
   ContextMenuSeparator,
@@ -38,7 +40,7 @@ import { WorkspacesContext } from '@/context/workspaces/WorkspacesContext';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
 import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 
-import { useShare } from '@/context/share/ShareProvider';
+import { useShare } from '@/context/share/useShare';
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -52,7 +54,8 @@ export type CardActionId =
   | 'restore'
   | 'add-to-workspace'
   | 'assign-collections'
-  | 'share';
+  | 'share'
+  | 'copy-id';
 
 export interface CardContextItemsProps {
   artifact: Artifact;
@@ -96,6 +99,8 @@ const DEFAULT_ACTIONS: DefaultAction[] = [
   { id: 'assign-collections', label: 'Assign to collections…', icon: CollectionIcon, states: [] },
   // FR-030: any artifact is shared from here, by its own id. Taken in this component, not by hosts.
   { id: 'share',   label: 'Share…',          icon: ShareIcon,     states: ['live'] },
+  // Every artifact's id can be copied, to name it to someone or to a tool (BUG-075). Taken here.
+  { id: 'copy-id', label: 'Copy ID',         icon: CopyIcon,      states: [] },
   { id: 'archive', label: 'Archive',         icon: ArchiveIcon,   states: ['live'], separator: 'before' },
   { id: 'restore', label: 'Restore',         icon: RestoreIcon,   states: ['archived'] },
   { id: 'remove',  label: 'Remove from workspace', icon: RemoveIcon, states: ['live'] },
@@ -107,6 +112,7 @@ const SEARCH_RESULT_ACTIONS: DefaultAction[] = [
   { id: 'open',            label: 'Open',                 icon: OpenIcon,     states: [] },
   { id: 'add-to-workspace', label: 'Add to workspace',   icon: AddIcon,      states: [] },
   { id: 'assign-collections', label: 'Assign to collections…', icon: CollectionIcon, states: [] },
+  { id: 'copy-id',         label: 'Copy ID',              icon: CopyIcon,     states: [] },
   // 2026-10-29, a tester: an archived result could be restored only by opening it.
   { id: 'restore',         label: 'Restore',              icon: RestoreIcon,  states: ['archived'], separator: 'before' },
 ];
@@ -136,6 +142,7 @@ export function CardContextItems({
   const act = (actionId: CardActionId | string) => {
     if (actionId === 'open-tab' && tabs) tabs.openWorkspaceTab(String(artifact.id));
     else if (actionId === 'share' && share) share.openShare(String(artifact.id));
+    else if (actionId === 'copy-id') void copyId(String(artifact.id));
     else onAction(actionId, artifact);
   };
 
@@ -171,6 +178,12 @@ export function CardContextItems({
             {action.label}
           </ContextMenuItem>
         ))}
+        {!applicable.some((a) => a.id === 'copy-id') && (
+          <ContextMenuItem key="copy-id" onClick={(e) => { e.stopPropagation(); act('copy-id'); }}>
+            <CopyIcon className="mr-2 h-4 w-4" />
+            Copy ID
+          </ContextMenuItem>
+        )}
         {/* Share is every artifact's, whatever its type declares (FR-030). */}
         {share && state === 'live' && !applicable.some((a) => a.id === 'share') && (
           <ContextMenuItem key="share" onClick={(e) => { e.stopPropagation(); act('share'); }}>

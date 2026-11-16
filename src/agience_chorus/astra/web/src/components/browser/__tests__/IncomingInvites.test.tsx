@@ -22,7 +22,8 @@ vi.mock('@/api/artifacts', () => ({ getArtifact: vi.fn().mockResolvedValue({ id:
 const assign = vi.fn();
 Object.defineProperty(window, 'location', { value: { ...window.location, assign }, writable: true });
 
-import { IncomingInvites, roleOf } from '../IncomingInvites';
+import { IncomingInvites } from '../IncomingInvites';
+import { roleOf } from '../invites';
 
 const INV = { invite_id: 'inv-1', resource_id: 'W', actions: ['read'], expires_at: null,
               from: 'Ann Lee' };
@@ -88,7 +89,7 @@ describe('IncomingInvites — invites arrive in the Inbox', () => {
 
 // After Accept the grant reaches the store a few seconds later (2026-11-13, the Tester): Accept
 // waits for it, then opens the item; past the wait it says access is on its way, never "not shared".
-import { waitForAccess } from '../IncomingInvites';
+import { waitForAccess } from '../invites';
 
 describe('waitForAccess', () => {
   const noSleep = () => Promise.resolve();

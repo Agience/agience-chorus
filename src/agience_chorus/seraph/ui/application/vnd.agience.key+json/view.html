@@ -139,8 +139,9 @@
       <div class="label">Generate Key</div>
       <div style="display:flex;flex-direction:column;gap:12px">
         <div class="form-group">
-          <label for="inputCollections">Collections <span style="font-weight:400;color:#9ca3af">— IDs, one per line. The key reaches these and nothing else.</span></label>
-          <textarea id="inputCollections" rows="3" placeholder="collection-id"></textarea>
+          <label id="collectionsLabel">Collections <span style="font-weight:400;color:#9ca3af">— the key reaches these and nothing else.</span></label>
+          <ul id="pickedCollections" aria-labelledby="collectionsLabel" style="list-style:none;margin:0 0 6px;padding:0"></ul>
+          <button type="button" class="btn-rotate" id="addCollectionBtn" onclick="pickCollection()">Add a collection…</button>
         </div>
         <div class="form-group">
           <label for="inputAccess">Access</label>
@@ -150,8 +151,8 @@
           </select>
         </div>
         <div class="form-group">
-          <label for="inputDays">Expires in <span style="font-weight:400;color:#9ca3af">— days, 1 to 365. The key stops working then; revoke it sooner if you need to.</span></label>
-          <input id="inputDays" type="number" min="1" max="365" value="30">
+          <label for="inputDays">Expires in <span style="font-weight:400;color:#9ca3af">— days, 1 to 90. The key stops working then; revoke it sooner if you need to.</span></label>
+          <input id="inputDays" type="number" min="1" max="90" value="30">
         </div>
         <button class="btn btn-generate" id="generateBtn" onclick="handleGenerate()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
@@ -208,7 +209,41 @@
       }
       if (d.method === 'ui/notifications/tool-result') handleToolResult(d.params);
       if (d.method === 'ui/notifications/host-context-changed') handleHostContext(d.params);
+      if (d.method === 'ui/notifications/picker-result') onPicked(d.params || {});
     });
+
+    // The collections a new key reaches, chosen with the app's picker (BUG-075), one at a time.
+    let picked = [];
+    window.pickCollection = function() {
+      parent.postMessage({ jsonrpc: '2.0', method: 'ui/open-picker',
+        // Only collections the person may grant: a key carries what its maker may give, no more.
+        params: { role: 'key-collection', label: 'A collection this key reaches', action: 'admin' } }, '*');
+    };
+    function onPicked(p) {
+      if (p.role !== 'key-collection' || !p.artifact_id) return;
+      if (!picked.some((c) => c.id === p.artifact_id)) picked.push({ id: p.artifact_id, title: p.title || '' });
+      renderPicked();
+    }
+    function renderPicked() {
+      const list = document.getElementById('pickedCollections');
+      list.replaceChildren();
+      for (const c of picked) {
+        const li = document.createElement('li');
+        li.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:13px;padding:2px 0';
+        const name = document.createElement('span');
+        name.style.flex = '1';
+        name.textContent = c.title || c.id;
+        name.title = c.id;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'btn-rotate';
+        remove.textContent = 'Remove';
+        remove.setAttribute('aria-label', 'Remove ' + (c.title || c.id));
+        remove.onclick = () => { picked = picked.filter((x) => x.id !== c.id); renderPicked(); };
+        li.append(name, remove);
+        list.appendChild(li);
+      }
+    }
 
     // Initialize
     sendRpc('ui/initialize', {
@@ -263,7 +298,9 @@
 
       // Key info card
       const resources = keyMeta.resources;
-      document.getElementById('keyScope').textContent = resources?.length ? resources.join('\n') : '—';
+      const titles = keyMeta.resource_titles || {};
+      document.getElementById('keyScope').textContent =
+        resources?.length ? resources.map((id) => titles[id] || id).join('\n') : '—';
       document.getElementById('keyAccess').textContent =
         keyMeta.role === 'editor' ? 'Read and write' : keyMeta.role === 'viewer' ? 'Read only' : '—';
       const expEl = document.getElementById('keyExpires');
@@ -288,17 +325,18 @@
     // =========================================================================
     // Actions
     // =========================================================================
-    // A key is a grant on the collections it names (`POST /grants/keys`): `role` is `viewer` or
-    // `editor`, and `resources` are what it reaches. The host creates it, shows its secret once in
-    // its own dialog, and returns the record without the secret.
-    // Every key expires (FR-019, John 2026-11-13): 1 to 365 days, 30 by default.
+    // A key reaches the collections it names: `role` is `viewer` or `editor`, and `resources` are
+    // what it reaches. The host asks first, then Origin mints it on its own page, where the person
+    // approves and sees the secret once; the view gets the key's record, never the secret.
+    // Every key expires (FR-019; at most 90 days, John 2026-11-14): 30 by default.
+    const KEY_MAX_DAYS = 90;
     function expiryIn(days) {
       const d = Math.round(Number(days));
-      if (!Number.isFinite(d) || d < 1 || d > 365) throw new Error('Expires in is 1 to 365 days.');
+      if (!Number.isFinite(d) || d < 1 || d > KEY_MAX_DAYS) throw new Error('Expires in is 1 to ' + KEY_MAX_DAYS + ' days.');
       return { days: d, at: new Date(Date.now() + d * 86400000).toISOString() };
     }
 
-    async function issue(name, role, resources, days) {
+    async function issue(name, role, resources, days, resourceTitles) {
       const exp = expiryIn(days);
       const result = await sendRpc('tools/call', {
         name: 'create_api_key',
@@ -308,6 +346,7 @@
       if (!resultText) return;
       const created = JSON.parse(resultText);
       artifactContext = { ...artifactContext, key: { api_key_id: created.id, name, role, resources,
+                                                     resource_titles: resourceTitles || {},
                                                      expires_at: created.expires_at || exp.at,
                                                      expires_in_days: exp.days } };
       await sendRpc('tools/call', {
@@ -319,17 +358,18 @@
 
     window.handleGenerate = async function() {
       const name = artifactContext.title || 'api-key';
-      const resources = document.getElementById('inputCollections').value.split('\n').map(s => s.trim()).filter(Boolean);
+      const resources = picked.map((c) => c.id);
       const role = document.getElementById('inputAccess').value;
       const days = document.getElementById('inputDays').value;
       clearError();
       if (!resources.length) {
-        showError('Name at least one collection the key reaches.');
+        showError('Add at least one collection the key reaches.');
         return;
       }
       setWorking(true);
       try {
-        await issue(name, role, resources, days);
+        await issue(name, role, resources, days,
+                    Object.fromEntries(picked.filter((c) => c.title).map((c) => [c.id, c.title])));
       } catch (err) {
         showError(err.message || 'Failed to generate key.');
       } finally {
@@ -346,7 +386,7 @@
           await sendRpc('tools/call', { name: 'delete_api_key', arguments: { id: keyMeta.api_key_id } });
         }
         await issue(artifactContext.title || keyMeta.name || 'api-key', keyMeta.role || 'viewer', keyMeta.resources || [],
-                    keyMeta.expires_in_days || 30);
+                    Math.min(keyMeta.expires_in_days || 30, KEY_MAX_DAYS), keyMeta.resource_titles);
       } catch (err) {
         showError(err.message || 'Failed to rotate key.');
       } finally {

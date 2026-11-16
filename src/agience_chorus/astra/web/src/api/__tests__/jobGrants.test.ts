@@ -63,6 +63,12 @@ describe('api/jobGrants', () => {
     }
   });
 
+  it("a refusal at Origin ends the wait at once, with Origin's own reason (2026-11-15)", async () => {
+    const refused = approveTimerAtOrigin('t1', ['t1'], 'Digest');
+    answer({ type: 'agience.job-grant-refused', detail: 'the actor holds no admin on the resource' });
+    await expect(refused).rejects.toThrow('the actor holds no admin on the resource');
+  });
+
   it('a blocked window says how to allow it', async () => {
     vi.spyOn(window, 'open').mockReturnValue(null);
     await expect(approveTimerAtOrigin('t1', ['t1'], 'Digest')).rejects.toThrow('allow pop-ups');

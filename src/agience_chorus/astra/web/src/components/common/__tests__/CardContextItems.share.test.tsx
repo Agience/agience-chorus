@@ -14,7 +14,7 @@ vi.mock('../../ui/context-menu', () => ({
   ContextMenuSeparator: () => <hr />,
 }));
 let shareCtx: { openShare: ReturnType<typeof vi.fn> } | null = null;
-vi.mock('@/context/share/ShareProvider', () => ({ useShare: () => shareCtx }));
+vi.mock('@/context/share/useShare', () => ({ useShare: () => shareCtx }));
 
 import { CardContextItems } from '../CardContextItems';
 

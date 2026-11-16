@@ -13,6 +13,9 @@ interface BindingPickerProps {
   label?: string;
   /** The content types the choice may be; collections when absent. */
   contentTypes?: string[];
+  /** Only what the person may do this to (a CRUDEASIO action, e.g. `admin` for what a key may
+   *  carry); everything they can read when absent. */
+  action?: string;
 }
 
 interface Choice { id: string; name: string }
@@ -26,7 +29,7 @@ function nameOf(a: Record<string, unknown>): string {
   return typeof title === 'string' && title ? title : String(a.id ?? '');
 }
 
-export function BindingPicker({ open, onClose, onSelect, label, contentTypes }: BindingPickerProps) {
+export function BindingPicker({ open, onClose, onSelect, label, contentTypes, action }: BindingPickerProps) {
   const [collections, setCollections] = useState<Choice[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -38,14 +41,14 @@ export function BindingPicker({ open, onClose, onSelect, label, contentTypes }: 
       setSearchQuery('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, types]);
+  }, [open, types, action]);
 
   const loadCollections = async () => {
     try {
       setLoading(true);
       const lists = contentTypes && contentTypes.length
         ? await Promise.all(contentTypes.map((ct) => listVisibleOfType(ct)))
-        : [await listCollections()];
+        : [await listCollections(action || 'read')];
       const seen = new Set<string>();
       const data: Choice[] = [];
       for (const a of lists.flat() as unknown as Record<string, unknown>[]) {

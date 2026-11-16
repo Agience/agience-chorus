@@ -174,6 +174,10 @@ interface OriginGrant {
   /** An invite's claims so far, and how many it allows. */
   claims?: number
   max_claims?: number | null
+  /** A pending email invite's address and when it was sent, shown to whoever may share the item
+   *  (BUG-069). Origin keeps it only while the invite is pending. */
+  invited_address?: string
+  sent_at?: string | null
 }
 
 /** Marks a grant row Facet read from Origin's own record. A row without it (one Mantle listed)
@@ -206,7 +210,9 @@ function asGrant(g: OriginGrant, resourceId: string): GrantResponse {
     expires_at: g.expires_at ?? null, target_entity_type: g.target_kind ?? null, ...flags,
     ...(g.grantee_name ? { name: g.grantee_name } : {}),
     ...(g.grantee_type === 'invite'
-      ? { claims_count: Number(g.claims ?? 0), max_claims: g.max_claims ?? null } : {}),
+      ? { claims_count: Number(g.claims ?? 0), max_claims: g.max_claims ?? null,
+          ...(g.invited_address ? { target_entity: g.invited_address } : {}),
+          ...(g.sent_at ? { sent_at: g.sent_at } : {}) } : {}),
     [FROM_ORIGIN]: true,
   } as unknown as GrantResponse
 }

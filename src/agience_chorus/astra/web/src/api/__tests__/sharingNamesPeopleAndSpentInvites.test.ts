@@ -26,4 +26,15 @@ describe('the sharing record', () => {
     expect(inv.max_claims).toBe(1)
     expect(inv.claims_count).toBe(1)
   })
+
+  it('carries a pending email invite\'s address and sent time (BUG-069)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ grants: [
+      { grant_id: 'inv-2', grantee_id: 'x', grantee_type: 'invite', resource_id: 'W',
+        actions: ['read'], state: 'active', target_kind: 'email', max_claims: 1, claims: 0,
+        invited_address: 'new.person@team.test', sent_at: '2026-11-14T20:00:00+00:00' },
+    ] }), { status: 200 })))
+    const [inv] = await listGrants('W')
+    expect(inv.target_entity).toBe('new.person@team.test')
+    expect((inv as unknown as { sent_at?: string }).sent_at).toBe('2026-11-14T20:00:00+00:00')
+  })
 })

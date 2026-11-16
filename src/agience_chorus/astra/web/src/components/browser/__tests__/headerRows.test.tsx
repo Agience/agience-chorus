@@ -7,7 +7,7 @@ import FilterChips from '../FilterChips';
 import { SearchPanel } from '../../search/SearchPanel';
 
 const setActiveWorkspaceIdMock = vi.fn();
-let mockWorkspaces = [{ id: 'ws-1', name: 'Inbox' }];
+let mockWorkspaces: Array<{ id: string; name: string; created_time?: string }> = [{ id: 'ws-1', name: 'Inbox' }];
 let mockActiveWorkspace = { id: 'ws-1', name: 'Inbox' };
 
 vi.mock('../../../hooks/useWorkspace', () => ({
@@ -166,6 +166,33 @@ describe('header row layout locks', () => {
     fireEvent.click(screen.getByLabelText('New workspace'));
 
     expect(onCreateWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells two workspaces with the same name apart by the day each was made (BUG-001)', () => {
+    const before = mockWorkspaces;
+    mockWorkspaces = [
+      { id: 'ws-1', name: 'Untitled workspace', created_time: '2026-11-01T10:00:00' },
+      { id: 'ws-2', name: 'Untitled workspace', created_time: '2026-11-03T10:00:00' },
+    ];
+    try {
+      render(
+        <BrowserHeader
+          activeSource={{ type: 'workspace', id: 'ws-1' }}
+          onToggleFilters={() => {}}
+          filtersOpen={false}
+          hasActiveFilter={false}
+          activeFilter="all"
+          viewMode="grid"
+          onViewModeChange={() => {}}
+        />,
+      );
+      const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
+      expect(tabs).toHaveLength(2);
+      expect(new Set(tabs).size).toBe(2);
+      for (const tab of tabs) expect(tab).toMatch(/^Untitled workspace · Nov\.? \d+$/);
+    } finally {
+      mockWorkspaces = before;
+    }
   });
 
   it('calls onDropWorkspace when a workspace card is dropped on tab area', () => {

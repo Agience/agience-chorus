@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import HelpDialog, { article, FEEDBACK_HREF, GET_STARTED_STEPS } from '../HelpDialog';
+import HelpDialog from '../HelpDialog';
+import { article, FEEDBACK_HREF, GET_STARTED_STEPS } from '../helpContent';
 
 vi.mock('@/context/shortcuts/useShortcuts', () => ({
   useShortcuts: () => ({ groups: [], openDialog: () => {} }),

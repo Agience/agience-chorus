@@ -22,7 +22,7 @@
  * ```
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   CommandDialog,
   CommandEmpty,
@@ -39,6 +39,7 @@ import { useWorkspace } from '../../hooks/useWorkspace';
 import { CollectionResponse } from '../../api/types';
 import { listCollections } from '../../api/collections';
 import { useShortcuts } from '@/context/shortcuts/useShortcuts';
+import { workspaceLabels } from '@/utils/workspaceLabels';
 
 interface CommandPaletteProps {
   /** Callback when a workspace is selected */
@@ -68,6 +69,8 @@ export default function CommandPalette({
   const [collections, setCollections] = useState<CollectionResponse[]>([]);
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
   const { workspaces, openWorkspaceTab } = useWorkspaces();
+  // Same-name workspaces are told apart by the day they were made (BUG-001).
+  const labels = useMemo(() => workspaceLabels(workspaces), [workspaces]);
   const { selectedArtifactIds, extractInformationFromSelection } = useWorkspace();
   const { registerShortcut } = useShortcuts();
 
@@ -210,7 +213,7 @@ export default function CommandPalette({
                 >
                   <NotebookPen className="mr-2 h-4 w-4 text-gray-500" />
                   <div className="flex flex-col flex-1 min-w-0">
-                    <span className="font-medium text-sm truncate">{workspace.name || 'Untitled workspace'}</span>
+                    <span className="font-medium text-sm truncate">{labels.get(workspace.id) ?? (workspace.name || 'Untitled workspace')}</span>
                     {workspace.description && (
                       <span className="text-xs text-gray-500 truncate">
                         {workspace.description}

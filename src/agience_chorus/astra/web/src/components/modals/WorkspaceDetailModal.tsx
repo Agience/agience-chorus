@@ -46,7 +46,7 @@ export default function WorkspaceDetailModal({
     }
   };
 
-  const title = mode === 'create' ? 'New Workspace' : 'Edit Workspace';
+  const title = mode === 'create' ? 'New workspace' : 'Edit workspace';
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -54,8 +54,8 @@ export default function WorkspaceDetailModal({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            {mode === 'create' 
-              ? 'Create a new workspace to organize your knowledge artifacts.'
+            {mode === 'create'
+              ? 'Name it so you can tell it from your other workspaces.'
               : 'Update workspace details.'}
           </DialogDescription>
         </DialogHeader>
@@ -65,8 +65,11 @@ export default function WorkspaceDetailModal({
               Name
             </label>
             <input
+              aria-label="Name"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              autoFocus
+              onFocus={(e) => e.currentTarget.select()}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               required
             />
@@ -91,8 +94,8 @@ export default function WorkspaceDetailModal({
             >
               Cancel
             </Button>
-            <Button type="submit">
-              Save
+            <Button type="submit" disabled={!name.trim()}>
+              {mode === 'create' ? 'Create' : 'Save'}
             </Button>
           </DialogFooter>
         </form>

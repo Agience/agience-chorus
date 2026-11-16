@@ -7,12 +7,13 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { AuthorityRefused, describeGrantee, describeItem, describeParent, previewAtOrigin, resendInviteAtOrigin, type OriginPreview } from '@/api/authority';
+import { describeGrantee, describeItem, describeParent, previewAtOrigin, resendInviteAtOrigin, type OriginPreview } from '@/api/authority';
 import { getArtifact } from '@/api/artifacts';
 import { createGrant } from '@/api/collections';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
 import { deleteGrant, listGrants } from '@/api/collections';
 import type { GrantResponse } from '@/api/types/grant';
+import { errorDetailOf, inviteRefusal, sentOn } from './shareText';
 import { useAuth } from '@/hooks/useAuth';
 
 interface ShareDialogProps {
@@ -77,37 +78,6 @@ function roleOf(grant: GrantResponse): string {
   return match ? match.label.split(' (')[0] : 'Custom';
 }
 
-function errorDetailOf(err: unknown, fallback: string): string {
-  // Origin's session routes throw AuthorityRefused(status, detail); the store's, an axios error.
-  if (err instanceof AuthorityRefused) return err.detail || fallback;
-  return (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback;
-}
-
-/** Why an invite was not sent, in words that say what to do (FR-004, 2026-11-13: a new account's
- *  invite was refused for its unverified address and the dialog said nothing). */
-export function inviteRefusal(err: unknown): string {
-  const status = err instanceof AuthorityRefused ? err.status
-    : (err as { response?: { status?: number } })?.response?.status;
-  const detail = errorDetailOf(err, (err as Error)?.message || 'The invite could not be sent.');
-  if (status === 403 && /verif/i.test(detail)) {
-    return 'Verify your email address before sending invites: the invite names you to its '
-      + 'recipient by your verified address. Use the link in the sign-up email from Agience, '
-      + 'then send the invite again.';
-  }
-  return detail;
-}
-
-// Origin's preview, in words, for a confirmation the owner answers (review 15).
-function previewText(p: OriginPreview, to: string): string {
-  const where = p.parents.length
-    ? `inside ${p.parents.map((id) => describeParent(p, id)).join(' <- ')}` : 'as a top-level item';
-  const who = p.grantees.length
-    ? p.grantees.map((g) => `${describeGrantee(g)} `
-        + `(${g.effect === 'deny' ? 'denied ' : ''}${g.actions.join(', ')} on ${g.resource_id})`).join('; ')
-    : 'no one';
-  return `Invite ${to} to ${p.resource_id}?\n\nOrigin holds it ${where}.\nAlready shared with: ${who}.`;
-}
-
 function copy(text: string) {
   navigator.clipboard.writeText(text).then(
     () => toast.success('Link copied to clipboard'),
@@ -134,6 +104,9 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
                                          resource_name?: string } | null>(null);
   // An invite the owner has asked for and not yet confirmed (review 14, M4).
   const [pendingTo, setPendingTo] = useState<string | null>(null);
+  // When the pending confirmation is a Resend: the invite it replaces. Resend is confirmed in the
+  // same inline step as Send, never a native dialog, which can go unseen behind this one.
+  const [resendOf, setResendOf] = useState<GrantResponse | null>(null);
   const [routeMismatch, setRouteMismatch] = useState(false);
   // What Origin holds about the item, for the owner to confirm (review 15, L4).
   const [preview, setPreview] = useState<OriginPreview | null>(null);
@@ -228,22 +201,25 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
     const to = (grant.target_entity
       || window.prompt('Send this invite again to which email address?') || '').trim();
     if (!to) return;
-    setBusy(grant.id);
-    try {
-      // The owner confirms Origin's preview of the item again (review 15).
-      const seen = await previewAtOrigin(grant.resource_id || workspaceId);
-      if (!window.confirm(previewText(seen, to))) return;
-      // A new invite for the same address, made and mailed by Origin, and the old one revoked
-      // there (round 13). Facet never holds the link.
-      await resendInviteAtOrigin(grant, to, seen.preview);
-      setSentTo({ email: to });
-      loadGrants();
-    } catch (err: unknown) {
-      toast.error(errorDetailOf(err, 'Could not resend the invite'));
-    } finally {
-      setBusy(null);
-    }
-  }, [loadGrants, workspaceId]);
+    // The owner confirms Origin's preview of the item again (review 15), inline, as for Send.
+    setInviteError(null);
+    setPreview(null);
+    setResendOf(grant);
+    setPendingTo(to);
+    previewAtOrigin(grant.resource_id || workspaceId)
+      .then(setPreview)
+      .catch((err: unknown) => {
+        setPendingTo(null);
+        setResendOf(null);
+        toast.error(errorDetailOf(err, 'Origin could not show what it holds about this'));
+      });
+  }, [workspaceId]);
+
+  const cancelPending = useCallback(() => {
+    setPendingTo(null);
+    setResendOf(null);
+    setPreview(null);
+  }, []);
 
   // The first step: check the route names this item, then ask the owner to confirm it by name.
   const handleInvite = useCallback(() => {
@@ -269,6 +245,31 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
 
   const handleConfirm = useCallback(async () => {
     const to = pendingTo;
+    if (resendOf && to) {
+      // A Resend: a new invite for the same address, made and mailed by Origin, and the old one
+      // revoked there (round 13). Facet never holds the link.
+      const target = resendOf.resource_id || routeId;
+      if (!preview || preview.resource_id !== target) return;
+      setInviteError(null);
+      setSending(true);
+      setBusy(resendOf.id);
+      try {
+        await resendInviteAtOrigin(resendOf, to, preview.preview);
+        setPendingTo(null);
+        setResendOf(null);
+        setPreview(null);
+        setSentTo({ email: to });
+        loadGrants();
+      } catch (err: unknown) {
+        const why = errorDetailOf(err, 'Could not resend the invite');
+        setInviteError(why);
+        toast.error(why);
+      } finally {
+        setSending(false);
+        setBusy(null);
+      }
+      return;
+    }
     if (!to || !routeId || typeof item !== 'object') {
       setRouteMismatch(true);
       return;
@@ -303,7 +304,7 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
     } finally {
       setSending(false);
     }
-  }, [pendingTo, routeId, item, workspaceName, role, loadGrants, preview]);
+  }, [pendingTo, resendOf, routeId, item, workspaceName, role, loadGrants, preview]);
 
   // Origin lists a resource's grants only to someone who may share it, so a refused listing means
   // this person cannot invite either (2026-10-31, a tester: a Viewer got an enabled Send invite form
@@ -382,7 +383,8 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
               <div className="text-xs text-gray-700 border border-gray-200 rounded p-2 space-y-2"
                 data-testid="invite-confirm">
                 <p>
-                  Invite {pendingTo} to &ldquo;{workspaceName || 'this workspace'}&rdquo; ({routeId})?
+                  {resendOf ? 'Send the invite again to ' : 'Invite '}{pendingTo} to
+                  {' '}&ldquo;{workspaceName || 'this workspace'}&rdquo; ({resendOf?.resource_id || routeId})?
                 </p>
                 {preview ? (
                   <div data-testid="invite-preview" className="space-y-1">
@@ -402,9 +404,9 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
                 <div className="flex gap-2">
                   <button onClick={() => { void handleConfirm(); }} disabled={sending || !preview || typeof item !== 'object'}
                     className="px-2 py-1 bg-gray-900 text-white rounded disabled:opacity-50">
-                    Confirm and send
+                    {resendOf ? 'Confirm and resend' : 'Confirm and send'}
                   </button>
-                  <button onClick={() => setPendingTo(null)} disabled={sending}
+                  <button onClick={cancelPending} disabled={sending}
                     className="px-2 py-1 border border-gray-300 rounded">Cancel</button>
                 </div>
               </div>
@@ -444,7 +446,8 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
                         <div className="flex-1 min-w-0">
                           <div className="truncate text-gray-800">{who}</div>
                           <div className="text-gray-500">{roleOf(g)}{declined(g) ? ' · invite declined'
-                            : pending ? ' · invite not yet accepted' : ''}</div>
+                            : pending ? ' · invite not yet accepted' : ''}{pending && sentOn(g)
+                              ? ` · sent ${sentOn(g)}` : ''}</div>
                         </div>
                         {pending && !declined(g) && g.target_entity_type === 'email' && (
                           <button disabled={busy === g.id} onClick={() => { void handleResend(g); }}

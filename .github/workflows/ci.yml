@@ -145,13 +145,5 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: ${{ matrix.app }}/package-lock.json
-      - run: npm ci --prefix ${{ matrix.app }}
-      - run: npm run build --prefix ${{ matrix.app }}
-      - name: Test, where the app has a suite
-        run: |
-          if node -e "process.exit(require('./${{ matrix.app }}/package.json').scripts.test?0:1)"; then
-            npm run test --prefix ${{ matrix.app }}
-          else
-            echo "no test script in ${{ matrix.app }} — build and lint are the signal"
-          fi
-      - run: npm run lint --prefix ${{ matrix.app }}
+      # The same script node 45's gate runs (agience-cloud deploy/ci_runner.py), so the two agree.
+      - run: bash scripts/ci-web.sh ${{ matrix.app }}

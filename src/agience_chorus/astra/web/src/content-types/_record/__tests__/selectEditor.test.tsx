@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { renderScalarEditorForTest as editor } from '../viewer';
+import { renderScalarEditor as editor } from '../scalarEditor';
 
 // G6 (the Tester, 2026-11-13): a Backlog item's state is set in its window, limited to the type's
 // own values, so an item can be closed through the app.

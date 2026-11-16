@@ -8,6 +8,7 @@ import { listCollections } from '../../api/collections';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { usePreferences } from '../../hooks/usePreferences';
+import { workspaceLabels } from '@/utils/workspaceLabels';
 import { isAgienceDrag, getDroppedArtifactIds } from '@/dnd/agienceDrag';
 import {
   DropdownMenu,
@@ -103,6 +104,8 @@ export default function BrowserHeader({
   // Every workspace the person reaches and has not docked, their own and those shared with them,
   // offered by name (BUG-016, 2026-11-10: with an empty tab bar there was no way to find one, since
   // search returns no workspace).
+  // Same-name workspaces are told apart by the day they were made (BUG-001).
+  const labels = useMemo(() => workspaceLabels(workspaces), [workspaces]);
   const undockedWorkspaces = useMemo(
     () => (dockedTabIds ? workspaces.filter(w => !dockedTabIds.includes(w.id)) : [])
       .slice().sort((a, b) => String(a.name).localeCompare(String(b.name))),
@@ -248,9 +251,9 @@ export default function BrowserHeader({
                         onDeleteWorkspace(workspace.id);
                       }}
                       className={`h-10 pl-4 pr-10 rounded-sm border text-sm font-medium whitespace-nowrap transition-none ${isActive ? 'bg-gradient-to-r from-purple-400/20 via-pink-400/20 to-blue-400/20 border-purple-300/40 text-purple-900' : 'bg-white/50 border-purple-200/30 text-gray-700 hover:bg-purple-50/30 hover:border-purple-300/40'}`}
-                      title={`${workspace.name} (double-click to rename${onDeleteWorkspace ? ', right-click to delete' : ''})`}
+                      title={`${labels.get(workspace.id) ?? workspace.name} (double-click to rename${onDeleteWorkspace ? ', right-click to delete' : ''})`}
                     >
-                      {workspace.name}
+                      {labels.get(workspace.id) ?? workspace.name}
                     </button>
                   )}
                   <button
@@ -258,7 +261,7 @@ export default function BrowserHeader({
                     onClick={(e) => { e.stopPropagation(); handleCloseTab(workspace.id); }}
                     className="absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 inline-flex items-center justify-center rounded border border-gray-200 bg-white text-gray-500 transition-none hover:text-gray-700 hover:border-gray-300"
                     title="Close tab"
-                    aria-label={`Close ${workspace.name}`}
+                    aria-label={`Close ${labels.get(workspace.id) ?? workspace.name}`}
                   >
                     <FiX className="w-3.5 h-3.5" />
                   </button>
@@ -286,7 +289,7 @@ export default function BrowserHeader({
                       onClick={() => openWorkspaceTab(workspace.id)}
                       className="cursor-pointer truncate"
                     >
-                      {workspace.name}
+                      {labels.get(workspace.id) ?? workspace.name}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>

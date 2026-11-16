@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 import { dirname, resolve } from 'path'
 import { contentTypesPlugin } from './plugins/content-types-plugin'
 import { buildInfo } from './plugins/build-info'
+import { cssUrlsResolved } from './plugins/css-urls'
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url)
@@ -64,6 +65,9 @@ export default defineConfig({
     // Reads types/**/{type.json,presentation.json}, resolves inheritance,
     // exposes as the virtual module `virtual:content-types`.
     contentTypesPlugin(discoverContentTypeRoots()),
+    // Every url() in the built CSS names a file the build emitted: an unresolved one ships as a
+    // request the server answers with index.html (the 202611.15.1 fonts).
+    cssUrlsResolved(),
     // ⭐ `/version.json` IS GENERATED, from what the footer shows: the release (`dev` when the
     // build is not one), the commit and the build time. A hand-kept copy is a second answer to
     // "what is deployed" that nothing refreshes.

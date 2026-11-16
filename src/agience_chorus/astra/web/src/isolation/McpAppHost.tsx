@@ -55,6 +55,8 @@ export interface PickerRequestParams {
   label?: string;
   /** The content types the choice may be (an argument's `x-content-types`); collections when absent. */
   content_types?: string[];
+  /** Only what the person may do this to, e.g. `admin`: a key carries only what its maker may grant. */
+  action?: string;
 }
 
 export interface CspDomains {
@@ -140,6 +142,9 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
   // a save is merged against, so what an operator wrote meanwhile is kept (`mergeViewContext`).
   const viewContextBase = useRef<Record<string, unknown> | null>(null);
   const { content: resolvedContent } = useArtifactContent(artifact);
+  // The event bridge below subscribes once per artifact; it reads the latest content here.
+  const resolvedContentRef = useRef(resolvedContent);
+  resolvedContentRef.current = resolvedContent;
 
   // Assemble the HTML with CSP meta tag injected
   const srcdocHtml = buildCspMetaTag(csp) + html;
@@ -398,7 +403,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
             ? (toolArgs.resources as unknown[]).filter((r): r is string => typeof r === 'string')
             : [];
           const role = toolArgs.role === 'editor' ? 'editor' : 'viewer';
-          // Every key a view asks for expires (FR-019): a time within a year, never none.
+          // Every key a view asks for expires (FR-019): a time within `KEY_MAX_DAYS`, never none.
           const expiresAt = keyExpiry(toolArgs.expires_at);
           if (!expiresAt) {
             sendError(req.id, -32000, 'create_api_key needs expires_at: a time within the next 90 days');
@@ -884,7 +889,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
               const fresh = safeParseArtifactContext((a as { context?: unknown }).context as string) as Record<string, unknown>;
               viewContextBase.current = fresh;
               sendNotification('ui/notifications/tool-result', {
-                content: [{ type: 'text', text: JSON.stringify({ artifact_id: artifact.id, context: fresh, content: resolvedContent }) }],
+                content: [{ type: 'text', text: JSON.stringify({ artifact_id: artifact.id, context: fresh, content: resolvedContentRef.current }) }],
               });
             })
             .catch(() => { /* the view keeps what it shows; the next open reads it again */ });

@@ -98,18 +98,32 @@ describe('ShareDialog — who has access, and whether an invite went', () => {
 
   it('a pending invite is sent again by Origin to its address, and shows no link', async () => {
     resendAtOriginMock.mockResolvedValue({ id: 'g-inv2', grantee_type: 'invite' });
-    // The owner confirms Origin's preview of the item again (review 15).
-    const asked = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    // The owner confirms Origin's preview of the item again (review 15), inline as for Send: no
+    // native dialog, which a person can miss and a browser driver dismisses (2026-11-15, the
+    // Tester: Resend sent nothing).
+    const asked = vi.spyOn(window, 'confirm');
     renderDialog();
     await waitFor(() => expect(screen.getByText('Resend')).toBeTruthy());
     fireEvent.click(screen.getByText('Resend'));
+    expect(resendAtOriginMock).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByText('Confirm and resend'));
     await waitFor(() => expect(resendAtOriginMock).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'g-inv' }), 'bob@example.invalid', 'D'));
-    expect(asked).toHaveBeenCalled();
+    expect(asked).not.toHaveBeenCalled();
     asked.mockRestore();
     await waitFor(() => expect(screen.getByTestId('invite-sent').textContent)
       .toContain('bob@example.invalid'));
     expect(screen.queryByLabelText('Invite link')).toBeNull();
+  });
+
+  it('a Resend the owner cancels sends nothing', async () => {
+    renderDialog();
+    await waitFor(() => expect(screen.getByText('Resend')).toBeTruthy());
+    fireEvent.click(screen.getByText('Resend'));
+    await screen.findByText('Confirm and resend');
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(screen.queryByText('Confirm and resend')).toBeNull();
+    expect(resendAtOriginMock).not.toHaveBeenCalled();
   });
 
   it('offers no list to someone who may not manage access', async () => {

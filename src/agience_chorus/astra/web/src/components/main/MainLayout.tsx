@@ -10,6 +10,7 @@ import { TwoPanelLayout } from "../layout/TwoPanelLayout";
 import { SearchPanel } from "../search/SearchPanel";
 import { useWorkspace } from "../../hooks/useWorkspace";
 import { useWorkspaces } from "../../hooks/useWorkspaces";
+import { useAddToWorkspace } from "@/hooks/useAddToWorkspace";
 import type { SearchResponse } from "../../api/types/search";
 import type { Artifact } from "../../context/workspace/workspace.types";
 import FloatingCardWindow from "../windows/FloatingCardWindow";
@@ -44,7 +45,6 @@ function MainLayout() {
     artifacts,
     keepOpenedArtifact,
     unselectAllArtifacts,
-    addExistingArtifact,
   } = useWorkspace();
   const { activeWorkspaceId } = useWorkspaces();
 
@@ -183,12 +183,8 @@ function MainLayout() {
     setResolvedSearchArtifacts([]);
   }, []);
 
-  const handleAddToWorkspace = useCallback(
-    (artifact: Artifact) => {
-      addExistingArtifact(artifact);
-    },
-    [addExistingArtifact],
-  );
+  // BUG-075: the search panel's "Add to workspace" asks which workspace, as the centre's does.
+  const { addToWorkspace: handleAddToWorkspace, picker: addToWorkspacePicker } = useAddToWorkspace();
 
   // A search result changed elsewhere shows the change. 2026-10-23, a tester restored a card opened
   // from archived results and its result kept the Archived badge.
@@ -228,6 +224,7 @@ function MainLayout() {
 
   return (
     <div className="flex flex-col h-screen">
+      {addToWorkspacePicker}
       {/* Command Palette (Cmd+K / Ctrl+K) */}
       <CommandPalette
         onWorkspaceSelect={(workspaceId) => {

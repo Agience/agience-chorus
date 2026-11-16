@@ -1,6 +1,6 @@
 ﻿// context/workspace/WorkspaceProvider.tsx
 import {
-  useState, useEffect, useCallback, useMemo, useRef, ReactNode, MouseEvent,
+  useState, useEffect, useCallback, useContext, useMemo, useRef, ReactNode, MouseEvent,
 } from 'react';
 import {
   listWorkspaceArtifacts,
@@ -13,6 +13,7 @@ import {
   subscribeWorkspaceEvents,
 } from '../../api/workspaces';
 import { WorkspaceContext } from './WorkspaceContext';
+import { ConfirmContext } from '@/context/dialog/ConfirmContext';
 import { Artifact } from './workspace.types';
 import { useWorkspaces } from '../workspaces/WorkspacesContext';
 import { toast } from 'sonner';
@@ -97,6 +98,8 @@ function withArtifact(list: Artifact[], artifact: Artifact, index?: number): Art
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  // The app's dialogs (the remove choice below); absent only where a test renders this alone.
+  const dialog = useContext(ConfirmContext);
   const { activeWorkspace } = useWorkspaces();
 
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -380,27 +383,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [activeWorkspace?.id, artifacts, openedArtifacts, displayedArtifacts, refreshArtifacts]
   );
 
-  const removeArtifact = useCallback(
-    async (id: string) => {
-      if (!activeWorkspace?.id) return;
-      try {
-        const workspaceId = activeWorkspace.id;
-        announceRemoval(await removeWorkspaceArtifact(workspaceId, String(id)), {
-          from: activeWorkspace.name || 'this workspace',
-          relink: () => addArtifactToCollection(workspaceId, String(id)),
-          after: () => { void refreshArtifacts(workspaceId); },
-        });
-        setArtifacts(prev => prev.filter(c => String(c.id) !== String(id) && String(c.root_id) !== String(id)));
-        setSelectedArtifactIds(prev => prev.filter(cid => cid !== String(id)));
-      } catch (err) {
-        console.error('Failed to remove artifact', err);
-        toast.error('Could not remove the card', {
-          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
-        });
-      }
-    },
-    [activeWorkspace?.id, activeWorkspace?.name, refreshArtifacts]
-  );
 
   const dropLocally = useCallback((id: string) => {
     setArtifacts(prev => prev.filter(c => String(c.id) !== String(id) && String(c.root_id) !== String(id)));
@@ -442,6 +424,46 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       return true;
     },
     [artifacts, displayedArtifacts, dropLocally, announceTrashed]
+  );
+
+  const removeArtifact = useCallback(
+    async (id: string) => {
+      if (!activeWorkspace?.id) return;
+      try {
+        const workspaceId = activeWorkspace.id;
+        announceRemoval(await removeWorkspaceArtifact(workspaceId, String(id)), {
+          from: activeWorkspace.name || 'this workspace',
+          relink: () => addArtifactToCollection(workspaceId, String(id)),
+          after: () => { void refreshArtifacts(workspaceId); },
+        });
+        setArtifacts(prev => prev.filter(c => String(c.id) !== String(id) && String(c.root_id) !== String(id)));
+        setSelectedArtifactIds(prev => prev.filter(cid => cid !== String(id)));
+      } catch (err) {
+        // Made here and shown elsewhere too: Mantle keeps it here (its content is keyed to this
+        // workspace) and says so, and the person chooses. 2026-11-15, the Tester: the 409 was not
+        // shown at all.
+        if ((err as { response?: { status?: number } })?.response?.status === 409) {
+          if (!dialog) {
+            toast.error('Could not remove the card', { description: errorDetail(err, '') });
+            return;
+          }
+          const everywhere = await dialog.confirm({
+            title: 'This was made here',
+            description: `${errorDetail(err, '')} Removing it everywhere moves it to Trash, where it can be restored within ${TRASH_RETENTION_DAYS} days.`,
+            confirmLabel: 'Remove it everywhere',
+            cancelLabel: 'Keep it here',
+            tone: 'warn',
+          });
+          if (everywhere) await deleteArtifact(String(id));
+          return;
+        }
+        console.error('Failed to remove artifact', err);
+        toast.error('Could not remove the card', {
+          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
+        });
+      }
+    },
+    [activeWorkspace?.id, activeWorkspace?.name, deleteArtifact, dialog, refreshArtifacts]
   );
 
   // Delete for good (`DELETE /artifacts/{id}`): emptying Trash, and discarding a new card that was

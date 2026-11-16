@@ -5,6 +5,25 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-15
+
+### Added
+- `ShareDialog` lists a pending email invite's address and the date it was sent, and `listGrants` carries both from Origin's `invited_address` and `sent_at` fields.
+- Every artifact's context menu, in workspaces and in search results, offers "Copy ID", which copies the artifact's id to the clipboard.
+- "Add to workspace" in the browser and the search panel asks which workspace to add the artifact to.
+- The `[+]` button in the browser header asks for a name and description before creating a workspace, offering the first free "Untitled workspace" number.
+- `scripts/ci-web.sh <app>` runs the web app's CI in one command: it checks the Node major named in `ci.yml`, installs from the lockfile, builds, runs tests where the app has a suite, and lints.
+- The web build fails if the built CSS contains a `url()` naming a file the build did not emit (`plugins/css-urls.ts`).
+
+### Changed
+- Workspaces with the same name are told apart by the day they were created, in the tabs, the undocked-workspace menu and the command palette.
+- "Resend" on a pending invite in `ShareDialog` is confirmed inline with "Confirm and resend", with Origin's preview, in place of a native browser confirm dialog.
+- A refusal from Origin while waiting on a job grant ends the wait at once and shows Origin's own reason.
+- Removing a card from a workspace that the server refuses shows the server's reason in an error toast.
+- Invite refusals in `ShareDialog`, including the unverified-sender 403, are shown in Origin's own words.
+- The `web` job in `.github/workflows/ci.yml` runs `scripts/ci-web.sh`, so GitHub and node 45's gate run the same steps.
+- The DM Sans font files in `fonts.css` are referenced by a path relative to the stylesheet, so the build emits them as assets and the app serves them.
+
 ## [0.5.1] - 2026-11-14
 
 ### Security

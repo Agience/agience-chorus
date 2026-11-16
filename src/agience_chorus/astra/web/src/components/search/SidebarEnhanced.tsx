@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useRef } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { importCollectionArtifactToWorkspace, moveArtifactToWorkspace } from '../../api/workspaces';
 import {
@@ -26,6 +26,7 @@ import { Workspace } from '../../context/workspace/workspace.types';
 import type { ActiveSource } from '../../types/workspace';
 import CollectionDetailModal from '../modals/CollectionDetailModal';
 import WorkspaceDetailModal from '../modals/WorkspaceDetailModal';
+import { workspaceLabels } from '@/utils/workspaceLabels';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import CardGrid from '../common/CardGrid';
@@ -315,6 +316,9 @@ export default function SidebarEnhanced({
     });
   }, [workspaces, user]);
 
+  // Same-name workspaces are told apart by the day they were made (BUG-001).
+  const labels = useMemo(() => workspaceLabels(workspaces), [workspaces]);
+
   const openCreateWorkspace = useCallback(() => {
     setIsCreatingWorkspace(true);
     setEditingWorkspace(null);
@@ -534,7 +538,7 @@ export default function SidebarEnhanced({
           >
             <Proportions size={16} className="mr-2 flex-shrink-0" />
             <div className="truncate text-sm flex-1">
-              {ws.name}
+              {labels.get(ws.id) ?? ws.name}
             </div>
             <DropdownMenu open={openDropdownId === `ws-${ws.id}`} onOpenChange={(open) => setOpenDropdownId(open ? `ws-${ws.id}` : null)}>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
@@ -892,7 +896,7 @@ export default function SidebarEnhanced({
               <SidebarItem
                 key={ws.id}
                 icon={Proportions}
-                label={ws.name}
+                label={labels.get(ws.id) ?? ws.name}
                 active={activeSource?.type === 'workspace' && activeSource.id === ws.id}
                 onClick={() => {
                   setActiveWorkspaceId(ws.id);

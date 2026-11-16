@@ -4,6 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { WorkspaceProvider } from '../WorkspaceProvider';
 import { useWorkspace } from '../WorkspaceContext';
+import { ConfirmContext } from '../../dialog/ConfirmContext';
 import { mockArtifact } from '../../../../tests/utils/helpers';
 
 // Mock dependencies
@@ -478,6 +479,46 @@ describe('WorkspaceProvider', () => {
       });
       
       expect(removeWorkspaceArtifact).toHaveBeenCalledWith('ws-1', '1');
+    });
+
+    // 2026-11-15, the Tester: removing an item from the workspace it was made in, while it is shown
+    // elsewhere too, got a 409 the app never showed. The person now chooses.
+    const madeHere = { response: { status: 409, data: { detail:
+      'This was made here. Remove it everywhere, or keep it here and also show it there.' } } };
+    function RemoveConsumer() {
+      const workspace = useWorkspace();
+      return (
+        <div>
+          <div data-testid="artifact-count">{workspace.artifacts.length}</div>
+          <button onClick={() => workspace.removeArtifact('1')}>Remove</button>
+        </div>
+      );
+    }
+    it.each([
+      [true, 'moves it to Trash when the person removes it everywhere'],
+      [false, 'leaves it where it is when the person keeps it'],
+    ])('made here: asks, and %s', async (everywhere) => {
+      removeWorkspaceArtifact.mockRejectedValueOnce(madeHere);
+      if (everywhere) trashArtifact.mockResolvedValueOnce({ id: '1', state: 'archived' });
+      const confirm = vi.fn().mockResolvedValue(everywhere);
+      render(
+        <ConfirmContext.Provider value={{ confirm }}>
+          <WorkspaceProvider><RemoveConsumer /></WorkspaceProvider>
+        </ConfirmContext.Provider>
+      );
+      await waitFor(() => expect(screen.getByTestId('artifact-count')).toHaveTextContent('3'));
+      await userEvent.setup().click(screen.getByText('Remove'));
+      await waitFor(() => expect(confirm).toHaveBeenCalled());
+      expect(confirm.mock.calls[0][0]).toMatchObject({ title: 'This was made here',
+        confirmLabel: 'Remove it everywhere', cancelLabel: 'Keep it here' });
+      expect(confirm.mock.calls[0][0].description).toContain('This was made here.');
+      if (everywhere) {
+        await waitFor(() => expect(trashArtifact).toHaveBeenCalledWith('1'));
+        await waitFor(() => expect(screen.getByTestId('artifact-count')).toHaveTextContent('2'));
+      } else {
+        expect(trashArtifact).not.toHaveBeenCalled();
+        expect(screen.getByTestId('artifact-count')).toHaveTextContent('3');
+      }
     });
   });
 
