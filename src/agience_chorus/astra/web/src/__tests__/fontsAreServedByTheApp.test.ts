@@ -28,7 +28,8 @@ describe('the app serves its own font', () => {
     const files = [join(WEB, 'index.html'), ...sources(join(WEB, 'src'))];
     const hits = files.filter((f) => FONT_HOSTS.test(readFileSync(f, 'utf8')));
     expect(hits).toEqual([]);
-  });
+    // It reads every source file: 7 s on a loaded CI node, past vitest's 5 s default.
+  }, 60_000);
 
   it('DM Sans is declared from the bundled files, and loaded first', () => {
     const css = readFileSync(join(WEB, 'src', 'fonts.css'), 'utf8');

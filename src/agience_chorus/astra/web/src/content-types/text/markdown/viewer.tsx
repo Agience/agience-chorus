@@ -142,13 +142,13 @@ export default function MarkdownCardViewer({ artifact, state = 'view' }: Props) 
   const saveContent = useCallback(
     async (val: string) => {
       if (!artifact || isReadOnly) return;
-      await updateArtifact({ id: String(artifact.id), content: val });
+      if (!(await updateArtifact({ id: String(artifact.id), content: val }))) return false;
       lastSyncedRef.current = val;
     },
     [artifact, isReadOnly, updateArtifact],
   );
 
-  const { isSaving: isContentSaving, lastSaved: contentSaved } = useDebouncedSave(
+  const { isSaving: isContentSaving, lastSaved: contentSaved, saveFailed: contentFailed } = useDebouncedSave(
     localContent,
     {
       delay: 1500,
@@ -166,7 +166,7 @@ export default function MarkdownCardViewer({ artifact, state = 'view' }: Props) 
     async (val: string) => {
       if (!artifact || isReadOnly) return;
       const updated = { ...ctx, title: val };
-      await updateArtifact({
+      return updateArtifact({
         id: String(artifact.id),
         context: stringifyArtifactContext(updated),
       });
@@ -175,7 +175,7 @@ export default function MarkdownCardViewer({ artifact, state = 'view' }: Props) 
     [artifact, isReadOnly, updateArtifact],
   );
 
-  useDebouncedSave(localTitle, {
+  const { saveFailed: titleFailed } = useDebouncedSave(localTitle, {
     delay: 1500,
     onSave: saveTitle,
     enabled: !isReadOnly && localTitle !== originalTitle,
@@ -300,7 +300,10 @@ export default function MarkdownCardViewer({ artifact, state = 'view' }: Props) 
             {isContentSaving && (
               <span className="text-xs text-gray-400">Saving…</span>
             )}
-            {!isContentSaving && contentSaved && (
+            {!isContentSaving && (contentFailed || titleFailed) && (
+              <span className="text-xs text-red-600" role="status">Not saved</span>
+            )}
+            {!isContentSaving && !contentFailed && !titleFailed && contentSaved && (
               <span className="text-xs text-gray-300">Saved</span>
             )}
           </div>

@@ -53,7 +53,7 @@
     },
     "agent": {
       "type": "string",
-      "description": "The agent whose memory it is (Deployment, Ikailo, Brand, …).",
+      "description": "The agent whose memory it is (Deployment, Brand, …).",
       "mutable": true
     }
   }

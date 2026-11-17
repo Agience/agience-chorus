@@ -239,7 +239,7 @@ export default function CollectionArtifactViewer({
           after: () => { void reloadArtifacts(); },
         });
       } catch (err) {
-        toast.error(`Could not remove the card from this ${noun}`, {
+        toast.error(`Could not remove the artifact from this ${noun}`, {
           description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
         });
         return;
@@ -274,7 +274,7 @@ export default function CollectionArtifactViewer({
       await reloadArtifacts();
       onOpenArtifact?.(created);
     } catch (err) {
-      toast.error('Could not create card', {
+      toast.error('Could not create the artifact', {
         description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
       });
     }

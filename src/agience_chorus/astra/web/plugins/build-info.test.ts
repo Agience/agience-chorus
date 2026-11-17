@@ -12,6 +12,12 @@ describe('buildInfo', () => {
     expect(() => buildInfo({ APP_RELEASE: '202611.12' }, () => '')).toThrow()
   })
 
+  it('a candidate, YYYYMM.DD.N-rc.M, is a release too', () => {
+    expect(buildInfo({ APP_RELEASE: '202611.16.1-rc.3', GIT_SHA: 'a' }, () => '').release).toBe('202611.16.1-rc.3')
+    expect(() => buildInfo({ APP_RELEASE: '202611.16.1-rc' }, () => '')).toThrow()
+    expect(() => buildInfo({ APP_RELEASE: '202611.16.1-rehearsal' }, () => '')).toThrow()
+  })
+
   it('a build with no release is not one, and takes the tree\'s commit', () => {
     expect(buildInfo({}, () => 'abc1234')).toEqual({ release: '', sha: 'abc1234' })
     expect(buildInfo({ APP_RELEASE: '' }, () => 'abc1234').release).toBe('')

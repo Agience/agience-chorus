@@ -60,7 +60,7 @@ function ContextPanel({ artifact }: { artifact: Artifact }) {
 		});
 	}, [editTitle, editDescription, editContentType, editTags]);
 
-	const { isSaving, lastSaved, resetTracking } = useDebouncedSave(contextPayload, {
+	const { isSaving, lastSaved, saveFailed, resetTracking } = useDebouncedSave(contextPayload, {
 		delay: 1500,
 		onSave: async () => {
 			const updatedContext: ArtifactContext = {
@@ -70,7 +70,7 @@ function ContextPanel({ artifact }: { artifact: Artifact }) {
 				content_type: editContentType || undefined,
 				tags: editTags,
 			};
-			await updateArtifact({
+			return updateArtifact({
 				id: String(artifact.id),
 				context: stringifyArtifactContext(updatedContext),
 			});
@@ -136,7 +136,10 @@ function ContextPanel({ artifact }: { artifact: Artifact }) {
 			{isSaving && (
 				<div className="text-xs text-blue-600">Saving...</div>
 			)}
-			{!isSaving && lastSaved && (
+			{!isSaving && saveFailed && (
+				<div className="text-xs text-red-600" role="status">Not saved</div>
+			)}
+			{!isSaving && !saveFailed && lastSaved && (
 				<div className="text-xs text-green-600">Saved</div>
 			)}
 
@@ -637,10 +640,10 @@ export default function FloatingCardWindow(props: {
 			if (!artifact) return;
 			const ctx = safeParseArtifactContext(artifact.context);
 			const savedTitle = titleOrFallback(localTitle, artifact.content, ctx.title || ctx.filename || '');
-			await updateArtifact({
+			if (!(await updateArtifact({
 				id: String(artifact.id),
 				context: stringifyArtifactContext({ ...ctx, title: savedTitle }),
-			});
+			}))) return false;
 			const linkedWorkspaceId =
 				(ctx.workspace_id as string | undefined) ||
 				(ctx.workspaceId as string | undefined);

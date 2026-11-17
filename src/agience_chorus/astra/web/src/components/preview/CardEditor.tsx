@@ -104,11 +104,12 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
       tags: editTags,
     };
 
-    await updateArtifact({
+    // A refused save keeps the editor open with the edit in it; the toast says why.
+    if (!(await updateArtifact({
       id: String(artifact.id),
       content: editContent,
       context: stringifyArtifactContext(updatedContext),
-    });
+    }))) return;
 
     setHasUnsavedChanges(false);
     setIsEditing(false);
@@ -126,13 +127,13 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
   }, [artifact, ctx, resolvedContent]);
 
   // Auto-save content changes
-  const { isSaving: isContentSaving, lastSaved: contentLastSaved, forceSave: forceSaveContent } = useDebouncedSave(
+  const { isSaving: isContentSaving, lastSaved: contentLastSaved, saveFailed: contentFailed, forceSave: forceSaveContent } = useDebouncedSave(
     editContent,
     {
       delay: 2000,
       onSave: async (newContent) => {
         if (!artifact) return;
-        await updateArtifact({
+        return updateArtifact({
           id: String(artifact.id),
           content: newContent,
         });
@@ -402,7 +403,12 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
                   Saving...
                 </div>
               )}
-              {!isContentSaving && contentLastSaved && (
+              {!isContentSaving && contentFailed && (
+                <div role="status" className="absolute top-2 right-2 px-2 py-1 text-xs bg-red-50 text-red-700 rounded shadow-sm">
+                  Not saved
+                </div>
+              )}
+              {!isContentSaving && !contentFailed && contentLastSaved && (
                 <div className="absolute top-2 right-2 px-2 py-1 text-xs bg-green-50 text-green-700 rounded shadow-sm">
                   Saved
                 </div>

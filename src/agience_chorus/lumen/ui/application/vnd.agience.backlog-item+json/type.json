@@ -28,6 +28,11 @@
       "titlePath": "title",
       "fields": [
         {
+          "path": "key",
+          "label": "Key",
+          "editable": false
+        },
+        {
           "path": "state",
           "label": "State",
           "editable": true,
@@ -88,6 +93,16 @@
       "type": "string",
       "mutable": true
     },
+    "number": {
+      "type": "integer",
+      "description": "Its number, taken from the collection's number provider when it is created. Does not change.",
+      "mutable": false
+    },
+    "key": {
+      "type": "string",
+      "description": "Its key: the provider's prefix and its number, as in PREFIX-114. Does not change.",
+      "mutable": false
+    },
     "state": {
       "type": "enum",
       "values": [
@@ -142,6 +157,14 @@
       "type": "string",
       "description": "The release it was closed in (YYYYMM.DD.N): set when the release that shipped it is recorded, or by hand for work verified earlier.",
       "mutable": true
+    }
+  },
+  "fields": {
+    "number": {
+      "on_create": {
+        "from_edge": "numbered_by",
+        "key": "key"
+      }
     }
   }
 }

@@ -213,7 +213,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         // Said, with the server's reason, as `createArtifact` says it (BUG-061, 2026-11-10: a
         // refused create left nothing on screen, its 503 only in the console).
         console.error('Failed to create artifact', err);
-        toast.error('Could not create card', {
+        toast.error('Could not create the artifact', {
           description: refusedWriteDetail(err, err instanceof Error ? err.message : 'Unknown error'),
         });
       }
@@ -300,7 +300,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         return created;
       } catch (err) {
         console.error('Failed to create artifact', err);
-        toast.error('Could not create card', {
+        toast.error('Could not create the artifact', {
           description: refusedWriteDetail(err, err instanceof Error ? err.message : 'Unknown error'),
         });
         return null;
@@ -310,8 +310,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   );
 
   const updateArtifact = useCallback(
-    async (patchIn: Partial<Artifact>): Promise<void> => {
-      if (!activeWorkspace?.id) return;
+    async (patchIn: Partial<Artifact>): Promise<boolean> => {
+      if (!activeWorkspace?.id) return false;
 
       // An archived artifact is read-only: the store answers an edit to it with 404, and the
       // refresh after the failure drops it from view with the edit lost. Only restoring it is sent.
@@ -319,8 +319,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const restoring = patchIn.state === 'live';
       if (current?.state === 'archived' && !restoring
           && (typeof patchIn.context !== 'undefined' || typeof patchIn.content !== 'undefined')) {
-        toast.error('This card is archived', { description: 'Restore it to edit it.' });
-        return;
+        toast.error('This artifact is archived', { description: 'Restore it to edit it.' });
+        return false;
       }
       const archiving = patchIn.state === 'archived' && current?.state !== 'archived';
       // Optimistic update
@@ -364,13 +364,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             description: 'It no longer appears in this workspace.',
             action: { label: 'Undo', onClick: () => { void updateWorkspaceArtifact(activeWorkspace.id, id, { state: 'live' })
               .then(() => { announceArtifactChange({ id, state: 'live' }); return refreshArtifacts(activeWorkspace.id); }).catch(() => {
-                toast.error('Could not restore the card');
+                toast.error('Could not restore the artifact');
               }); } },
           });
         }
+        return true;
       } catch (err) {
         console.error('Failed to update artifact', err);
-        toast.error(archiving ? 'Could not archive the card' : 'Could not save the card', {
+        toast.error(archiving ? 'Could not archive the artifact' : 'Could not save the artifact', {
           description: current
             ? refusedWriteDetail(err, err instanceof Error ? err.message : 'Unknown error')
             : errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
@@ -378,6 +379,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         try {
           await refreshArtifacts(activeWorkspace.id);
         } catch { /* ignore */ }
+        return false;
       }
     },
     [activeWorkspace?.id, artifacts, openedArtifacts, displayedArtifacts, refreshArtifacts]
@@ -398,7 +400,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       action: { label: 'Undo', onClick: () => {
         void Promise.all(ids.map((id) => untrashArtifact(id)))
           .then(() => (workspaceId ? refreshArtifacts(workspaceId) : undefined))
-          .catch(() => { toast.error(ids.length === 1 ? 'Could not restore the card' : 'Could not restore every card'); });
+          .catch(() => { toast.error(ids.length === 1 ? 'Could not restore the artifact' : 'Could not restore every artifact'); });
       } },
       cancel: { label: 'View Trash', onClick: () => { window.dispatchEvent(new Event(OPEN_TRASH_EVENT)); } },
     });
@@ -444,7 +446,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         // shown at all.
         if ((err as { response?: { status?: number } })?.response?.status === 409) {
           if (!dialog) {
-            toast.error('Could not remove the card', { description: errorDetail(err, '') });
+            toast.error('Could not remove the artifact', { description: errorDetail(err, '') });
             return;
           }
           const everywhere = await dialog.confirm({
@@ -458,7 +460,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           return;
         }
         console.error('Failed to remove artifact', err);
-        toast.error('Could not remove the card', {
+        toast.error('Could not remove the artifact', {
           description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
         });
       }
@@ -739,7 +741,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
       const sourceId = forcedSourceId || anchorId || selectedIds[0] || null;
       if (!sourceId) {
-        toast.error('Select one or more cards to extract from');
+        toast.error('Select one or more artifacts to extract from');
         return;
       }
 

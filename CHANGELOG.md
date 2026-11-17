@@ -5,6 +5,27 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-16
+
+### Breaking
+- `APP_RELEASE` for the web build now accepts a candidate id, `YYYYMM.DD.N-rc.M`, in addition to `YYYYMM.DD.N` and `YYYY.MM.N`. Other suffixes such as `-rc` or `-rehearsal` are still refused.
+
+### Added
+- The web build (`plugins/css-urls.ts`) now fails when the built CSS names a file the build did not emit, rather than shipping a stylesheet whose fonts or images would not load.
+- `scripts/ci-web.sh <app>` runs the web app's CI in one command: it checks the Node major named in the workflow, then does a clean install, the production build, the tests where the app has a suite, and lint. The `web` job in `ci.yml` runs this script.
+- Creating a workspace with `+` now opens a name prompt, offering the first free "Untitled workspace" number. Workspaces created by drop also take a free name.
+- Workspaces with the same name are told apart in the tab bar, the workspace list and the command palette by the day they were made, for example "Untitled workspace · Nov 3".
+- "Add to workspace" now asks which workspace to link the artifact to, from the card menu and the artifact views.
+- Every artifact's context menu offers "Copy ID", in workspaces, in search results and on types that declare their own actions.
+- A pending email invite in the share dialog shows the address it was sent to and when it was sent.
+- "Resend" for a pending invite is now confirmed inline in the share dialog, with "Confirm and resend" and "Cancel", rather than through native browser dialogs.
+
+### Changed
+- A refusal from Origin on a job grant now ends the wait at once and shows Origin's own reason.
+- Removing an artifact from a workspace shows the server's explanation when it is refused.
+- Removal and creation messages now say "artifact" instead of "card".
+- The bundled DM Sans font files in `fonts.css` are referenced by a path relative to the stylesheet, so the build emits them as assets and the app serves them.
+
 ## [0.5.2] - 2026-11-15
 
 ### Added

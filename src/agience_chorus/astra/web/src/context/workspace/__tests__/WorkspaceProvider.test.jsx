@@ -276,7 +276,7 @@ describe('WorkspaceProvider', () => {
         expect(consoleSpy).toHaveBeenCalledWith('Failed to create artifact', expect.any(Error));
       });
       // Said on screen, not only in the console (BUG-061).
-      expect(toast.error).toHaveBeenCalledWith('Could not create card',
+      expect(toast.error).toHaveBeenCalledWith('Could not create the artifact',
         expect.objectContaining({ description: expect.any(String) }));
 
       // Artifact count should remain 3
@@ -420,7 +420,7 @@ describe('WorkspaceProvider', () => {
       await withArchived();
       await userEvent.setup().click(screen.getByText('Edit'));
       expect(updateWorkspaceArtifact).not.toHaveBeenCalled();
-      expect(toast.error).toHaveBeenCalledWith('This card is archived', expect.anything());
+      expect(toast.error).toHaveBeenCalledWith('This artifact is archived', expect.anything());
     });
 
     it('still restores an archived artifact', async () => {
@@ -439,7 +439,7 @@ describe('WorkspaceProvider', () => {
       render(<WorkspaceProvider><SaveConsumer /></WorkspaceProvider>);
       await waitFor(() => expect(listWorkspaceArtifacts).toHaveBeenCalled());
       await userEvent.setup().click(screen.getByText('Save'));
-      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not save the card', expect.anything()));
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not save the artifact', expect.anything()));
     });
   });
 
@@ -656,7 +656,7 @@ describe('WorkspaceProvider', () => {
 
       await user.click(screen.getByText('Create'));
 
-      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not create card', { description: 'Quota exceeded' }));
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Could not create the artifact', { description: 'Quota exceeded' }));
       errSpy.mockRestore();
     });
   });

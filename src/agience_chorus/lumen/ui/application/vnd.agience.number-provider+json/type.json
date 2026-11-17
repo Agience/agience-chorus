@@ -1,0 +1,80 @@
+{
+  "content_type": "application/vnd.agience.number-provider+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "on_create": {
+    "does": "number"
+  },
+  "description": "Number provider — hands out the next number to artifacts created in a collection edged to it by numbered_by. Holds the prefix, the zero-padded width of the number in a key, and the last number handed out. Creating a numbered artifact needs Invoke on the provider.",
+  "ui": {
+    "label": "Number provider",
+    "icon": "hash",
+    "color": "#475569",
+    "badge_class": "bg-slate-100 text-slate-800",
+    "tile_class": "",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view",
+      "edit"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "viewer": "record",
+    "record": {
+      "titlePath": "title",
+      "fields": [
+        {
+          "path": "prefix",
+          "label": "Prefix",
+          "editable": true
+        },
+        {
+          "path": "width",
+          "label": "Width",
+          "editable": true
+        },
+        {
+          "path": "last",
+          "label": "Last number",
+          "editable": false
+        }
+      ]
+    }
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "mutable": true
+    },
+    "prefix": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*$",
+      "minLength": 1,
+      "maxLength": 16,
+      "description": "Letters before the number in a key, as in PREFIX-114.",
+      "mutable": true
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9,
+      "default": 0,
+      "description": "Digits the number is zero-padded to in a key; 0 for no padding.",
+      "mutable": true
+    },
+    "last": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "The last number handed out. The next create takes last + 1.",
+      "mutable": true
+    }
+  }
+}

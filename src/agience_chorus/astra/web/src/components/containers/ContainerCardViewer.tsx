@@ -226,7 +226,7 @@ interface ResourcesTreeProps extends TreeProps {
 // instance owns its own view behavior (default_mode and group_by).
 function handlePersistLayout(
   artifact: Artifact,
-  updateArtifact: (patch: Partial<Artifact>) => Promise<void>,
+  updateArtifact: (patch: Partial<Artifact>) => Promise<unknown>,
   layoutPatch: { default_mode?: string; group_by?: string }
 ) {
   try {

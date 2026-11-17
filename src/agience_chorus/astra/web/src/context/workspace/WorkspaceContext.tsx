@@ -25,7 +25,8 @@ export interface WorkspaceContextType {
   /** Merge fields into an artifact in local state only; sends nothing to the server. */
   patchArtifactLocally: (artifact: Partial<Artifact>) => void;
   createArtifact: (artifact: ArtifactCreate, insertIndex?: number) => Promise<Artifact | null>;
-  updateArtifact: (artifact: Partial<Artifact>) => Promise<void>;
+  /** Resolves true once the store has the change; false when it was refused, after a toast says so. */
+  updateArtifact: (artifact: Partial<Artifact>) => Promise<boolean>;
   /** Unlink the artifact from the active workspace. */
   removeArtifact: (id: string) => Promise<void>;
   /** Move the artifact to Trash, restorable for 30 days; `announce: false` skips the Undo toast

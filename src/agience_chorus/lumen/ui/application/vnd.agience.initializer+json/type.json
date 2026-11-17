@@ -1,0 +1,95 @@
+{
+  "content_type": "application/vnd.agience.initializer+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "on_create": {
+    "does": "create"
+  },
+  "description": "Initializer — makes a part for each artifact created in a collection edged to it. Its context names the part's type (creates), the collection it is made in (in), the link from the new artifact to it (link), the part's starting fields (fields) and the actions the link conducts to the artifact's readers (conducts). The part is the initializer's own; who may change it is decided by grants on its home alone. An initializer is readable configuration: it must hold no secret, and a spec naming a field its part's type marks secret is refused.",
+  "ui": {
+    "label": "Initializer",
+    "icon": "git-branch-plus",
+    "color": "#475569",
+    "badge_class": "bg-slate-100 text-slate-800",
+    "tile_class": "",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view",
+      "edit"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "viewer": "record",
+    "record": {
+      "titlePath": "title",
+      "fields": [
+        {
+          "path": "creates",
+          "label": "Creates",
+          "editable": true
+        },
+        {
+          "path": "in",
+          "label": "In",
+          "editable": true
+        },
+        {
+          "path": "link",
+          "label": "Link",
+          "editable": true
+        },
+        {
+          "path": "conducts",
+          "label": "Conducts",
+          "editable": true
+        }
+      ]
+    }
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "mutable": true
+    },
+    "creates": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The content type of the part.",
+      "mutable": true
+    },
+    "in": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The collection the part is made in.",
+      "mutable": true
+    },
+    "link": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The relationship of the link from the new artifact to its part.",
+      "mutable": true
+    },
+    "fields": {
+      "type": "object",
+      "default": {},
+      "description": "The part's starting fields. No secret.",
+      "mutable": true
+    },
+    "conducts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Actions the link passes from the new artifact to its part, as in [\"read\"]; empty passes none.",
+      "mutable": true
+    }
+  }
+}

@@ -10,7 +10,7 @@ readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
 # DUAL-LICENSED, AND THE MANIFEST DECLARES ONLY THE AGPL HALF ON PURPOSE.
 # This package is offered under AGPL-3.0-only OR a commercial licence (see COMMERCIAL_LICENSE.md).
-# `license = "AGPL-3.0-only OR LicenseRef-Ikailo-Commercial"` is a valid PEP 639 expression and it is
+# `license = "AGPL-3.0-only OR LicenseRef-Commercial"` is a valid PEP 639 expression and it is
 # still wrong here. SPDX `A OR B` means the recipient MAY CHOOSE either, and a recipient of this
 # package cannot: the commercial licence is not conveyed by the download, it is negotiated.
 # Declaring it would assert a grant the artifact does not carry. The manifest states what you

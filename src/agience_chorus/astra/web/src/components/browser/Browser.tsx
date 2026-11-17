@@ -1701,7 +1701,7 @@ export default function Browser({
           },
         });
       } catch (err) {
-        toast.error('Could not remove the card from this collection', {
+        toast.error('Could not remove the artifact from this collection', {
           description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
         });
         return;
@@ -1725,7 +1725,7 @@ export default function Browser({
         });
       } catch (err) {
         // The server's own words, such as why an item made here stays (2026-11-15, the Tester).
-        toast.error('Could not remove the card', { description: errorDetail(err, '') || undefined });
+        toast.error('Could not remove the artifact', { description: errorDetail(err, '') || undefined });
         return;
       }
       setSourceArtifacts(prev => prev.filter(candidate => String(candidate.root_id ?? candidate.id) !== removableId));

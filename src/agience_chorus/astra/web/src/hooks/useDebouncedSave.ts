@@ -3,13 +3,17 @@ import toast from 'react-hot-toast';
 
 interface UseDebouncedSaveOptions {
   delay?: number; // Default 2000ms (2 seconds)
-  onSave: (value: string) => Promise<void>;
+  /** Resolves `false` when the store refused the save and the refusal was already reported;
+   * the value then stays unsaved. A throw is a failure this hook reports. */
+  onSave: (value: string) => Promise<void | boolean>;
   enabled?: boolean; // Allow disabling auto-save
 }
 
 interface UseDebouncedSaveResult {
   isSaving: boolean;
   lastSaved: Date | null;
+  /** The last save attempt failed, so the editor shows the value as not saved. */
+  saveFailed: boolean;
   forceSave: () => Promise<void>;
   /** Mark the current value as already-saved (e.g. after an external sync).
    *  Prevents a redundant debounced save from firing. */
@@ -24,6 +28,7 @@ export function useDebouncedSave(
   
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
   
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastValueRef = useRef<string>(value);
@@ -68,11 +73,16 @@ export function useDebouncedSave(
     setIsSaving(true);
 
     try {
-      await onSaveRef.current(value);
-      lastValueRef.current = value;
-      setLastSaved(new Date());
+      if ((await onSaveRef.current(value)) === false) {
+        setSaveFailed(true);
+      } else {
+        lastValueRef.current = value;
+        setLastSaved(new Date());
+        setSaveFailed(false);
+      }
     } catch (error) {
       console.error('Save failed:', error);
+      setSaveFailed(true);
       toast.error('Failed to save changes. Please try again.');
     } finally {
       isSavingRef.current = false;
@@ -101,11 +111,16 @@ export function useDebouncedSave(
       setIsSaving(true);
 
       try {
-        await onSaveRef.current(value);
-        lastValueRef.current = value;
-        setLastSaved(new Date());
+        if ((await onSaveRef.current(value)) === false) {
+          setSaveFailed(true);
+        } else {
+          lastValueRef.current = value;
+          setLastSaved(new Date());
+          setSaveFailed(false);
+        }
       } catch (error) {
         console.error('Auto-save failed:', error);
+        setSaveFailed(true);
         toast.error('Failed to auto-save changes.');
       } finally {
         isSavingRef.current = false;
@@ -122,8 +137,6 @@ export function useDebouncedSave(
   }, [value, delay, enabled]);
 
   // An edit still waiting on the debounce when the editor goes away is saved, not dropped.
-  // 2026-10-14: closing a card window within the delay of a title or context edit lost the edit,
-  // because the cleanup above cancelled the timer and nothing saved it.
   useEffect(() => () => {
     if (!enabledRef.current || valueRef.current === lastValueRef.current) return;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -135,5 +148,5 @@ export function useDebouncedSave(
     });
   }, []);
 
-  return { isSaving, lastSaved, forceSave, resetTracking };
+  return { isSaving, lastSaved, saveFailed, forceSave, resetTracking };
 }

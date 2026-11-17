@@ -1,0 +1,101 @@
+{
+  "content_type": "application/vnd.agience.release-request+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Release request — one action an agent asks to run: its kind, the fields that define it and their digest, at a level. Filed in a collection edged by initialized_by to an initializer, it gets its approval as a part, decided by whoever holds update on the approval's home. The filer cannot decide it; trashing it withdraws it.",
+  "ui": {
+    "label": "Release request",
+    "icon": "rocket",
+    "color": "#1d4ed8",
+    "badge_class": "bg-blue-100 text-blue-800",
+    "tile_class": "",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view",
+      "edit"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "viewer": "record",
+    "record": {
+      "titlePath": "title",
+      "fields": [
+        {
+          "path": "level",
+          "label": "Level",
+          "editable": false
+        },
+        {
+          "path": "kind",
+          "label": "Kind",
+          "editable": false
+        },
+        {
+          "path": "action",
+          "label": "Action",
+          "editable": false
+        },
+        {
+          "path": "action_digest",
+          "label": "Digest",
+          "editable": false
+        },
+        {
+          "path": "part",
+          "label": "Approval",
+          "editable": false
+        }
+      ]
+    }
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "mutable": true
+    },
+    "level": {
+      "type": "enum",
+      "values": [
+        "Costed",
+        "Outward",
+        "Governance"
+      ],
+      "mutable": false
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The kind of action, which fixes the fields it is made of.",
+      "mutable": false
+    },
+    "action": {
+      "type": "object",
+      "description": "The fields that define the action, exactly those its kind names.",
+      "mutable": false
+    },
+    "action_digest": {
+      "type": "string",
+      "description": "sha256 of the canonical JSON of the kind and its fields; the run checks it against what it is about to do.",
+      "mutable": false
+    },
+    "part": {
+      "type": "string",
+      "description": "The approval made for this request when it was filed.",
+      "mutable": false
+    }
+  },
+  "fields": {
+    "part": {
+      "on_create": {
+        "from_edge": "initialized_by"
+      }
+    }
+  }
+}

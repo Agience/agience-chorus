@@ -40,3 +40,14 @@ def test_its_window_edits_the_state_within_its_values():
     assert "closed" in fields["state"]["options"]
     assert fields["closed_in"]["editable"] is True and fields["closed_in"].get("editor", "text") == "text"
     assert t["context_schema"]["priority"]["values"] == ["P0", "P1", "P2", "P3", "P4"]
+
+
+def test_its_number_and_key_come_from_the_collections_provider_and_do_not_change():
+    t = json.loads(TYPE.read_text(encoding="utf-8"))
+    assert t["fields"]["number"]["on_create"] == {"from_edge": "numbered_by", "key": "key"}
+    for path in ("number", "key"):
+        assert t["context_schema"][path]["mutable"] is False
+    provider = json.loads((TYPE.parents[1] / "vnd.agience.number-provider+json" / "type.json")
+                          .read_text(encoding="utf-8"))
+    assert set(provider["context_schema"]) >= {"prefix", "width", "last"}
+    assert provider["on_create"] == {"does": "number"}

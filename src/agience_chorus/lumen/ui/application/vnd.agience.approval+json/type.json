@@ -1,0 +1,104 @@
+{
+  "content_type": "application/vnd.agience.approval+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Approval — the decision on the artifact it is the part of: pending until someone who holds update on its home approves or declines it. Mantle stamps who decided and when from the update that set the state; neither can be written by hand.",
+  "ui": {
+    "label": "Approval",
+    "icon": "badge-check",
+    "color": "#15803d",
+    "badge_class": "bg-green-100 text-green-800",
+    "tile_class": "",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view",
+      "edit"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": false,
+    "viewer": "record",
+    "record": {
+      "titlePath": "title",
+      "fields": [
+        {
+          "path": "state",
+          "label": "Decision",
+          "editable": true,
+          "editor": "select",
+          "options": [
+            "pending",
+            "approved",
+            "declined"
+          ]
+        },
+        {
+          "path": "reason",
+          "label": "Reason",
+          "editable": true
+        },
+        {
+          "path": "decided_by",
+          "label": "Decided by",
+          "editable": false
+        },
+        {
+          "path": "decided_at",
+          "label": "Decided at",
+          "editable": false
+        }
+      ]
+    }
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "mutable": true
+    },
+    "state": {
+      "type": "enum",
+      "values": [
+        "pending",
+        "approved",
+        "declined"
+      ],
+      "default": "pending",
+      "mutable": true
+    },
+    "reason": {
+      "type": "string",
+      "description": "Why it was approved or declined.",
+      "mutable": true
+    },
+    "decided_by": {
+      "type": "string",
+      "description": "Who set the state, stamped by Mantle.",
+      "mutable": false
+    },
+    "decided_at": {
+      "type": "string",
+      "description": "When the state was set, stamped by Mantle.",
+      "mutable": false
+    }
+  },
+  "fields": {
+    "decided_by": {
+      "on_update": {
+        "stamp": "caller",
+        "when": "state"
+      }
+    },
+    "decided_at": {
+      "on_update": {
+        "stamp": "time",
+        "when": "state"
+      }
+    }
+  }
+}

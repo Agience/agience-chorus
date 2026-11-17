@@ -43,11 +43,11 @@ export default function TextPlainViewer({
   }, [isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced auto-save (only while editing and content has changed).
-  const { isSaving, lastSaved } = useDebouncedSave(localContent, {
+  const { isSaving, lastSaved, saveFailed } = useDebouncedSave(localContent, {
     delay: 1500,
     onSave: async (value) => {
       if (!artifact.id) return;
-      await updateArtifact({ id: String(artifact.id), content: value });
+      return updateArtifact({ id: String(artifact.id), content: value });
     },
     enabled: isEditing && localContent !== (artifact.content ?? ''),
   });
@@ -92,10 +92,12 @@ export default function TextPlainViewer({
             ? `${wordCount} word${wordCount !== 1 ? 's' : ''} · ${charCount} char${charCount !== 1 ? 's' : ''}`
             : '\u00A0'}
         </span>
-        <span>
+        <span className={!isSaving && saveFailed ? 'text-red-600' : undefined} role="status">
           {isSaving
             ? 'Saving…'
-            : lastSaved
+            : saveFailed
+              ? 'Not saved'
+              : lastSaved
               ? 'Saved'
               : '\u00A0'}
         </span>
