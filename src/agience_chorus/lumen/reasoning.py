@@ -706,6 +706,12 @@ def _now_iso() -> str:
 _REGISTERED_AT = _now_iso()
 
 
+#: the capabilities each operator needs to run, by operator id.
+_NEEDS = {
+    "op.reason": ["compute.local", "store.write"],
+}
+
+
 def register_reasoning_operators(store, *, author: str = "ember-local") -> int:
     """Register the lumen-tekton reasoning operator(s). Mirrors the impl register_* pattern."""
     from crystal import evolution
@@ -713,7 +719,8 @@ def register_reasoning_operators(store, *, author: str = "ember-local") -> int:
     for name, offer in _REASONING_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
             "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
-            "context": offer, "content": f"lumen tekton operator {name}: {offer}",
+            "context": offer, "offer": offer, "needs": list(_NEEDS[name]),
+            "content": f"lumen tekton operator {name}: {offer}",
             "created_by": author,
             "collection_id": _SYSTEM_COLLECTION, "created_time": _REGISTERED_AT}))
     return len(_REASONING_OPS)

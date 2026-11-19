@@ -4,13 +4,13 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { CardGridItem } from '../CardGridItem';
 import { mockArtifact } from '../../../../tests/utils/helpers';
-import { addArtifactToCollection } from '@/api/collections';
+import { dropOn } from '@/api/drops';
 import { CONTENT_TYPES, setRuntimeContentTypes } from '@/registry/content-types';
-import { AuthContext } from '@/context/auth/AuthContext';
+import { LockedActionsContext } from '@/context/view/useLockedActions';
 
-// Spy on the membership API so member-drop tests can assert the edge add.
-vi.mock('@/api/collections', () => ({
-  addArtifactToCollection: vi.fn(() => Promise.resolve({})),
+// Spy on the drop API so drop tests can assert what reaches Crystal.
+vi.mock('@/api/drops', () => ({
+  dropOn: vi.fn(() => Promise.resolve({ accepted: [], refused: [] })),
 }));
 
 // Mock artifact-identifiers utility (getStableArtifactId moved here from dnd/agienceDrag)
@@ -152,7 +152,7 @@ describe('CardGridItem', () => {
       // Archived artifacts get "restore" action
     });
 
-    it('hides lifecycle actions while processing is pending', () => {
+    it('hides the lifecycle actions the view locks while processing is pending', () => {
       const artifact = mockArtifact({
         id: '1',
         state: 'live',
@@ -167,11 +167,13 @@ describe('CardGridItem', () => {
       });
 
       render(
-        <CardGridItem
-          artifact={artifact}
-          onRemove={vi.fn()}
-          onArchive={vi.fn()}
-        />
+        <LockedActionsContext.Provider value={{ '1': ['archive', 'remove', 'restore'] }}>
+          <CardGridItem
+            artifact={artifact}
+            onRemove={vi.fn()}
+            onArchive={vi.fn()}
+          />
+        </LockedActionsContext.Provider>
       );
 
       expect(screen.queryByText('Archive')).not.toBeInTheDocument();
@@ -498,72 +500,60 @@ describe('CardGridItem', () => {
     });
   });
 
-  describe('Member drop (add to collection)', () => {
-    // A collection is just an artifact with child edges. Dropping an artifact onto
-    // it adds a membership edge. This must work for BOTH drag conventions — the
-    // regression was that the drop target only recognized the legacy
-    // `application/x-agience-artifact` MIME, so drags from the sidebar / floating
-    // windows / list view / palette (which use the shared `agienceDrag` MIME)
-    // silently fell through to a workspace-add.
-
-    // ⛔ THE PRECONDITION IS STATED HERE, NOT INHERITED FROM THE FILESYSTEM. The drop target is
-    // gated on `contentType.isContainer` (`CardGridItem.tsx`: `isMemberDropTarget`), and that flag
-    // comes from the registry. The registry's build-time seed is `virtual:content-types`, which
-    // `vite.config.ts::discoverContentTypeRoots` fills from `<workspace>/agience-crystal/src/types`
-    // — a SIBLING CHECKOUT, and deliberately `[]` when it is absent, because the real app hydrates
-    // the registry at runtime instead.
+  describe('Drop zone (the type declares drop)', () => {
+    // The drop zone shows only when the type declares `drop`; the ids go to Crystal, which keeps
+    // what the type accepts. Both drag conventions reach it: the shared agienceDrag payload
+    // (sidebar, floating windows, list view, palette) and the card-grid one (versionIds first).
     //
-    // So these two tests passed on any machine with crystal checked out beside chorus and failed
-    // everywhere else. Measured 2026-09-16: green locally, and on CI — where the `web` job checks
-    // out chorus alone — `isContainer` was false, the handler returned at its first line, and both
-    // assertions read "Number of calls: 0". Nothing was broken; the tests were asking the
-    // filesystem a question they should have been answering themselves.
-    //
-    // `setRuntimeContentTypes` is the app's OWN runtime-hydration path, so this states the
-    // precondition the same way the platform does rather than by mocking the registry out.
+    // The types are seeded here through `setRuntimeContentTypes`, the app's own runtime path, so
+    // the tests do not depend on a sibling crystal checkout filling the build-time seed.
     let _seeded;
     beforeAll(() => { _seeded = CONTENT_TYPES.slice(); });
     afterAll(() => { CONTENT_TYPES.splice(0, CONTENT_TYPES.length, ..._seeded); });
 
     beforeEach(() => {
-      setRuntimeContentTypes([{
-        content_type: 'application/vnd.agience.collection+json',
-        definition: { ui: { label: 'Collection', is_container: true } },
-      }]);
+      dropOn.mockClear();
+      setRuntimeContentTypes([
+        {
+          content_type: 'application/vnd.agience.collection+json',
+          definition: { ui: { label: 'Collection', is_container: true },
+                        drop: { accepts: ['*/*'], op: 'add', label: 'Drop to add' } },
+        },
+        {
+          content_type: 'application/vnd.agience.plain-container+json',
+          definition: { ui: { label: 'Plain', is_container: true } },
+        },
+      ]);
     });
     function dropOnto(testId, dataTransfer) {
       const card = screen.getByTestId(testId);
       fireEvent.dragOver(card, { dataTransfer });
       fireEvent.drop(card, { dataTransfer });
     }
-
-    it('adds via the shared agienceDrag convention (the regression case)', () => {
-      const collection = mockArtifact({
-        id: 'coll-1', root_id: 'coll-1', state: 'live',
-        content_type: 'application/vnd.agience.collection+json',
-        context: JSON.stringify({ title: 'My Collection' }),
+    function make(id, contentType, state = 'live') {
+      return mockArtifact({
+        id, root_id: id, state, content_type: contentType,
+        context: JSON.stringify({ title: 'Target' }),
       });
-      render(<CardGridItem artifact={collection} />);
-
-      const payload = JSON.stringify({ kind: 'artifacts', ids: ['json-1'] });
-      dropOnto('artifact-coll-1', {
-        types: ['application/vnd.agience.drag+json'],
-        getData: (t) => (t === 'application/vnd.agience.drag+json' ? payload : ''),
+    }
+    const shared = (ids) => {
+      const payload = JSON.stringify({ kind: 'artifacts', ids });
+      return {
+        types: ['application/x-agience-drag+json'],
+        getData: (t) => (t === 'application/x-agience-drag+json' ? payload : ''),
         setData: vi.fn(),
         dropEffect: '',
-      });
+      };
+    };
 
-      expect(addArtifactToCollection).toHaveBeenCalledWith('coll-1', 'json-1');
+    it('sends the shared agienceDrag ids to Crystal', () => {
+      render(<CardGridItem artifact={make('coll-1', 'application/vnd.agience.collection+json')} />);
+      dropOnto('artifact-coll-1', shared(['json-1']));
+      expect(dropOn).toHaveBeenCalledWith('coll-1', ['json-1'], undefined);
     });
 
-    it('adds via the legacy card-grid convention (versionIds preferred)', () => {
-      const collection = mockArtifact({
-        id: 'coll-2', root_id: 'coll-2', state: 'live',
-        content_type: 'application/vnd.agience.collection+json',
-        context: JSON.stringify({ title: 'My Collection' }),
-      });
-      render(<CardGridItem artifact={collection} />);
-
+    it('sends the card-grid versionIds to Crystal', () => {
+      render(<CardGridItem artifact={make('coll-2', 'application/vnd.agience.collection+json')} />);
       const payload = JSON.stringify({ ids: ['root-9'], versionIds: ['ver-9'] });
       dropOnto('artifact-coll-2', {
         types: ['application/x-agience-artifact'],
@@ -571,8 +561,19 @@ describe('CardGridItem', () => {
         setData: vi.fn(),
         dropEffect: '',
       });
+      expect(dropOn).toHaveBeenCalledWith('coll-2', ['ver-9'], undefined);
+    });
 
-      expect(addArtifactToCollection).toHaveBeenCalledWith('coll-2', 'ver-9');
+    it('a type without a drop declaration has no drop zone', () => {
+      render(<CardGridItem artifact={make('plain-1', 'application/vnd.agience.plain-container+json')} />);
+      dropOnto('artifact-plain-1', shared(['json-1']));
+      expect(dropOn).not.toHaveBeenCalled();
+    });
+
+    it('an archived artifact has no drop zone', () => {
+      render(<CardGridItem artifact={make('coll-3', 'application/vnd.agience.collection+json', 'archived')} />);
+      dropOnto('artifact-coll-3', shared(['json-1']));
+      expect(dropOn).not.toHaveBeenCalled();
     });
   });
 
@@ -624,30 +625,26 @@ describe('CardGridItem', () => {
   });
 
   describe('Delete', () => {
-    const asUser = (id, ui) => (
-      <AuthContext.Provider value={{ user: { id } }}>{ui}</AuthContext.Provider>
-    );
-
-    it('offers Delete on a card the user created, and asks for destruction', () => {
+    it('offers Delete when Mantle allows it, and asks for destruction', () => {
       const onRemove = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'live', created_by: 'u1' });
-      render(asUser('u1', <CardGridItem artifact={artifact} onRemove={onRemove} deleteEnabled />));
+      const artifact = mockArtifact({ id: '1', state: 'live', allowed_actions: ['read', 'delete'] });
+      render(<CardGridItem artifact={artifact} onRemove={onRemove} deleteEnabled />);
 
       fireEvent.click(screen.getByText('Delete'));
 
       expect(onRemove).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }), 'delete');
     });
 
-    it('does not offer Delete on a card someone else created', () => {
-      const artifact = mockArtifact({ id: '1', state: 'live', created_by: 'u2' });
-      render(asUser('u1', <CardGridItem artifact={artifact} onRemove={vi.fn()} deleteEnabled />));
+    it('does not offer Delete when Mantle does not allow it', () => {
+      const artifact = mockArtifact({ id: '1', state: 'live', allowed_actions: ['read'] });
+      render(<CardGridItem artifact={artifact} onRemove={vi.fn()} deleteEnabled />);
 
       expect(screen.queryByText('Delete')).not.toBeInTheDocument();
     });
 
-    it('does not offer Delete when the host cannot delete, even on a card the user created', () => {
-      const artifact = mockArtifact({ id: '1', state: 'live', created_by: 'u1' });
-      render(asUser('u1', <CardGridItem artifact={artifact} onRemove={vi.fn()} />));
+    it('does not offer Delete when the host cannot delete, even when Mantle allows it', () => {
+      const artifact = mockArtifact({ id: '1', state: 'live', allowed_actions: ['delete'] });
+      render(<CardGridItem artifact={artifact} onRemove={vi.fn()} />);
 
       expect(screen.queryByText('Delete')).not.toBeInTheDocument();
       expect(screen.getByText('Remove from workspace')).toBeInTheDocument();
@@ -655,8 +652,8 @@ describe('CardGridItem', () => {
 
     it('Remove from workspace unlinks rather than deletes', () => {
       const onRemove = vi.fn();
-      const artifact = mockArtifact({ id: '1', state: 'live', created_by: 'u1' });
-      render(asUser('u1', <CardGridItem artifact={artifact} onRemove={onRemove} deleteEnabled />));
+      const artifact = mockArtifact({ id: '1', state: 'live', allowed_actions: ['delete'] });
+      render(<CardGridItem artifact={artifact} onRemove={onRemove} deleteEnabled />);
 
       fireEvent.click(screen.getByText('Remove from workspace'));
 

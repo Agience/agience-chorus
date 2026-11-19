@@ -25,10 +25,16 @@ vi.mock('@/api/collections', () => ({
   createGrant: (...args: unknown[]) => createGrantMock(...args),
   updateGrant: vi.fn(),
   deleteGrant: vi.fn(),
+  listRoles: async () => [{ name: 'viewer', actions: ['read'] }],
+  roleNamed: (actions: string[], roles: { name: string; actions: string[] }[]) => {
+    const r = roles.find((x) => x.actions.join() === [...actions].sort().join());
+    return r ? r.name.charAt(0).toUpperCase() + r.name.slice(1) : null;
+  },
 }));
 
 // Origin's preview, which every make names and the owner confirms (review 15).
 vi.mock('@/api/authority', async (orig) => ({
+  actionsOf: ((await orig()) as { actionsOf: unknown }).actionsOf,
   describeParent: ((await orig()) as { describeParent: unknown }).describeParent,
   describeItem: ((await orig()) as { describeItem: unknown }).describeItem,
   describeGrantee: ((await orig()) as { describeGrantee: unknown }).describeGrantee,
@@ -54,6 +60,7 @@ describe('CollectionDetailModal', () => {
         name: 'Main Collection',
         description: 'Primary collection',
         created_by: 'user-1',
+        allowed_actions: ['read', 'update', 'share'],
         created_time: '2026-03-21T00:00:00Z',
         modified_time: '2026-03-21T00:00:00Z',
       },
@@ -66,6 +73,16 @@ describe('CollectionDetailModal', () => {
     render(<CollectionDetailModal open onClose={vi.fn()} />);
     await waitFor(() => expect(listGrantsMock).toHaveBeenCalledWith('col-1'));
     expect(screen.queryByText('Commit History')).toBeNull();
+  });
+
+  it('names each grant by the Mantle role its actions are, else lists them', async () => {
+    listGrantsMock.mockResolvedValue([
+      { id: 'g-1', grantee_type: 'user', target_entity: 'ann@x.test', can_read: true },
+      { id: 'g-2', grantee_type: 'user', target_entity: 'bo@x.test', can_read: true, can_invoke: true },
+    ]);
+    render(<CollectionDetailModal open onClose={vi.fn()} />);
+    expect(await screen.findByText('Viewer')).toBeTruthy();
+    expect(screen.getByText('read, invoke')).toBeTruthy();
   });
 
   // Round 13: an invite is made at Origin for one address, which Origin mails; no key or link is

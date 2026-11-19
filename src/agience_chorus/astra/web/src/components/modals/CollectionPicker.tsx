@@ -4,10 +4,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { FolderOpen, Plus, Search, Check, Minus } from 'lucide-react';
 import { listCollections, createCollection } from '../../api/collections';
 import { CollectionResponse } from '../../api/types';
-import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
+import { COLLECTION_CONTENT_TYPE, WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
+import { useSearchChoices, inFoundOrder } from '@/hooks/useSearchChoices';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { AuthContext } from '../../context/auth/AuthContext';
 import toast from 'react-hot-toast';
+import { formatDay } from '@/utils/dates';
+import CollectionPlace from '@/components/common/CollectionPlace';
+import { addToSet, keySet, keyedNotIn, removeFromSet, toggleInSet } from '@/display-state/lists';
 
 interface CollectionPickerProps {
   /** Whether the dialog is open */
@@ -46,6 +50,8 @@ interface CollectionPickerProps {
  * />
  * ```
  */
+const PICKED_TYPES = [COLLECTION_CONTENT_TYPE, WORKSPACE_CONTENT_TYPE];
+
 export function CollectionPicker({
   open,
   onClose,
@@ -58,14 +64,14 @@ export function CollectionPicker({
   const [collections, setCollections] = useState<CollectionResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selected, setSelected] = useState<Set<string>>(new Set(selectedCollectionIds));
+  const [selected, setSelected] = useState(() => keySet(selectedCollectionIds));
   // Mixed collections the person set to "none": removed from the selection's members on confirm.
-  const [cleared, setCleared] = useState<Set<string>>(new Set());
-  const partial = useMemo(() => new Set(partialCollectionIds), [partialCollectionIds]);
+  const [cleared, setCleared] = useState(() => keySet<string>());
+  const partial = useMemo(() => keySet(partialCollectionIds), [partialCollectionIds]);
   const [isCreating, setIsCreating] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const { activeWorkspaceId } = useWorkspaces();
-  const [workspaceIds, setWorkspaceIds] = useState<Set<string>>(new Set());
+  const [workspaceIds, setWorkspaceIds] = useState(() => keySet<string>());
   // Read directly, not `useAuth`: the picker opens outside a signed-in shell too (tests, previews).
   const user = useContext(AuthContext)?.user;
 
@@ -73,8 +79,8 @@ export function CollectionPicker({
   useEffect(() => {
     if (open) {
       loadCollections();
-      setSelected(new Set(selectedCollectionIds));
-      setCleared(new Set());
+      setSelected(keySet(selectedCollectionIds));
+      setCleared(keySet<string>());
       setSearchQuery('');
       setIsCreating(false);
       setNewCollectionName('');
@@ -94,8 +100,8 @@ export function CollectionPicker({
         listCollections('create'),
         listCollections('create', WORKSPACE_CONTENT_TYPE).catch(() => [] as CollectionResponse[]),
       ]);
-      setWorkspaceIds(new Set(workspaces.map(w => String(w.id))));
-      setCollections([...data, ...workspaces.filter(w => !data.some(c => c.id === w.id))]);
+      setWorkspaceIds(keySet(workspaces.map(w => String(w.id))));
+      setCollections([...data, ...keyedNotIn(workspaces, w => w.id, data.map(c => c.id))]);
     } catch (error) {
       console.error('Failed to load collections:', error);
       toast.error('Failed to load collections');
@@ -104,45 +110,32 @@ export function CollectionPicker({
     }
   };
 
-  // Filter collections by search query
-  const filteredCollections = useMemo(() => {
-    if (!searchQuery) return collections;
-    const query = searchQuery.toLowerCase();
-    return collections.filter(c => 
-      (c.name || '').toLowerCase().includes(query) || 
-      c.description?.toLowerCase().includes(query)
-    );
-  }, [collections, searchQuery]);
+  // The platform Search finds what the query names; the picker shows those it lists, in its order.
+  const found = useSearchChoices(searchQuery, PICKED_TYPES);
+  const filteredCollections = useMemo(
+    () => inFoundOrder(collections, found, c => String(c.id)),
+    [collections, found],
+  );
 
   // Toggle selection
   const toggleSelection = (collectionId: string) => {
     if (!multiple) {
       // Single select: clear others and select this one
-      setSelected(new Set([collectionId]));
+      setSelected(keySet([collectionId]));
     } else {
       // Multi-select: toggle; a mixed collection cycles some -> all -> none -> some.
       if (partial.has(collectionId)) {
-        const nextSelected = new Set(selected);
-        const nextCleared = new Set(cleared);
-        if (nextSelected.has(collectionId)) {
-          nextSelected.delete(collectionId);
-          nextCleared.add(collectionId);
-        } else if (nextCleared.has(collectionId)) {
-          nextCleared.delete(collectionId);
+        if (selected.has(collectionId)) {
+          setSelected(removeFromSet(selected, collectionId));
+          setCleared(addToSet(cleared, collectionId));
+        } else if (cleared.has(collectionId)) {
+          setCleared(removeFromSet(cleared, collectionId));
         } else {
-          nextSelected.add(collectionId);
+          setSelected(addToSet(selected, collectionId));
         }
-        setSelected(nextSelected);
-        setCleared(nextCleared);
         return;
       }
-      const newSelected = new Set(selected);
-      if (newSelected.has(collectionId)) {
-        newSelected.delete(collectionId);
-      } else {
-        newSelected.add(collectionId);
-      }
-      setSelected(newSelected);
+      setSelected(toggleInSet(selected, collectionId));
     }
   };
 
@@ -163,7 +156,7 @@ export function CollectionPicker({
       
       // Add to list and select it
       setCollections([...collections, newCollection]);
-      setSelected(new Set([newCollection.id]));
+      setSelected(keySet([newCollection.id]));
       setIsCreating(false);
       setNewCollectionName('');
     } catch (error) {
@@ -180,8 +173,7 @@ export function CollectionPicker({
 
   // Format date
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return formatDay(dateStr);
   };
 
   return (
@@ -256,7 +248,7 @@ export function CollectionPicker({
                           <div className="flex items-center gap-2">
                             <FolderOpen className="w-4 h-4 text-gray-400 flex-shrink-0" />
                             <h3 className="font-medium text-gray-900 truncate">
-                              {collection.name || (workspaceIds.has(String(collection.id)) ? 'Untitled workspace' : 'Untitled collection')}
+                              {collection.name}
                             </h3>
                             {workspaceIds.has(String(collection.id)) && (
                               <span className="flex-shrink-0 rounded bg-purple-50 px-1.5 text-xs text-purple-700">
@@ -266,6 +258,10 @@ export function CollectionPicker({
                               </span>
                             )}
                           </div>
+                          {!workspaceIds.has(String(collection.id)) && (
+                            <CollectionPlace collection={collection} withDate={false}
+                                             className="block text-xs text-gray-600 mt-0.5 truncate" />
+                          )}
                           {collection.description && (
                             <p className="text-sm text-gray-500 mt-1 line-clamp-2">
                               {collection.description}

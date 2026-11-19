@@ -19,6 +19,9 @@
   .off { background: #f3f4f6; color: #6b7280; }
   .error { color: #b91c1c; margin-bottom: 8px; }
   .hidden { display: none; }
+  .pick { display: flex; gap: 6px; align-items: center; }
+  .picked { flex: 1; padding: 6px 8px; border: 1px dashed #d1d5db; border-radius: 6px; color: #374151; }
+  button.small { padding: 4px 8px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -37,26 +40,33 @@
       <label for="scheduleKind">Runs</label>
       <select id="scheduleKind">
         <option value="every_minutes">Every N minutes</option>
-        <option value="daily_at">Daily at (HH:MM, UTC)</option>
-        <option value="at">Once, at (ISO time)</option>
+        <option value="daily_at">Daily at</option>
+        <option value="at">Once, at</option>
       </select>
-      <input id="scheduleValue" placeholder="15">
+      <input id="scheduleMinutes" type="number" min="1" step="1" placeholder="15" data-kind="every_minutes">
+      <input id="scheduleTime" type="time" data-kind="daily_at">
+      <input id="scheduleAt" type="datetime-local" data-kind="at">
     </div>
     <div class="form-group">
-      <label for="target">Target artifact</label>
-      <input id="target" placeholder="artifact id (a workflow, an operator)">
+      <label>Target</label>
+      <div class="pick"><span class="picked" data-pick-for="target">nothing chosen</span>
+        <button class="small" data-choose="target">Choose…</button></div>
     </div>
     <div class="form-group">
       <label for="operation">Operation</label>
       <input id="operation" value="invoke">
     </div>
     <div class="form-group">
-      <label for="resultsTo">Record each run in (optional)</label>
-      <input id="resultsTo" placeholder="collection or workspace id">
+      <label>Record each run in (optional)</label>
+      <div class="pick"><span class="picked" data-pick-for="results_to">nothing chosen</span>
+        <button class="small" data-choose="results_to">Choose…</button>
+        <button class="small" data-clear="results_to">Clear</button></div>
     </div>
     <div class="form-group">
-      <label for="inboxTo">Raise a failed run as an Inbox item in (optional)</label>
-      <input id="inboxTo" placeholder="your Inbox, or another workspace id">
+      <label>Raise a failed run as an Inbox item in (optional)</label>
+      <div class="pick"><span class="picked" data-pick-for="inbox_to">nothing chosen</span>
+        <button class="small" data-choose="inbox_to">Choose…</button>
+        <button class="small" data-clear="inbox_to">Clear</button></div>
     </div>
     <div class="btns">
       <button id="saveBtn" onclick="handleSave()">Save</button>
@@ -84,6 +94,7 @@
         return;
       }
       if (d.method === 'ui/notifications/tool-result') handleToolResult(d.params);
+      if (d.method === 'ui/notifications/picker-result') onPicked(d.params || {});
     });
     sendRpc('ui/initialize', { protocolVersion: '2026-01-26', clientInfo: { name: 'agience-viewer', version: '0.1.0' } })
       .then(() => { parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/initialized' }, '*'); render(); });
@@ -103,6 +114,72 @@
       }
     }
 
+    // Times are stored as UTC and shown and picked in local time, as the type declares.
+    const pad = (n) => String(n).padStart(2, '0');
+    function localText(iso) {
+      const d = iso ? new Date(iso) : null;
+      return d && !isNaN(d) ? d.toLocaleString() : '—';
+    }
+    function atToPicker(iso) {
+      const d = iso ? new Date(iso) : null;
+      if (!d || isNaN(d)) return '';
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    const pickerToAt = (v) => (v ? new Date(v).toISOString() : '');
+    function utcToLocalTime(hhmm) {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || ''));
+      if (!m) return '';
+      const d = new Date(); d.setUTCHours(+m[1], +m[2], 0, 0);
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    function localTimeToUtc(hhmm) {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || ''));
+      if (!m) return '';
+      const d = new Date(); d.setHours(+m[1], +m[2], 0, 0);
+      return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+    }
+    const scheduleInputs = () => document.querySelectorAll('[data-kind]');
+    function showScheduleInput() {
+      const kind = document.getElementById('scheduleKind').value;
+      scheduleInputs().forEach(el => el.classList.toggle('hidden', el.dataset.kind !== kind));
+    }
+    document.getElementById('scheduleKind').addEventListener('change', showScheduleInput);
+
+    // Each artifact the timer points at is chosen with the app's picker; the view keeps its id and,
+    // to show it, its title.
+    const PICKS = {
+      target: { label: 'The workflow or operator to run',
+                content_types: ['application/vnd.agience.transform+json', 'application/vnd.agience.operator+json'] },
+      results_to: { label: 'Where each run is recorded' },
+      inbox_to: { label: 'Where a failed run is raised' },
+    };
+    let picks = {};
+    function pickedFrom(t) {
+      const titles = t.titles || {};
+      const ids = { target: t.target && t.target.artifact_id, results_to: t.results_to, inbox_to: t.inbox_to };
+      const out = {};
+      for (const [k, id] of Object.entries(ids)) if (id) out[k] = { id, title: titles[k] || id };
+      return out;
+    }
+    function showPicks() {
+      document.querySelectorAll('[data-pick-for]').forEach(el => {
+        const p = picks[el.dataset.pickFor];
+        el.textContent = p ? p.title : 'nothing chosen';
+      });
+    }
+    function onPicked(r) {
+      if (!r.artifact_id || !PICKS[r.role]) return;
+      picks[r.role] = { id: r.artifact_id, title: r.title || r.artifact_id };
+      showPicks();
+    }
+    document.querySelectorAll('[data-choose]').forEach(b => b.addEventListener('click', () => {
+      const role = b.dataset.choose;
+      parent.postMessage({ jsonrpc: '2.0', method: 'ui/open-picker', params: { role, ...PICKS[role] } }, '*');
+    }));
+    document.querySelectorAll('[data-clear]').forEach(b => b.addEventListener('click', () => {
+      delete picks[b.dataset.clear]; showPicks();
+    }));
+
     // Armed on the job grant its owner approved at Origin (a timer armed on a key before is armed again).
     const armed = () => Boolean(ctx.job_grant && ctx.job_grant.grant_id && !ctx.job_grant.disarmed_at);
 
@@ -111,12 +188,14 @@
       document.getElementById('title').textContent = ctx.title || 'Timer';
       const kind = ['every_minutes', 'daily_at', 'at'].find(k => s[k] !== undefined) || 'every_minutes';
       document.getElementById('scheduleKind').value = kind;
-      document.getElementById('scheduleValue').value = s[kind] ?? '';
-      document.getElementById('target').value = (t.target && t.target.artifact_id) || '';
+      document.getElementById('scheduleMinutes').value = s.every_minutes ?? '';
+      document.getElementById('scheduleTime').value = utcToLocalTime(s.daily_at);
+      document.getElementById('scheduleAt').value = atToPicker(s.at);
+      showScheduleInput();
+      picks = pickedFrom(t);
+      showPicks();
       document.getElementById('operation').value = (t.target && t.target.operation) || 'invoke';
-      document.getElementById('resultsTo').value = t.results_to || '';
-      document.getElementById('inboxTo').value = t.inbox_to || '';
-      document.getElementById('lastRun').textContent = st.last_run || '—';
+      document.getElementById('lastRun').textContent = localText(st.last_run);
       document.getElementById('lastStatus').textContent = !st.last_status ? '—'
         : st.last_ok === false ? `failed (${st.last_status}): ${st.last_error || ''}` : `ok (${st.last_status})`;
       document.getElementById('runs').textContent = String(st.runs || 0);
@@ -134,19 +213,22 @@
 
     function readForm() {
       const kind = document.getElementById('scheduleKind').value;
-      const raw = document.getElementById('scheduleValue').value.trim();
-      const schedule = { [kind]: kind === 'every_minutes' ? parseInt(raw, 10) : raw };
+      const schedule = kind === 'every_minutes'
+        ? { every_minutes: parseInt(document.getElementById('scheduleMinutes').value, 10) }
+        : kind === 'daily_at'
+          ? { daily_at: localTimeToUtc(document.getElementById('scheduleTime').value) }
+          : { at: pickerToAt(document.getElementById('scheduleAt').value) };
       const timer = {
         ...(ctx.timer || {}),
         schedule,
-        target: { artifact_id: document.getElementById('target').value.trim(),
+        target: { artifact_id: (picks.target && picks.target.id) || '',
                   operation: document.getElementById('operation').value.trim() || 'invoke',
                   body: (ctx.timer && ctx.timer.target && ctx.timer.target.body) || {} },
       };
-      const resultsTo = document.getElementById('resultsTo').value.trim();
-      if (resultsTo) timer.results_to = resultsTo; else delete timer.results_to;
-      const inboxTo = document.getElementById('inboxTo').value.trim();
-      if (inboxTo) timer.inbox_to = inboxTo; else delete timer.inbox_to;
+      for (const k of ['results_to', 'inbox_to']) {
+        if (picks[k]) timer[k] = picks[k].id; else delete timer[k];
+      }
+      timer.titles = Object.fromEntries(Object.entries(picks).map(([k, p]) => [k, p.title]));
       return timer;
     }
 
@@ -168,7 +250,7 @@
       showError('');
       try {
         const timer = readForm();
-        if (!timer.target.artifact_id) { showError('Name the target artifact first.'); return; }
+        if (!timer.target.artifact_id) { showError('Choose the target first.'); return; }
         await save({ ...ctx, timer });
         const res = await sendRpc('tools/call', { name: 'arm_timer', arguments: { timer_id: artifactId } });
         const grant = JSON.parse(res.content[0].text);

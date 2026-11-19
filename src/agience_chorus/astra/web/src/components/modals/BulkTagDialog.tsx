@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { keyList, unique, without } from '@/display-state/lists';
 
 export interface BulkTagApplyRequest {
   tags: string[];
@@ -14,7 +15,7 @@ interface BulkTagDialogProps {
 }
 
 function normalizeTags(tags: string[]): string[] {
-  return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)));
+  return unique(keyList(tags));
 }
 
 export function BulkTagDialog({ open, onClose, onApply, selectedCount }: BulkTagDialogProps) {
@@ -37,7 +38,7 @@ export function BulkTagDialog({ open, onClose, onApply, selectedCount }: BulkTag
   };
 
   const removeTag = (value: string) => {
-    setTags((prev) => prev.filter((tag) => tag !== value));
+    setTags((prev) => without(prev, value));
   };
 
   const handleApply = async () => {

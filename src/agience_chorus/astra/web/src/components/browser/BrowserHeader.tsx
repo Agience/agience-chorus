@@ -1,13 +1,13 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, type KeyboardEvent } from 'react';
 import { FiChevronDown, FiPlus, FiSave, FiUpload, FiX } from 'react-icons/fi';
 import { FolderOpen } from 'lucide-react';
 import type { ActiveSource } from '../../types/workspace';
-import { CollectionResponse } from '../../api/types';
-import { listCollections } from '../../api/collections';
+import type { ViewChoices } from '../../api/collections';
+import { saveView } from '../../api/savedViews';
 
-import { useWorkspace } from '../../hooks/useWorkspace';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { usePreferences } from '../../hooks/usePreferences';
+import { useCompactWhenTight } from '../../hooks/useCompactWhenTight';
 import { workspaceLabels } from '@/utils/workspaceLabels';
 import { isAgienceDrag, getDroppedArtifactIds } from '@/dnd/agienceDrag';
 import {
@@ -16,11 +16,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { keyList, keyedIn, keyedNotIn, sortedBy, without, withoutKey } from '@/display-state/lists';
 
 type ViewOption = 'grid' | 'list';
 
 type BrowserHeaderProps = {
   activeSource: ActiveSource;
+  /** The choices the open collection is viewed with; a saved view keeps them. */
+  viewChoices?: ViewChoices;
   onToggleFilters: () => void;
   filtersOpen: boolean;
   hasActiveFilter: boolean;
@@ -44,6 +47,7 @@ type BrowserHeaderProps = {
 
 export default function BrowserHeader({
   activeSource,
+  viewChoices,
   isShowingSearchResults = false,
   onNewArtifact,
   onUploadFiles,
@@ -53,36 +57,26 @@ export default function BrowserHeader({
   onDeleteWorkspace,
   onRenameWorkspace,
 }: BrowserHeaderProps) {
-  const { createArtifact } = useWorkspace();
   const { preferences, updatePreferences } = usePreferences();
-  const [collections, setCollections] = useState<CollectionResponse[]>([]);
   const [isDropActive, setIsDropActive] = useState(false);
   const { workspaces, activeWorkspace, setActiveWorkspaceId, openWorkspaceTab } = useWorkspaces();
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const editInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Load collections list once
-  useEffect(() => {
-    listCollections().then(setCollections).catch(console.error);
-  }, []);
+  // The tabs keep their full width. When they do not fit, the buttons on the right drop their
+  // labels first; only then does the tab strip scroll.
+  const tabRoomRef = useRef<HTMLDivElement>(null);
+  const tabContentRef = useRef<HTMLDivElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const compactActions = useCompactWhenTight(tabRoomRef, tabContentRef, actionsRef);
 
   const canSaveView = !isShowingSearchResults && activeSource?.type === 'collection';
 
   const handleSaveView = async () => {
     if (!canSaveView) return;
-    const collectionId = activeSource.id;
-    const collection = collections.find(c => c.id === collectionId);
-    const name = collection?.name || 'Collection';
-    await createArtifact({
-      content: '',
-      context: JSON.stringify({
-        mime: 'application/vnd.agience.view+json',
-        title: `${name} view`,
-        target: { kind: 'collection', id: collectionId },
-      }),
-    });
+    await saveView(activeSource.id, viewChoices ?? { apart: [], kinds: [], hidden_kinds: [], sort: '' },
+      activeWorkspace?.id);
   };
 
   const browserPrefs = useMemo(
@@ -92,11 +86,11 @@ export default function BrowserHeader({
 
   const dockedTabIds = useMemo(() => {
     const raw = (browserPrefs as { dockedWorkspaceCardIds?: unknown }).dockedWorkspaceCardIds;
-    return Array.isArray(raw) ? raw.map(String).filter(Boolean) : undefined;
+    return Array.isArray(raw) ? keyList(raw) : undefined;
   }, [browserPrefs]);
 
   const visibleWorkspaces = useMemo(
-    () => (dockedTabIds ? workspaces.filter(w => dockedTabIds.includes(w.id)) : workspaces),
+    () => (dockedTabIds ? keyedIn(workspaces, w => w.id, dockedTabIds) : workspaces),
     [workspaces, dockedTabIds]
   );
 
@@ -107,12 +101,19 @@ export default function BrowserHeader({
   // Same-name workspaces are told apart by the day they were made (BUG-001).
   const labels = useMemo(() => workspaceLabels(workspaces), [workspaces]);
   const undockedWorkspaces = useMemo(
-    () => (dockedTabIds ? workspaces.filter(w => !dockedTabIds.includes(w.id)) : [])
-      .slice().sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    () => sortedBy(dockedTabIds ? keyedNotIn(workspaces, w => w.id, dockedTabIds) : [], w => String(w.name)),
     [workspaces, dockedTabIds]
   );
 
   const hasActiveWorkspace = activeSource?.type === 'workspace' && Boolean(activeWorkspace?.id);
+
+  // When the tab strip scrolls, the open workspace's tab stays in view.
+  const activeTabId = activeWorkspace?.id;
+  useEffect(() => {
+    if (!activeTabId) return;
+    const tab = tabContentRef.current?.querySelector<HTMLElement>(`[data-testid="tab-${activeTabId}"]`);
+    tab?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeTabId]);
 
   const handleTabClick = (id: string) => {
     if (activeWorkspace?.id === id && activeSource?.type !== 'workspace') {
@@ -126,8 +127,8 @@ export default function BrowserHeader({
 
   const handleCloseTab = (workspaceId: string) => {
     const nextDocked = dockedTabIds
-      ? dockedTabIds.filter(id => id !== workspaceId)
-      : workspaces.filter(w => w.id !== workspaceId).map(w => w.id);
+      ? without(dockedTabIds, workspaceId)
+      : withoutKey(workspaces, w => w.id, workspaceId).map(w => w.id);
 
     void updatePreferences({
       browser: { ...browserPrefs, dockedWorkspaceCardIds: nextDocked },
@@ -155,15 +156,28 @@ export default function BrowserHeader({
     setEditingName('');
   };
 
+  // Arrow keys, Home and End move between the workspace tabs; Tab leaves the bar.
+  const moveTabFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+    if (!keys.includes(event.key)) return;
+    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'));
+    const at = tabs.indexOf(document.activeElement as HTMLElement);
+    if (at < 0 || tabs.length === 0) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? tabs.length - 1
+      : (at + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next].focus();
+  };
+
   return (
     <div className="bg-white">
       {/* Top row: workspace tabs + controls */}
-      <div className="flex h-14 items-center justify-between border-b border-gray-200 bg-white pl-4 pr-4">
+      <div className="flex h-14 items-center justify-between border-b border-gray-200 bg-white px-2 sm:px-4">
         <div className="flex-1 flex items-center gap-2 min-w-0 overflow-hidden">
           <div
-            className={`flex items-center gap-1 overflow-x-auto scrollbar-thin w-full ${isDropActive ? 'bg-sky-50/50 rounded' : ''}`}
-            role="tablist"
-            aria-label="Tabs"
+            ref={tabRoomRef}
+            className={`flex items-center overflow-x-auto scrollbar-thin w-full ${isDropActive ? 'bg-sky-50/50 rounded' : ''}`}
             onDragOver={(event) => {
               if (!isAgienceDrag(event.dataTransfer)) {
                 setIsDropActive(false);
@@ -200,13 +214,16 @@ export default function BrowserHeader({
               </div>
             )}
 
+            <div ref={tabContentRef} className="flex w-max items-center gap-1">
+            {visibleWorkspaces.length > 0 && (
+            <div role="tablist" aria-label="Workspaces" className="flex items-center gap-1" onKeyDown={moveTabFocus}>
             {visibleWorkspaces.map((workspace) => {
               const isActive = activeWorkspace?.id === workspace.id;
               const isEditing = editingTabId === workspace.id;
               return (
                 <div
                   key={workspace.id}
-                  className="group relative flex-shrink-0"
+                  className="group relative min-w-[7rem] max-w-[14rem]"
                   data-testid={`tab-${workspace.id}`}
                   onDragOver={(event) => {
                     if (!onDropOnTab || !isAgienceDrag(event.dataTransfer)) return;
@@ -235,14 +252,16 @@ export default function BrowserHeader({
                         if (e.key === 'Enter') handleFinishRename();
                         if (e.key === 'Escape') { setEditingTabId(null); setEditingName(''); }
                       }}
-                      className="h-10 pl-4 pr-10 rounded-sm border border-purple-400 text-sm font-medium bg-white focus:outline-none focus:ring-1 focus:ring-purple-400"
+                      className="h-10 w-full pl-4 pr-10 rounded-sm border border-purple-400 text-sm font-medium bg-white focus:outline-none focus:ring-1 focus:ring-purple-400"
                       autoFocus
                     />
                   ) : (
                     <button
                       type="button"
                       role="tab"
+                      data-workspace-id={workspace.id}
                       aria-selected={isActive}
+                      tabIndex={isActive || (!activeWorkspace && workspace === visibleWorkspaces[0]) ? 0 : -1}
                       onClick={() => handleTabClick(workspace.id)}
                       onDoubleClick={() => handleStartRename(workspace.id, workspace.name)}
                       onContextMenu={(e) => {
@@ -250,7 +269,7 @@ export default function BrowserHeader({
                         e.preventDefault();
                         onDeleteWorkspace(workspace.id);
                       }}
-                      className={`h-10 pl-4 pr-10 rounded-sm border text-sm font-medium whitespace-nowrap transition-none ${isActive ? 'bg-gradient-to-r from-purple-400/20 via-pink-400/20 to-blue-400/20 border-purple-300/40 text-purple-900' : 'bg-white/50 border-purple-200/30 text-gray-700 hover:bg-purple-50/30 hover:border-purple-300/40'}`}
+                      className={`h-10 w-full truncate pl-4 pr-10 rounded-sm border text-sm font-medium transition-none ${isActive ? 'bg-gradient-to-r from-purple-400/20 via-pink-400/20 to-blue-400/20 border-purple-300/40 text-purple-900' : 'bg-white/50 border-purple-200/30 text-gray-700 hover:bg-purple-50/30 hover:border-purple-300/40'}`}
                       title={`${labels.get(workspace.id) ?? workspace.name} (double-click to rename${onDeleteWorkspace ? ', right-click to delete' : ''})`}
                     >
                       {labels.get(workspace.id) ?? workspace.name}
@@ -268,6 +287,8 @@ export default function BrowserHeader({
                 </div>
               );
             })}
+            </div>
+            )}
 
             {undockedWorkspaces.length > 0 && openWorkspaceTab && (
               <DropdownMenu>
@@ -301,25 +322,27 @@ export default function BrowserHeader({
               type="button"
               onClick={() => onCreateWorkspace?.()}
               className={`flex-shrink-0 h-10 w-10 inline-flex items-center justify-center rounded-sm border border-dashed bg-white/50 text-gray-700 transition-colors ${isDropActive ? 'border-sky-400 bg-sky-50 text-sky-700' : 'border-purple-200/30 hover:bg-purple-50/30 hover:border-purple-300/40'}`}
-              title="New workspace (or drop a workspace card onto this tab bar)"
+              title="New workspace (or drop a workspace onto this tab bar)"
               aria-label="New workspace"
             >
               <FiPlus className="w-4 h-4" />
             </button>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 ml-4">
-          {/* New card in the open workspace. Labelled: as a bare "+" it sat beside the tab bar's
-              dashed "+", which creates a workspace, and a tester took it for that. */}
+        <div ref={actionsRef} className="flex flex-shrink-0 items-center gap-2 ml-2 sm:ml-4">
+          {/* New artifact in the open workspace. It carries a label so it never reads as the tab
+              bar's dashed "+", which creates a workspace. */}
           {!isShowingSearchResults && hasActiveWorkspace && (
             <button
               onClick={onNewArtifact}
               className="h-10 px-3 inline-flex items-center gap-1.5 rounded bg-purple-600 text-white text-sm font-medium hover:bg-purple-700"
-              title="New card in this workspace"
+              title="New artifact in this workspace"
+              aria-label="New artifact"
             >
               <FiPlus size={16} />
-              New card
+              <span className={compactActions ? 'hidden' : 'hidden sm:inline'}>New artifact</span>
             </button>
           )}
 
@@ -331,9 +354,10 @@ export default function BrowserHeader({
                 onClick={() => fileInputRef.current?.click()}
                 className="h-10 px-3 inline-flex items-center gap-1.5 rounded border border-gray-300 text-sm font-medium hover:bg-accent"
                 title="Upload files to this workspace"
+                aria-label="Upload"
               >
                 <FiUpload size={16} />
-                Upload
+                <span className={compactActions ? 'hidden' : 'hidden sm:inline'}>Upload</span>
               </button>
               <input
                 ref={fileInputRef}

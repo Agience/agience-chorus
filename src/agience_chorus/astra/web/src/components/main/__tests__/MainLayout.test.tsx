@@ -59,20 +59,6 @@ vi.mock('../../../hooks/useWorkspaces', () => ({
   }),
 }));
 
-vi.mock('../../../utils/resolveSearchHits', () => ({
-  resolveSearchHitsToArtifacts: async (hits: unknown[]): Promise<Artifact[]> =>
-    hits.map((h: unknown) => {
-      const hit = h as { version_id?: string; id?: string };
-      return {
-        id: hit.version_id ?? hit.id ?? 'artifact-id',
-        context: JSON.stringify({ title: 'Test Artifact', content_type: 'text/plain' }),
-        content: 'Test Artifact',
-        state: 'live',
-        collection_ids: [],
-      } as Artifact;
-    }),
-}));
-
 vi.mock('@/registry/content-types', () => ({
   getContentType: (artifact: Artifact) => {
     const context = JSON.parse(String(artifact.context || '{}'));
@@ -92,9 +78,10 @@ vi.mock('@/registry/content-types', () => ({
 }));
 
 vi.mock('../../search/SearchPanel', () => ({
-  SearchPanel: ({ onResults }: { onResults?: (results: SearchResponse) => void }) => (
+  SearchPanel: ({ artifacts, onResults }: { artifacts?: Artifact[]; onResults?: (results: SearchResponse) => void }) => (
     <div>
       <div data-testid="search-panel">search-panel</div>
+      <div data-testid="search-results">{(artifacts ?? []).map((a) => String(a.id)).join(',')}</div>
       <button
         type="button"
         data-testid="trigger-search"
@@ -111,6 +98,10 @@ vi.mock('../../search/SearchPanel', () => ({
             ],
             total: 1,
             query_text: 'foo',
+            artifacts: [
+              { id: 'artifact2', root_id: 'root2', state: 'live' } as Artifact,
+              { id: 'artifact1', root_id: 'root1', state: 'live' } as Artifact,
+            ],
 
             from: 0,
             size: 1,
@@ -214,6 +205,7 @@ vi.mock('../MainFooter', () => ({
 }));
 
 import MainLayout from '../MainLayout';
+import { ShortcutsProvider } from '@/context/shortcuts/ShortcutsProvider';
 
 afterEach(() => {
   cleanup();
@@ -229,7 +221,7 @@ describe('MainLayout', () => {
     const card = { id: 'new-artifact-1', content: '', context: JSON.stringify({ title: 'Untitled Text' }), state: 'live' } as Artifact;
     STORE_ARTIFACTS.push(card);
     getArtifactMock.mockResolvedValue(card);
-    render(<MainLayout />);
+    render(<ShortcutsProvider><MainLayout /></ShortcutsProvider>);
     await screen.findByTestId('header');
     fireEvent.click(screen.getByTestId('create-artifact'));
     fireEvent.click(await screen.findByText('close new-artifact-1'));
@@ -240,7 +232,7 @@ describe('MainLayout', () => {
   // 2026-10-29, a tester: an open card window covered the Settings modal. The windows sit in one
   // layer under every overlay (z-50).
   it('puts card windows in a layer under the overlays', async () => {
-    render(<MainLayout />);
+    render(<ShortcutsProvider><MainLayout /></ShortcutsProvider>);
     await screen.findByTestId('header');
     fireEvent.click(screen.getByTestId('open-artifact'));
     const win = await screen.findByTestId('floating-window-existing-artifact-1');
@@ -250,38 +242,50 @@ describe('MainLayout', () => {
   });
 
   it('renders the two-panel layout with search and workspace panels', async () => {
-    render(<MainLayout />);
+    render(<ShortcutsProvider><MainLayout /></ShortcutsProvider>);
     expect(await screen.findByTestId('search-panel')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-panel')).toBeInTheDocument();
   });
 
   it('calls unselectAllArtifacts when the active workspace changes', async () => {
-    const { rerender } = render(<MainLayout />);
+    const { rerender } = render(<ShortcutsProvider><MainLayout /></ShortcutsProvider>);
     await screen.findByTestId('workspace-panel');
     unselectAllArtifactsMock.mockClear();
 
     mockActiveWorkspaceId = 'ws-2';
-    rerender(<MainLayout />);
+    rerender(<ShortcutsProvider><MainLayout /></ShortcutsProvider>);
 
     await waitFor(() => {
       expect(unselectAllArtifactsMock).toHaveBeenCalled();
     });
   });
 
-  it('resolves search results when SearchPanel fires onResults', async () => {
-    render(<MainLayout />);
+  it('shows the artifacts recall answers, as answered', async () => {
+    render(<ShortcutsProvider><MainLayout /></ShortcutsProvider>);
     await screen.findByTestId('search-panel');
 
     fireEvent.click(screen.getByTestId('trigger-search'));
 
-    // resolveSearchHitsToArtifacts mock runs; no throw = success
     await waitFor(() => {
-      expect(screen.getByTestId('search-panel')).toBeInTheDocument();
+      expect(screen.getByTestId('search-results')).toHaveTextContent('artifact2,artifact1');
     });
   });
 
+  it('closes the top window on Escape, one window per press', async () => {
+    render(<ShortcutsProvider><MainLayout /></ShortcutsProvider>);
+    await screen.findByTestId('header');
+    fireEvent.click(screen.getByTestId('open-artifact'));
+    fireEvent.click(screen.getByTestId('open-collection-card'));
+    await screen.findByTestId('floating-window-collection-1');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('floating-window-collection-1')).toBeNull());
+    expect(screen.getByTestId('floating-window-existing-artifact-1')).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('floating-window-existing-artifact-1')).toBeNull());
+  });
+
   it('opens newly created artifacts in edit mode in the floating viewer', async () => {
-    render(<MainLayout />);
+    render(<ShortcutsProvider><MainLayout /></ShortcutsProvider>);
     await screen.findByTestId('header');
 
     fireEvent.click(screen.getByTestId('create-artifact'));
@@ -292,7 +296,7 @@ describe('MainLayout', () => {
   });
 
   it('opens regular artifact windows in view mode by default', async () => {
-    render(<MainLayout />);
+    render(<ShortcutsProvider><MainLayout /></ShortcutsProvider>);
     await screen.findByTestId('header');
 
     fireEvent.click(screen.getByTestId('open-artifact'));
@@ -303,7 +307,7 @@ describe('MainLayout', () => {
   });
 
   it('opens workspace cards in floating edit mode when edit intent is requested', async () => {
-    render(<MainLayout />);
+    render(<ShortcutsProvider><MainLayout /></ShortcutsProvider>);
     await screen.findByTestId('header');
 
     fireEvent.click(screen.getByTestId('open-workspace-card'));
@@ -314,7 +318,7 @@ describe('MainLayout', () => {
   });
 
   it('opens collection cards in the generic floating card window', async () => {
-    render(<MainLayout />);
+    render(<ShortcutsProvider><MainLayout /></ShortcutsProvider>);
     await screen.findByTestId('header');
 
     fireEvent.click(screen.getByTestId('open-collection-card'));

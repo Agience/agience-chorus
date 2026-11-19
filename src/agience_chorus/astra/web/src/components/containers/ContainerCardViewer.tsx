@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { LayoutGrid, LayoutList, MoreHorizontal } from 'lucide-react';
+import { sortedBy, unique } from '@/display-state/lists';
 
 interface ContainerCardViewerProps {
   artifact: Artifact;
@@ -294,11 +295,9 @@ function ResourcesTree({ servers, infos, onOpenCollection, onAssignToCollection 
     });
 
     // Stable ordering by server name then collection name
-    const serversArr = Array.from(byServer.values()).sort((a, b) =>
-      a.serverName.localeCompare(b.serverName)
-    );
+    const serversArr = sortedBy(byServer.values(), (bucket) => bucket.serverName);
     serversArr.forEach((bucket) => {
-      bucket.collections.sort((a, b) => a.name.localeCompare(b.name));
+      bucket.collections = sortedBy(bucket.collections, (c) => c.name);
     });
     return serversArr;
   }, [servers, infos]);
@@ -565,17 +564,11 @@ function buildResourcesCollections(servers: MCPServerConfig[], infos: Record<str
   });
 
   // Stable ordering by server then name
-  out.sort((a, b) => {
-    const s = a.serverName.localeCompare(b.serverName);
-    if (s !== 0) return s;
-    return a.name.localeCompare(b.name);
-  });
-
-  return out;
+  return sortedBy(out, (c) => c.serverName, (c) => c.name);
 }
 
 function buildServerToolsRows(servers: MCPServerConfig[], infos: Record<string, MCPServerInfo>) {
-  const ids = Array.from(new Set([...servers.map((s) => s.id), ...Object.keys(infos)]));
+  const ids = unique([...servers.map((s) => s.id), ...Object.keys(infos)]);
   return ids.map((id) => {
     const info = infos[id];
     const cfg = servers.find((s) => s.id === id);
@@ -590,7 +583,7 @@ function buildServerToolsRows(servers: MCPServerConfig[], infos: Record<string, 
 }
 
 function buildServerPromptsRows(servers: MCPServerConfig[], infos: Record<string, MCPServerInfo>) {
-  const ids = Array.from(new Set([...servers.map((s) => s.id), ...Object.keys(infos)]));
+  const ids = unique([...servers.map((s) => s.id), ...Object.keys(infos)]);
   return ids.map((id) => {
     const info = infos[id];
     const cfg = servers.find((s) => s.id === id);

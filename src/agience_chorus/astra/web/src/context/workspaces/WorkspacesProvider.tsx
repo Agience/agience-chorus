@@ -5,8 +5,9 @@ import {
   listWorkspaces,
   createWorkspace as apiCreateWorkspace,
   updateWorkspace as apiUpdateWorkspace,
-  deleteWorkspace as apiDeleteWorkspace,
+  subscribeAccessChanges,
 } from '../../api/workspaces';
+import { trashArtifact, untrashArtifact } from '../../api/artifacts';
 import { WorkspacesContext, WorkspacesContextType } from './WorkspacesContext';
 import { Workspace } from '../workspace/workspace.types';
 import { WorkspaceUpdate } from '../../api/types/workspace';
@@ -18,6 +19,7 @@ import { safeParseArtifactContext, stringifyArtifactContext } from '../../utils/
 import { WORKSPACE_CONTENT_TYPE } from '../../utils/content-type';
 import { ARTIFACT_CHANGED_EVENT, changeOf } from '../../constants/strings';
 import { openLinkedArtifact, readLinkedArtifact } from '../../utils/linkedArtifact';
+import { keyList, keyedIn, withoutKey } from '@/display-state/lists';
 
 // The tab a person last selected, kept per browser and account so a reload reopens it. A
 // convenience only: unreadable storage falls back to the Inbox.
@@ -33,6 +35,10 @@ function writeLastTab(userId: string | undefined, id: string | null): void {
   try { localStorage.setItem(lastTabKey(userId), id); } catch { /* storage unavailable */ }
 }
 
+// The first list read is tried three times, waiting 1 s and then 2 s between tries.
+const FIRST_LIST_TRIES = 3;
+const FIRST_LIST_BACKOFF_MS = 1000;
+
 export function WorkspacesProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, loading, user } = useAuth();
   const { preferences, isLoading: preferencesLoading, updatePreferences } = usePreferences();
@@ -41,7 +47,7 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
 
   const dockedWorkspaceTabIds = useMemo(() => {
     const raw = preferences.browser?.dockedWorkspaceCardIds;
-    return Array.isArray(raw) ? raw.map(String).filter(Boolean) : undefined;
+    return Array.isArray(raw) ? keyList(raw) : undefined;
   }, [preferences.browser?.dockedWorkspaceCardIds]);
 
   // Deep link: read artifactId from URL path and workspace from query param.
@@ -53,21 +59,51 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
   // selection below keeps it rather than falling back to a docked tab in the meantime.
   const opening = useRef<string | null>(null);
 
-  // Load workspaces once authenticated
+  // Several reads of the list can be in flight at once (the first load, a change announced on the
+  // event stream, a deep link). Only the newest read is kept: an older one that answers last holds
+  // a list from before the change, and keeping it would drop what the newer read found. A change
+  // made here (create, delete) also retires the reads already in flight.
+  // Any read that loads the list clears the error left by a failed first load.
+  const [listError, setListError] = useState<string | null>(null);
+  const listSeq = useRef(0);
+  const readList = useCallback(async (): Promise<Workspace[] | null> => {
+    const n = ++listSeq.current;
+    const data = await listWorkspaces();
+    if (n !== listSeq.current) return null;
+    const list = Array.isArray(data) ? data : [];
+    setWorkspaces(list);
+    setListError(null);
+    return list;
+  }, []);
+
+  // Load workspaces once authenticated. A read that fails is tried again after 1 s and then 2 s,
+  // since a service that is slow to answer leaves the session with no workspace and no way to make
+  // anything. When all three fail, the error stays on screen with Retry until a read succeeds.
+  const [loadAttempt, setLoadAttempt] = useState(0);
   useEffect(() => {
     if (loading || !isAuthenticated) return;
-
-    listWorkspaces()
-      .then(data => {
-        setWorkspaces(data);
-      })
-      .catch(err => {
-        console.error('Failed to load workspaces', err);
-        toast.error('Could not load workspaces', {
-          description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
-        });
-      });
-  }, [isAuthenticated, loading]);
+    let live = true;
+    (async () => {
+      let last: unknown;
+      for (let i = 0; i < FIRST_LIST_TRIES; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, FIRST_LIST_BACKOFF_MS * 2 ** (i - 1)));
+        if (!live) return;
+        try {
+          await readList();
+          if (live) setListError(null);
+          return;
+        } catch (err) {
+          last = err;
+        }
+      }
+      if (!live) return;
+      console.error('Failed to load workspaces', last);
+      const description = errorDetail(last, last instanceof Error ? last.message : 'Unknown error');
+      toast.error('Could not load workspaces', { description });
+      setListError(description);
+    })();
+    return () => { live = false; };
+  }, [isAuthenticated, loading, readList, loadAttempt]);
 
   // A workspace saved or created anywhere in the app is read again, so its name and its place in
   // every list (tabs, Ctrl+K, Open as tab) follow without a reload. 2026-10-29, a tester: a
@@ -81,11 +117,20 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
       if (!change) return;
       const type = (change.content_type as string | undefined) ?? safeParseArtifactContext(change.context).content_type;
       if (type !== WORKSPACE_CONTENT_TYPE && !listedRef.current.some(w => w.id === change.id)) return;
-      listWorkspaces().then(setWorkspaces).catch(err => console.error('Failed to reload workspaces', err));
+      readList().catch(err => console.error('Failed to reload workspaces', err));
     };
     window.addEventListener(ARTIFACT_CHANGED_EVENT, onChange);
     return () => window.removeEventListener(ARTIFACT_CHANGED_EVENT, onChange);
-  }, [isAuthenticated, loading]);
+  }, [isAuthenticated, loading, readList]);
+
+  // A grant applied at Mantle (a claimed invitation, a share) can add a workspace to this
+  // account's list. Mantle announces it on the item, so the list is read again when one arrives.
+  useEffect(() => {
+    if (loading || !isAuthenticated) return;
+    return subscribeAccessChanges(() => {
+      readList().catch(err => console.error('Failed to reload workspaces', err));
+    });
+  }, [isAuthenticated, loading, readList]);
 
   useEffect(() => {
     if (loading || !isAuthenticated || preferencesLoading) return;
@@ -96,7 +141,7 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
     }
 
     const visibleWorkspaces = dockedWorkspaceTabIds
-      ? workspaces.filter((workspace) => dockedWorkspaceTabIds.includes(workspace.id))
+      ? keyedIn(workspaces, (workspace) => workspace.id, dockedWorkspaceTabIds)
       : workspaces;
 
     if (visibleWorkspaces.length === 0) {
@@ -115,7 +160,7 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
       // tester: a reload selected the workspace whose id sorts first, not the Inbox they had open.
       const last = readLastTab(user?.id);
       if (isVisible(last)) return last;
-      const inbox = inboxWorkspaceId(visibleWorkspaces, user?.id);
+      const inbox = inboxWorkspaceId(visibleWorkspaces);
       if (isVisible(inbox)) return inbox;
       return visibleWorkspaces[0]?.id || null;
     });
@@ -177,7 +222,9 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
         .then(async (fresh) => {
           const list = Array.isArray(fresh) ? fresh : [];
           if (list.some((w) => w.id === targetWsId)) {
+            listSeq.current++;
             setWorkspaces(list);
+            setListError(null);
             openWorkspaceTab(targetWsId);
             return;
           }
@@ -187,7 +234,9 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
             const again = await listWorkspaces();
             const fresher = Array.isArray(again) ? again : [];
             if (!fresher.some((w) => w.id === targetWsId)) return refuse();
+            listSeq.current++;
             setWorkspaces(fresher);
+            setListError(null);
             openWorkspaceTab(targetWsId);
             return;
           }
@@ -214,6 +263,7 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
       });
       throw err;
     }
+    listSeq.current++;
     setWorkspaces(prev => [...prev, created]);
     if (dockedWorkspaceTabIds) {
       // Selected while the preference that docks it comes back, as a tab being opened is (BUG-058,
@@ -254,9 +304,10 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
   // Delete
   const deleteWorkspace = useCallback(
     async (id: string) => {
-      await apiDeleteWorkspace(id);
+      await trashArtifact(id);
+      listSeq.current++;
       setWorkspaces(prev => {
-        const remaining = prev.filter(w => w.id !== id);
+        const remaining = withoutKey(prev, w => w.id, id);
         if (activeWorkspaceId === id) {
           const nextVisible = dockedWorkspaceTabIds
             ? remaining.find((workspace) => dockedWorkspaceTabIds.includes(workspace.id))
@@ -268,6 +319,11 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
     },
     [activeWorkspaceId, dockedWorkspaceTabIds]
   );
+
+  const restoreWorkspace = useCallback(async (id: string) => {
+    await untrashArtifact(id);
+    await readList();
+  }, [readList]);
 
   // Active workspace
   const activeWorkspace = useMemo(
@@ -283,14 +339,30 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
       createWorkspace,
       updateWorkspace,
       deleteWorkspace,
+      restoreWorkspace,
       setActiveWorkspaceId,
       openWorkspaceTab,
     }),
-    [workspaces, activeWorkspace, activeWorkspaceId, createWorkspace, updateWorkspace, deleteWorkspace, openWorkspaceTab]
+    [workspaces, activeWorkspace, activeWorkspaceId, createWorkspace, updateWorkspace, deleteWorkspace, restoreWorkspace, openWorkspaceTab]
   );
 
   return (
     <WorkspacesContext.Provider value={value}>
+      {listError !== null && (
+        <div
+          role="alert"
+          className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 bg-red-50 px-4 py-2 text-sm text-red-800"
+        >
+          <span>Could not load workspaces: {listError}</span>
+          <button
+            type="button"
+            className="rounded border border-red-300 px-2 py-0.5 font-medium hover:bg-red-100"
+            onClick={() => setLoadAttempt(a => a + 1)}
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {children}
     </WorkspacesContext.Provider>
   );

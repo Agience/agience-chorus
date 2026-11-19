@@ -1,9 +1,10 @@
+import { clearToken, readToken, savePkce, saveToken } from '@/display-state/session';
 import React, { useState, ReactNode, useEffect, useCallback } from 'react';
 import { get, del } from '../../api/api';
 import { getRuntimeConfig } from '../../config/runtime';
 import { User } from './auth.types';
 import { AuthContext } from './AuthContext';
-import { consumeSpState } from '../../auth/spState';
+import { consumeSpState } from '@/display-state/spState';
 import { forgetMantleToken } from '../../auth/mantleToken';
 import { originFreshSignInUrl } from '../../auth/originSignIn';
 
@@ -25,7 +26,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     // SP return path: Origin (the IdP) sends us back with the token in the URL
     // fragment. The token is accepted only when the fragment's `state` is one this
-    // browser issued when it started the sign-in (`auth/spState`), and each state is
+    // browser issued when it started the sign-in (`display-state/spState`), and each state is
     // accepted once. Any other fragment token is discarded and the existing session is
     // left as it is. The fragment is scrubbed from the address bar either way, so the
     // JWT isn't left in history. The fragment never reaches a server.
@@ -37,14 +38,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
       if (fragToken && consumeSpState(frag.get('state'))) {
         console.log('[AuthProvider] mount — token arrived in fragment from the IdP');
-        localStorage.setItem('access_token', fragToken);
+        saveToken(fragToken);
         setToken(fragToken);
         return;
       }
       console.warn('[AuthProvider] mount — fragment token discarded: state missing or not issued here');
     }
 
-    const localToken = localStorage.getItem('access_token');
+    const localToken = readToken();
     console.log('[AuthProvider] mount — token in localStorage:', !!localToken);
     if (!localToken) {
       setLoading(false);
@@ -71,7 +72,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return;
         }
         console.warn('[AuthProvider] /auth/userinfo FAILED:', err);
-        localStorage.removeItem('access_token');
+        clearToken();
         setToken(null);
         setUser(null);
         setIsAuthenticated(false);
@@ -88,7 +89,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const setAuthData = (token: string | null) => {
     if (!token) {
-      localStorage.removeItem('access_token');
+      clearToken();
       setToken(null);
       setUser(null);
       setIsAuthenticated(false);
@@ -96,7 +97,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     console.log('[AuthProvider] setAuthData — storing token, triggering validation');
-    localStorage.setItem('access_token', token);
+    saveToken(token);
     setLoading(true);  // must be synchronous so LoginProtected shows spinner
     setToken(token);    // triggers validation effect
     setUser(null);      // clear stale user
@@ -117,8 +118,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       .replace(/\//g, '_')
       .replace(/=+$/, '');
 
-    localStorage.setItem('pkce_state', state);
-    localStorage.setItem('pkce_verifier', codeVerifier);
+    savePkce(state, codeVerifier);
 
     const params = new URLSearchParams({
       response_type: 'code',
@@ -138,7 +138,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = () => {
-    localStorage.removeItem('access_token');
+    clearToken();
     // As a service provider, signing out here alone is undone at once: the IdP still holds a session
     // and hands a new token back on the next visit. End that session too; the IdP returns only to an
     // address it lists, which this app's root is. The signed-in state is left as it is while the
@@ -164,7 +164,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // authorization form. A live Origin session may still answer at once with a new token; the
   // stale one is gone either way.
   const signInAgain = () => {
-    localStorage.removeItem('access_token');
+    clearToken();
     forgetMantleToken();
     setToken(null);
     setUser(null);
@@ -181,7 +181,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Force a fresh /userinfo fetch (e.g. after linking a provider)
   const refreshUser = useCallback(() => {
-    const t = localStorage.getItem('access_token');
+    const t = readToken();
     if (!t) return;
     get<User>('/auth/userinfo')
       .then((res) => setUser(res))
@@ -201,8 +201,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const base64Url = btoa(String.fromCharCode(...new Uint8Array(digest)))
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-    localStorage.setItem('pkce_state', state);
-    localStorage.setItem('pkce_verifier', codeVerifier);
+    savePkce(state, codeVerifier);
     // Signal AuthCallback to perform a link (not login) after the dance
     sessionStorage.setItem('linking_provider', provider);
 

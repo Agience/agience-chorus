@@ -1,4 +1,5 @@
 // api/types/search.ts
+import type { Artifact } from './artifact';
 
 export interface SearchRequest {
   query_text: string;
@@ -12,6 +13,11 @@ export interface SearchRequest {
   highlight?: boolean;
   /** The index segment: `live` (default) or `archived`. */
   state?: 'live' | 'archived';
+  /** The search panel's choices, written into `query_text` as query filters before it is sent. */
+  exact?: boolean;
+  tag?: string;
+  tag_exact?: boolean;
+  types?: string[];
   // No `aperture`, and no `use_vector`/`use_bm25` equivalent on the wire: `ArtifactRecallRequest`
   // declares none of them, and mantle's own router says of the three it used to accept —
   // `aperture`, `use_hybrid`, `content_types` — that "none is read on any path"
@@ -59,6 +65,8 @@ export interface SearchResponse {
   ordering?: string;
   /** The filters Mantle applied, as it describes them (e.g. `tags:alpha-test`). */
   applied_filters?: string[];
+  /** The hits' artifacts, one per root in hit order, as Mantle answers them. */
+  artifacts?: Artifact[];
   from: number;
   size: number;
 }

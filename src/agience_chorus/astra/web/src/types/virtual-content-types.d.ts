@@ -14,10 +14,19 @@ declare module 'virtual:content-types' {
     options?: string[];
   }
 
+  /** One field of a type's `context_schema`; `editor` marks a field the context editor offers. */
+  export interface ContextFieldConfig {
+    type?: string;
+    label?: string;
+    editor?: 'text' | 'textarea' | 'title' | 'tags';
+    max_length?: number;
+    /** The value a newly added field starts with. */
+    initial?: unknown;
+  }
+
   export interface RecordConfig {
     titlePath?: string;
     subtitlePath?: string;
-    badgePath?: string;
     fields?: RecordFieldConfig[];
     collections?: RecordFieldConfig[];
     objects?: RecordFieldConfig[];
@@ -45,6 +54,7 @@ declare module 'virtual:content-types' {
     is_wildcard: boolean;
     wildcard_prefix: string | null;
     extensions: string[];
+    not_for: string[];
     description: string;
     label: string;
     icon: string;
@@ -61,7 +71,11 @@ declare module 'virtual:content-types' {
     resource_uri: string | null;
     resource_server: string | null;
     container_variant: string | null;
+    /** Present when the type takes drops: what its drop zone says. */
+    drop?: { label: string } | null;
     record: RecordConfig | null;
+    /** The type's context fields, by key. */
+    context_schema?: Record<string, ContextFieldConfig>;
     viewer: string | null;
     provider: string | null;
     default_depth: number | null;

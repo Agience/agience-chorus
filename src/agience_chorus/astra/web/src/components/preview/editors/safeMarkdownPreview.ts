@@ -11,6 +11,7 @@
 
 import rehypeRaw from 'rehype-raw';
 import type { MDEditorProps } from '@uiw/react-md-editor';
+import { withoutKey } from '@/display-state/lists';
 
 const SAFE_PROTOCOL = /^(https?|mailto)$/i;
 
@@ -39,7 +40,7 @@ export function safeMarkdownUrl(url: string): string {
 export const SAFE_MARKDOWN_PREVIEW_OPTIONS: NonNullable<MDEditorProps['previewOptions']> = {
   pluginsFilter: (type, plugins) =>
     type === 'rehype'
-      ? plugins.filter((plugin) => (Array.isArray(plugin) ? plugin[0] : plugin) !== rehypeRaw)
+      ? withoutKey(plugins, (plugin) => (Array.isArray(plugin) ? plugin[0] : plugin) === rehypeRaw, true)
       : plugins,
   urlTransform: safeMarkdownUrl,
 };

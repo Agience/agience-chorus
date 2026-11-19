@@ -71,8 +71,6 @@ vi.mock('@/api/artifacts', () => ({
 const listLinksMock = vi.fn(async (..._args: unknown[]) => ({} as Record<string, string>));
 
 const proxyToolCallMock = vi.fn();
-const createAPIKeyMock = vi.fn();
-const deleteAPIKeyMock = vi.fn();
 
 vi.mock('@/api/mcp', () => ({
   proxyToolCall: (...args: unknown[]) => proxyToolCallMock(...args),
@@ -85,10 +83,12 @@ vi.mock('@/api/jobGrants', () => ({
   approveRunAtOrigin: (...args: unknown[]) => approveRunMock(...args),
   revokeAtOrigin: (...args: unknown[]) => revokeAtOriginMock(...args),
 }));
+const holdStepGrantsMock = vi.fn(async (..._args: unknown[]) => [] as string[]);
+vi.mock('@/api/stepGrants', () => ({
+  holdStepGrants: (...args: unknown[]) => holdStepGrantsMock(...args),
+}));
 vi.mock('@/api/apiKeys', async (orig) => ({
   keyExpiry: ((await orig()) as { keyExpiry: unknown }).keyExpiry,
-  createKeyOver: (...args: unknown[]) => createAPIKeyMock(...args),
-  deleteAPIKey: (...args: unknown[]) => deleteAPIKeyMock(...args),
 }));
 
 // ---------------------------------------------------------------------------
@@ -184,8 +184,7 @@ describe('McpAppHost', () => {
     proxyToolCallMock.mockReset();
     approveAtOriginMock.mockReset();
     revokeAtOriginMock.mockReset();
-    createAPIKeyMock.mockReset();
-    deleteAPIKeyMock.mockReset();
+    getArtifactMock.mockReset();
   });
 
   afterEach(() => {
@@ -362,16 +361,17 @@ describe('McpAppHost', () => {
       expect(JSON.stringify(responseFor(posted, 2))).toContain('echo');
     });
 
-    it('refuses server_tools on an artifact that is not a server', async () => {
+    it("passes Iris's refusal on an artifact that is not a server back to the view", async () => {
       proxyToolCallMock.mockClear();
+      proxyToolCallMock.mockResolvedValueOnce({ content: [{ type: 'text', text: JSON.stringify({ error: 'artifact n1 is not an MCP server', status: 400 }) }] });
       const { container } = render(<McpAppHost artifact={makeArtifact({ id: 'n1' })} html="" />);
       const { posted, dispatchFromIframe } = wireIframe(container);
       dispatchFromIframe({ jsonrpc: '2.0', id: 1, method: 'ui/initialize' });
       await waitFor(() => expect(responseFor(posted, 1)).toBeDefined());
       dispatchFromIframe({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'server_tools', arguments: {} } });
       await waitFor(() => expect(responseFor(posted, 3)).toBeDefined());
-      expect(JSON.stringify(responseFor(posted, 3))).toContain('server artifact');
-      expect(proxyToolCallMock).not.toHaveBeenCalled();
+      expect(JSON.stringify(responseFor(posted, 3))).toContain('not an MCP server');
+      expect(JSON.stringify(responseFor(posted, 3))).toContain('error');
     });
   });
 
@@ -422,6 +422,34 @@ describe('McpAppHost', () => {
       expect((response!.message as { result: unknown }).result).toEqual({
         content: [{ type: 'text', text: 'OK' }],
       });
+    });
+
+    it("saving a workflow gives it the grants its inline steps need, in the person's session", async () => {
+      // FR-007: whichever artifact holds a step holds that step's grants.
+      updateArtifactMock.mockResolvedValue(undefined);
+      holdStepGrantsMock.mockClear();
+      listLinksMock.mockResolvedValueOnce({ 's1.artifact_id': 'note-1' });
+      const run = { type: 'workflow', steps: [{ operator_id: 'op-1', arguments: { a: '@link.s1.artifact_id' } }] };
+      const { container } = render(
+        <McpAppHost artifact={makeArtifact({ id: 'wf-1', content_type: 'application/vnd.agience.transform+json' })} html="" />,
+      );
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 51, method: 'tools/call',
+        params: { name: 'update_artifact', arguments: { patch: { context: JSON.stringify({ run }) } } } });
+      await waitFor(() => expect(posted.some((p) => (p.message as { id?: number }).id === 51)).toBe(true));
+      expect(holdStepGrantsMock).toHaveBeenCalledWith('wf-1', run, { 's1.artifact_id': 'note-1' });
+      expect(listLinksMock).toHaveBeenCalledWith('wf-1');
+    });
+
+    it("a save that is not a workflow's context makes no grant", async () => {
+      updateArtifactMock.mockResolvedValue(undefined);
+      holdStepGrantsMock.mockClear();
+      const { container } = render(<McpAppHost artifact={makeArtifact({ id: 'art-1' })} html="" />);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 52, method: 'tools/call',
+        params: { name: 'update_artifact', arguments: { patch: { context: '{"run":{"type":"workflow","steps":[]}}' } } } });
+      await waitFor(() => expect(posted.some((p) => (p.message as { id?: number }).id === 52)).toBe(true));
+      expect(holdStepGrantsMock).not.toHaveBeenCalled();
     });
 
     it('update_artifact errors surface as JSON-RPC error responses', async () => {
@@ -515,147 +543,137 @@ describe('McpAppHost', () => {
   });
 
   describe('tools/call credential tools', () => {
-    const KEY_ARTIFACT_CONTEXT = JSON.stringify({ key: { api_key_id: 'k-own' } });
+    const KEY_TYPE = 'application/vnd.agience.key+json';
+    const blankKey = () => makeArtifact({ id: 'key-1', content_type: KEY_TYPE,
+                                          context: JSON.stringify({ content_type: KEY_TYPE, title: 'CI' }) });
+    const issuedKey = () => makeArtifact({ id: 'key-1', content_type: KEY_TYPE,
+                                           context: JSON.stringify({ content_type: KEY_TYPE, token_hash: 'h', hint: 'abcd' }) });
+    const ASK = { content_type: KEY_TYPE, name: 'CI', collections: ['c-1'], collection_titles: { 'c-1': 'Notes' },
+                  actions: ['read'], expires_at: IN_30_DAYS };
+    const stored = (id: string) => ({ id, context: JSON.stringify(
+      { content_type: KEY_TYPE, collections: ['c-1'], actions: ['read'], expires_at: IN_30_DAYS,
+        token_hash: 'h', hint: 'abcd' }) });
 
     it('create_api_key without a host confirmation dialog creates nothing', async () => {
-      createAPIKeyMock.mockResolvedValue({ id: 'k-1', key: 'agc_secret' });
-      const { container } = render(<McpAppHost artifact={makeArtifact()} html="" />);
+      const { container } = render(<McpAppHost artifact={blankKey()} html="" />);
       const { posted, dispatchFromIframe } = wireIframe(container);
-
-      dispatchFromIframe({
-        jsonrpc: '2.0',
-        id: 10,
-        method: 'tools/call',
-        params: { name: 'create_api_key', arguments: { name: 'test' } },
-      });
+      dispatchFromIframe({ jsonrpc: '2.0', id: 10, method: 'tools/call',
+                           params: { name: 'create_api_key', arguments: ASK } });
       await waitFor(() => expect(responseFor(posted, 10)).toBeDefined());
-
-      expect(createAPIKeyMock).not.toHaveBeenCalled();
       expect(responseFor(posted, 10)!.error).toBeDefined();
+      expect(createArtifactMock).not.toHaveBeenCalled();
+      expect(updateArtifactMock).not.toHaveBeenCalled();
     });
 
-    it('create_api_key with no expiry, or one past or over a year out, asks nothing and creates nothing', async () => {
-      for (const [id, expires_at] of [[30, undefined], [31, '2000-01-01T00:00:00Z'],
-                                      [32, new Date(Date.now() + 400 * 86400000).toISOString()]] as const) {
-        const { container, confirmMock } = renderWithConfirm(
-          <McpAppHost artifact={makeArtifact()} html="" />, [true, true]);
+    it('create_api_key with no collections, no actions, or a bad expiry asks nothing and creates nothing', async () => {
+      const asks = [
+        { ...ASK, collections: [] },
+        { ...ASK, actions: [] },
+        { ...ASK, expires_at: undefined },
+        { ...ASK, expires_at: '2000-01-01T00:00:00Z' },
+      ];
+      for (const [i, args] of asks.entries()) {
+        const id = 30 + i;
+        const { container, confirmMock } = renderWithConfirm(<McpAppHost artifact={blankKey()} html="" />, [true]);
         const { posted, dispatchFromIframe } = wireIframe(container);
         dispatchFromIframe({ jsonrpc: '2.0', id, method: 'tools/call',
-          params: { name: 'create_api_key', arguments: { name: 't', role: 'editor', resources: ['c-1'],
-                                                         ...(expires_at ? { expires_at } : {}) } } });
+                             params: { name: 'create_api_key', arguments: args } });
         await waitFor(() => expect(responseFor(posted, id)).toBeDefined());
         expect(responseFor(posted, id)!.error).toBeDefined();
         expect(confirmMock).not.toHaveBeenCalled();
+        cleanup();
       }
-      expect(createAPIKeyMock).not.toHaveBeenCalled();
+      expect(createArtifactMock).not.toHaveBeenCalled();
+      expect(updateArtifactMock).not.toHaveBeenCalled();
     });
 
     it('create_api_key declined in the host dialog creates nothing', async () => {
-      createAPIKeyMock.mockResolvedValue({ id: 'k-1', key: 'agc_secret' });
-      const { container, confirmMock } = renderWithConfirm(
-        <McpAppHost artifact={makeArtifact()} html="" />,
-        [false],
-      );
+      const { container, confirmMock } = renderWithConfirm(<McpAppHost artifact={blankKey()} html="" />, [false]);
       const { posted, dispatchFromIframe } = wireIframe(container);
-
-      dispatchFromIframe({
-        jsonrpc: '2.0',
-        id: 16,
-        method: 'tools/call',
-        params: { name: 'create_api_key', arguments: { name: 'test', expires_at: IN_30_DAYS } },
-      });
+      dispatchFromIframe({ jsonrpc: '2.0', id: 16, method: 'tools/call',
+                           params: { name: 'create_api_key', arguments: ASK } });
       await waitFor(() => expect(responseFor(posted, 16)).toBeDefined());
-
       expect(confirmMock).toHaveBeenCalledTimes(1);
-      expect(createAPIKeyMock).not.toHaveBeenCalled();
+      expect(updateArtifactMock).not.toHaveBeenCalled();
       expect(responseFor(posted, 16)!.error).toBeDefined();
     });
 
-    it('create_api_key approved shows the secret in the host and never posts it to the iframe', async () => {
-      createAPIKeyMock.mockResolvedValue({ id: 'k-1', name: 'test', key: 'agc_secret' });
-      const { container, confirmMock } = renderWithConfirm(
-        <McpAppHost artifact={makeArtifact()} html="" />,
-        [true, true],
-      );
+    it('create_api_key fills the hosted blank Key, and the view gets its id and hint, never a token', async () => {
+      updateArtifactMock.mockResolvedValue(true);
+      getArtifactMock.mockResolvedValue(stored('key-1'));
+      const { container } = renderWithConfirm(<McpAppHost artifact={blankKey()} html="" />, [true]);
       const { posted, dispatchFromIframe } = wireIframe(container);
-
-      dispatchFromIframe({
-        jsonrpc: '2.0',
-        id: 17,
-        method: 'tools/call',
-        params: { name: 'create_api_key', arguments: { name: 'test', role: 'editor', resources: ['c-1'],
-                                                       expires_at: IN_30_DAYS } },
-      });
+      dispatchFromIframe({ jsonrpc: '2.0', id: 17, method: 'tools/call',
+                           params: { name: 'create_api_key', arguments: { ...ASK, agent: 'agent-1' } } });
       await waitFor(() => expect(responseFor(posted, 17)).toBeDefined());
-
-      // The key reaches the collection the view named, at the access it chose, until it expires.
-      expect(createAPIKeyMock).toHaveBeenCalledWith('test', 'editor', ['c-1'], IN_30_DAYS);
-      // The second host dialog carries the secret.
-      const secretDialog = confirmMock.mock.calls[1][0];
-      const shown = render(<>{secretDialog.customContent}</>);
-      expect(shown.getByTestId('mcp-app-host-new-key').textContent).toBe('agc_secret');
-      // Nothing that crossed into the iframe mentions it.
-      expect(JSON.stringify(posted)).not.toContain('agc_secret');
-      const record = JSON.parse(responseFor(posted, 17)!.result!.content[0].text);
-      expect(record).toEqual({ id: 'k-1', name: 'test' });
+      expect(createArtifactMock).not.toHaveBeenCalled();
+      expect(updateArtifactMock).toHaveBeenCalledWith({ id: 'key-1', context: expect.any(String) });
+      expect(JSON.parse(updateArtifactMock.mock.calls[0][0].context)).toEqual({
+        content_type: KEY_TYPE, title: 'CI', collections: ['c-1'], collection_titles: { 'c-1': 'Notes' },
+        actions: ['read'], expires_at: IN_30_DAYS, agent: 'agent-1' });
+      const answer = JSON.parse(responseFor(posted, 17)!.result!.content[0].text);
+      expect(answer).toMatchObject({ id: 'key-1', hint: 'abcd', expires_at: IN_30_DAYS });
+      expect(JSON.stringify(posted)).not.toContain('agk_');
     });
 
-    it('delete_api_key refuses a key the hosted artifact does not record', async () => {
-      deleteAPIKeyMock.mockResolvedValue(undefined);
-      const { container, confirmMock } = renderWithConfirm(
-        <McpAppHost artifact={makeArtifact({ context: KEY_ARTIFACT_CONTEXT })} html="" />,
-        [true],
-      );
+    it('create_api_key from any other view creates a new Key', async () => {
+      createArtifactMock.mockResolvedValue({ id: 'key-2' });
+      getArtifactMock.mockResolvedValue(stored('key-2'));
+      for (const [id, artifact, ask] of [[18, makeArtifact(), ASK], [19, issuedKey(), ASK]] as const) {
+        const { container } = renderWithConfirm(<McpAppHost artifact={artifact} html="" />, [true]);
+        const { posted, dispatchFromIframe } = wireIframe(container);
+        dispatchFromIframe({ jsonrpc: '2.0', id, method: 'tools/call',
+                             params: { name: 'create_api_key', arguments: ask } });
+        await waitFor(() => expect(responseFor(posted, id)?.result).toBeDefined());
+        expect(JSON.parse(responseFor(posted, id)!.result!.content[0].text).id).toBe('key-2');
+        cleanup();
+      }
+      expect(updateArtifactMock).not.toHaveBeenCalled();
+      expect(createArtifactMock).toHaveBeenCalledWith({ content_type: KEY_TYPE, content: '', context: expect.any(String) });
+      expect(JSON.parse(createArtifactMock.mock.calls[0][0].context)).toMatchObject(
+        { content_type: KEY_TYPE, title: 'CI', collections: ['c-1'], actions: ['read'] });
+    });
+
+    it('create_api_key that names no type creates nothing', async () => {
+      const { container, confirmMock } = renderWithConfirm(<McpAppHost artifact={blankKey()} html="" />, [true]);
       const { posted, dispatchFromIframe } = wireIframe(container);
-
-      dispatchFromIframe({
-        jsonrpc: '2.0',
-        id: 11,
-        method: 'tools/call',
-        params: { name: 'delete_api_key', arguments: { id: 'k-someone-else' } },
-      });
-      await waitFor(() => expect(responseFor(posted, 11)).toBeDefined());
-
+      const { content_type: _, ...unnamed } = ASK;
+      dispatchFromIframe({ jsonrpc: '2.0', id: 20, method: 'tools/call',
+                           params: { name: 'create_api_key', arguments: unnamed } });
+      await waitFor(() => expect(responseFor(posted, 20)).toBeDefined());
       expect(confirmMock).not.toHaveBeenCalled();
-      expect(deleteAPIKeyMock).not.toHaveBeenCalled();
+      expect(createArtifactMock).not.toHaveBeenCalled();
+      expect(updateArtifactMock).not.toHaveBeenCalled();
+    });
+
+    it('delete_api_key refuses any artifact that is not a Key', async () => {
+      const { container, confirmMock } = renderWithConfirm(<McpAppHost artifact={makeArtifact()} html="" />, [true]);
+      const { posted, dispatchFromIframe } = wireIframe(container);
+      dispatchFromIframe({ jsonrpc: '2.0', id: 11, method: 'tools/call',
+                           params: { name: 'delete_api_key', arguments: {} } });
+      await waitFor(() => expect(responseFor(posted, 11)).toBeDefined());
+      expect(confirmMock).not.toHaveBeenCalled();
+      expect(updateArtifactMock).not.toHaveBeenCalled();
       expect(responseFor(posted, 11)!.error).toBeDefined();
     });
 
-    it('delete_api_key declined in the host dialog revokes nothing', async () => {
-      deleteAPIKeyMock.mockResolvedValue(undefined);
-      const { container } = renderWithConfirm(
-        <McpAppHost artifact={makeArtifact({ context: KEY_ARTIFACT_CONTEXT })} html="" />,
-        [false],
-      );
+    it('delete_api_key declined in the host dialog archives nothing', async () => {
+      const { container } = renderWithConfirm(<McpAppHost artifact={issuedKey()} html="" />, [false]);
       const { posted, dispatchFromIframe } = wireIframe(container);
-
-      dispatchFromIframe({
-        jsonrpc: '2.0',
-        id: 18,
-        method: 'tools/call',
-        params: { name: 'delete_api_key', arguments: { id: 'k-own' } },
-      });
-      await waitFor(() => expect(responseFor(posted, 18)).toBeDefined());
-
-      expect(deleteAPIKeyMock).not.toHaveBeenCalled();
+      dispatchFromIframe({ jsonrpc: '2.0', id: 12, method: 'tools/call',
+                           params: { name: 'delete_api_key', arguments: {} } });
+      await waitFor(() => expect(responseFor(posted, 12)).toBeDefined());
+      expect(updateArtifactMock).not.toHaveBeenCalled();
     });
 
-    it('delete_api_key revokes the recorded key once the user approves', async () => {
-      deleteAPIKeyMock.mockResolvedValue(undefined);
-      const { container } = renderWithConfirm(
-        <McpAppHost artifact={makeArtifact({ context: KEY_ARTIFACT_CONTEXT })} html="" />,
-        [true],
-      );
+    it('delete_api_key archives the hosted Key once the user approves', async () => {
+      updateArtifactMock.mockResolvedValue(true);
+      const { container } = renderWithConfirm(<McpAppHost artifact={issuedKey()} html="" />, [true]);
       const { posted, dispatchFromIframe } = wireIframe(container);
-
-      dispatchFromIframe({
-        jsonrpc: '2.0',
-        id: 19,
-        method: 'tools/call',
-        params: { name: 'delete_api_key', arguments: { id: 'k-own' } },
-      });
-      await waitFor(() => expect(deleteAPIKeyMock).toHaveBeenCalledWith('k-own'));
-      await waitFor(() => expect(responseFor(posted, 19)!.result).toBeDefined());
+      dispatchFromIframe({ jsonrpc: '2.0', id: 13, method: 'tools/call',
+                           params: { name: 'delete_api_key', arguments: { id: 'someone-else' } } });
+      await waitFor(() => expect(responseFor(posted, 13)?.result).toBeDefined());
+      expect(updateArtifactMock).toHaveBeenCalledWith({ id: 'key-1', state: 'archived' });
     });
   });
 
@@ -830,7 +848,7 @@ describe('McpAppHost', () => {
       await waitFor(() => expect(responseFor(posted, 31)).toBeDefined());
       expect(approveAtOriginMock).toHaveBeenCalledWith('t1', ['t1', 'wf-1', 'log-1'], 'Digest');
       expect(proxyToolCallMock).toHaveBeenCalledWith('arm_timer', { timer_id: 't1', job_grant: 'jg-1' }, 'lumen');
-      expect(createAPIKeyMock).not.toHaveBeenCalled();
+      expect(createArtifactMock).not.toHaveBeenCalled();
       expect(JSON.parse(responseFor(posted, 31)!.result!.content[0].text)).toEqual(
         { job_grant: 'jg-1', resources: ['t1', 'wf-1', 'log-1'] });
       expect(JSON.stringify(approveAtOriginMock.mock.calls)).not.toContain('ws-1');
@@ -946,7 +964,7 @@ describe('McpAppHost', () => {
                            params: { name: 'disarm_timer', arguments: { timer_id: 't1' } } });
       await waitFor(() => expect(responseFor(posted, 36)?.error).toBeDefined());
       expect(revokeAtOriginMock).not.toHaveBeenCalled();
-      expect(deleteAPIKeyMock).not.toHaveBeenCalled();
+      expect(updateArtifactMock).not.toHaveBeenCalled();
     });
   });
 

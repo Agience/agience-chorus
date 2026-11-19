@@ -3,21 +3,32 @@
  *
  * An SP sends the user to `/login?redirect_uri=...`; after sign-in (or at once, when an Origin
  * session already exists) the page navigates to that URI with `#access_token=...`. The token goes
- * only to an exact origin on this list: the platform's own SPs plus any the deployment's runtime
- * config names in `spOrigins`. A subdomain that merely ends in the platform domain is not on it.
+ * only to an exact origin on this list: this app's own origin, Origin's (`originUri`), and any the
+ * deployment's runtime config names in `spOrigins`. A subdomain that merely ends in the platform domain is not on it.
  */
 
 import { sessionToken } from './sessionToken'
 import { getRuntimeConfig } from '../config/runtime'
 
-/** The platform's service providers, and Origin itself. */
-export const KNOWN_SP_ORIGINS: readonly string[] = [
-  'https://origin.agience.ai',
-  'https://my.agience.ai',
-]
+function originOf(uri: string): string | null {
+  try {
+    return new URL(uri).origin
+  } catch {
+    return null
+  }
+}
+
+/** This app's own origin and Origin's: their sign-ins keep the person's own token. */
+function ownOrigins(): string[] {
+  const own: string[] = []
+  const origin = originOf(getRuntimeConfig().originUri)
+  if (origin) own.push(origin)
+  if (typeof window !== 'undefined') own.push(window.location.origin)
+  return own
+}
 
 export function allowedSpOrigins(): string[] {
-  return [...KNOWN_SP_ORIGINS, ...getRuntimeConfig().spOrigins]
+  return [...ownOrigins(), ...getRuntimeConfig().spOrigins]
 }
 
 /** True when `redirectUri` is an absolute URL on an allowed SP origin, carrying no credentials. */
@@ -47,14 +58,8 @@ export function isAllowedSpRedirect(
  * a delegation addressed to its own origin.
  */
 export function spAudience(redirectUri: string): string | null {
-  let origin: string
-  try {
-    origin = new URL(redirectUri).origin
-  } catch {
-    return null
-  }
-  if (origin === 'https://my.agience.ai' || origin === 'https://origin.agience.ai') return null
-  if (typeof window !== 'undefined' && origin === window.location.origin) return null
+  const origin = originOf(redirectUri)
+  if (origin === null || ownOrigins().includes(origin)) return null
   return origin
 }
 

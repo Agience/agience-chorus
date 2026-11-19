@@ -156,6 +156,12 @@ _INSTALL_OPS = [
 ]
 
 
+#: the capabilities each operator needs to run, by operator id.
+_NEEDS = {
+    "op.install": ["store.read", "store.write"],
+}
+
+
 def register_install_operators(store, *, author: str = "ember-local") -> int:
     """Register the installer organon. Mirrors the persona register_* pattern."""
     from crystal import evolution
@@ -163,7 +169,8 @@ def register_install_operators(store, *, author: str = "ember-local") -> int:
     for name, offer in _INSTALL_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
             "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
-            "context": offer, "content": f"system operator {name}: {offer}",
+            "context": offer, "offer": offer, "needs": list(_NEEDS[name]),
+            "content": f"system operator {name}: {offer}",
             "created_by": author}))
     return len(_INSTALL_OPS)
 

@@ -44,17 +44,19 @@ describe('api/artifacts', () => {
   // ─────────────────────────────────────────────────────────────────────────────
 
   describe('createArtifact', () => {
-    it('POSTs to /artifacts with container_id, context, and content', async () => {
+    it('has Crystal name it, then POSTs what it named to /artifacts', async () => {
       const artifact = { id: 'art-1', collection_id: 'ws-1', state: 'live' };
-      mockPost.mockResolvedValueOnce(artifact);
+      const named = { container_id: 'ws-1', context: '{"title":"Hello"}', content: 'body text', name: 'Hello' };
+      mockPost.mockResolvedValueOnce(named).mockResolvedValueOnce(artifact);
 
       const result = await createArtifact('ws-1', '{"title":"Hello"}', 'body text');
 
-      expect(mockPost).toHaveBeenCalledWith('/artifacts', {
+      expect(mockPost).toHaveBeenNthCalledWith(1, '/types/name', {
         container_id: 'ws-1',
         context: '{"title":"Hello"}',
         content: 'body text',
       });
+      expect(mockPost).toHaveBeenNthCalledWith(2, '/artifacts', named);
       expect(result).toEqual(artifact);
     });
 
@@ -120,8 +122,9 @@ describe('api/artifacts', () => {
   });
 
   describe('addItemToContainer', () => {
-    it('POSTs to /artifacts — same shape as createArtifact', async () => {
-      mockPost.mockResolvedValueOnce({ id: 'art-3' });
+    it('is named at Crystal, then made at /artifacts — same shape as createArtifact', async () => {
+      mockPost.mockResolvedValueOnce({ container_id: 'col-1', context: '{"title":"Imported"}', content: 'some content' })
+        .mockResolvedValueOnce({ id: 'art-3' });
 
       await addItemToContainer('col-1', '{"title":"Imported"}', 'some content');
 

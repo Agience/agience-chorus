@@ -23,10 +23,16 @@
     "default_state": "view",
     "is_container": false,
     "creatable": false,
-    "viewer": "record",
+    "resource_uri": "ui://astra/vnd.agience.record.html",
+    "resource_server": "astra",
     "record": {
       "titlePath": "title",
       "fields": [
+        {
+          "path": "level",
+          "label": "Level",
+          "editable": false
+        },
         {
           "path": "state",
           "label": "Decision",
@@ -60,6 +66,11 @@
     "title": {
       "type": "string",
       "mutable": true
+    },
+    "level": {
+      "type": "string",
+      "description": "The id of the approval-level artifact this approval decides at, set by the initializer that made it.",
+      "mutable": false
     },
     "state": {
       "type": "enum",

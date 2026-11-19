@@ -1,0 +1,109 @@
+{
+  "content_type": "application/vnd.agience.install+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Install — one release installed on one node. It names the node, the release or candidate id, when it was installed, each wheel by its sha256 and each repository's commit, and which repositories were built from those commits. It is edged to the request it was installed for and to the evidence that validated it. Only its validation changes after it is made.",
+  "ui": {
+    "label": "Install",
+    "icon": "package-check",
+    "color": "#4338ca",
+    "badge_class": "bg-indigo-100 text-indigo-800",
+    "tile_class": "",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "resource_uri": "ui://astra/vnd.agience.record.html",
+    "resource_server": "astra",
+    "record": {
+      "titlePath": "title",
+      "fields": [
+        {
+          "path": "node",
+          "label": "Node",
+          "editable": false
+        },
+        {
+          "path": "release",
+          "label": "Release",
+          "editable": false
+        },
+        {
+          "path": "at",
+          "label": "Installed",
+          "editable": false
+        },
+        {
+          "path": "validated",
+          "label": "Validated",
+          "editable": false
+        }
+      ]
+    }
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "description": "<release> on <node>.",
+      "mutable": true
+    },
+    "node": {
+      "type": "string",
+      "description": "The node it was installed on.",
+      "mutable": false
+    },
+    "release": {
+      "type": "string",
+      "description": "The release or candidate id installed.",
+      "mutable": false
+    },
+    "item": {
+      "type": "string",
+      "description": "The item the install was made for, if one was named.",
+      "mutable": false
+    },
+    "at": {
+      "type": "string",
+      "description": "When it was installed, in UTC.",
+      "mutable": false
+    },
+    "wheels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Each wheel installed, by file name, to its sha256.",
+      "mutable": false
+    },
+    "commits": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Each repository's commit it was installed from.",
+      "mutable": false
+    },
+    "installed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The repositories built or checked out from those commits.",
+      "mutable": false
+    },
+    "validated": {
+      "type": "string",
+      "description": "When the install was validated, in UTC; empty until it is.",
+      "mutable": true
+    }
+  }
+}

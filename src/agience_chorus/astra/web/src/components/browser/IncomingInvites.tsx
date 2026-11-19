@@ -1,41 +1,48 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import {
-  acceptInvite, declineInvite, incomingInvites, type IncomingInvite,
-} from '@/api/authority';
-import { openShared, roleOf, waitForAccess } from './invites';
+import { actOnInvite, offeredInvites, type OfferedInvite } from '@/api/inviteArtifacts';
+import { listRoles, roleNamed, type Role } from '@/api/collections';
+import { openShared, waitForAccess } from './invites';
+import { formatDay } from '@/utils/dates';
 
 /**
- * Invites addressed to the signed-in person, shown at the top of their Inbox with Accept and
- * Decline (FR-004). They are read from Origin in the person's Origin session, so an account whose
- * mailbox nobody watches can accept without leaving the app. The mailed link keeps working.
+ * Invites made for the signed-in person, shown at the top of their Inbox with Accept and Decline
+ * (FR-004). Each is an invite artifact the person may read, listed by the Inbox's `invites`
+ * operation, so an account whose mailbox nobody watches can accept without leaving the app.
+ * Accepting and declining are taken in the person's own Origin session, at the path the invite's
+ * type names. The mailed link keeps working.
  */
 export function IncomingInvites() {
-  const [invites, setInvites] = useState<IncomingInvite[]>([]);
+  const [invites, setInvites] = useState<OfferedInvite[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [roles, setRoles] = useState<Role[]>([]);
+
+  // The roles Mantle offers name each invite's actions.
+  useEffect(() => { listRoles().then(setRoles, () => setRoles([])); }, []);
 
   const load = useCallback(async () => {
     try {
-      setInvites(await incomingInvites());
+      setInvites(await offeredInvites());
     } catch {
-      // No Origin session, or Origin unreachable: show nothing rather than an error strip.
+      // No Inbox yet, or Crystal unreachable: show nothing rather than an error strip.
       setInvites([]);
     }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
 
-  const act = useCallback(async (inv: IncomingInvite, accept: boolean) => {
-    setBusy(inv.invite_id);
+  const act = useCallback(async (inv: OfferedInvite, accept: boolean) => {
+    setBusy(inv.id);
     try {
       if (accept) {
-        await acceptInvite(inv.invite_id);
-        const joining = toast.loading(`Joining ${inv.from || 'the'} shared item…`);
+        await actOnInvite(inv.id, 'accept');
+        const joining = toast.loading(`Joining ${inv.resource_name || 'the shared item'}…`);
         const ready = await waitForAccess(inv.resource_id);
         toast.dismiss(joining);
         if (ready) {
-          toast.success(`Accepted ${inv.from}'s invite`, { description: 'Opening it now.' });
+          toast.success(`Accepted the invite to ${inv.resource_name || 'the shared item'}`,
+                        { description: 'Opening it now.' });
           openShared(inv.resource_id);
         } else {
           // Never a false "not shared": the claim is made; the store has not caught up yet.
@@ -45,8 +52,8 @@ export function IncomingInvites() {
           });
         }
       } else {
-        await declineInvite(inv.invite_id);
-        toast.success(`Declined ${inv.from}'s invite`);
+        await actOnInvite(inv.id, 'decline');
+        toast.success(`Declined the invite to ${inv.resource_name || 'the shared item'}`);
       }
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e);
@@ -65,17 +72,17 @@ export function IncomingInvites() {
       <h2 className="px-1 pb-1 text-sm font-medium">Invitations</h2>
       <ul className="flex flex-col gap-1">
         {invites.map(inv => (
-          <li key={inv.invite_id} data-testid="incoming-invite"
+          <li key={inv.id} data-testid="incoming-invite"
               className="flex items-center justify-between gap-2 rounded px-1 py-1 text-sm">
             <span>
-              <strong>{inv.from || 'Someone'}</strong> invited you as {roleOf(inv.actions)}
-              {inv.expires_at ? ` (until ${new Date(inv.expires_at).toLocaleDateString()})` : ''}
+              You are invited to <strong>{inv.resource_name || 'a shared item'}</strong> as {roleNamed(inv.actions, roles) ?? (inv.actions.join(', ') || 'no access')}
+              {inv.expires_at ? ` (until ${formatDay(inv.expires_at)})` : ''}
             </span>
             <span className="flex gap-1">
-              <button type="button" disabled={busy === inv.invite_id}
+              <button type="button" disabled={busy === inv.id}
                       className="rounded bg-primary px-2 py-0.5 text-primary-foreground disabled:opacity-50"
                       onClick={() => void act(inv, true)}>Accept</button>
-              <button type="button" disabled={busy === inv.invite_id}
+              <button type="button" disabled={busy === inv.id}
                       className="rounded border px-2 py-0.5 disabled:opacity-50"
                       onClick={() => void act(inv, false)}>Decline</button>
             </span>

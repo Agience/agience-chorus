@@ -46,7 +46,7 @@ export default function FilterBar({
     { value: 'title' as const, label: 'Title' },
     { value: 'created' as const, label: 'Created' },
     { value: 'modified' as const, label: 'Modified' },
-    { value: 'manual' as const, label: 'Manual Order' },
+    { value: 'manual' as const, label: 'Manual order' },
   ];
 
   const viewOptions = [
@@ -55,11 +55,15 @@ export default function FilterBar({
     { value: 'compact' as const, label: 'Compact', icon: FiLayers },
   ];
 
+  // A closed drawer is inert and hidden, so its clipped controls are never a click target.
   return (
-    <div 
+    <div
+      data-testid="filter-bar"
+      inert={!isOpen}
+      aria-hidden={!isOpen}
       className={clsx(
         "flex items-center justify-between px-6 pr-2 bg-white border-b border-gray-200 overflow-hidden transition-all duration-300 ease-in-out",
-        isOpen ? "max-h-20 opacity-100 py-2" : "max-h-0 opacity-0 border-b-0"
+        isOpen ? "max-h-20 opacity-100 py-2" : "invisible max-h-0 opacity-0 border-b-0"
       )}
     >
       {/* Left: Filter Buttons */}

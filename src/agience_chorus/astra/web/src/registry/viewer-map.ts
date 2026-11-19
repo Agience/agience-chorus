@@ -43,10 +43,6 @@ import {
   VIEWER_KEY as videoKey,
   factory as videoFactory,
 } from '@/content-types/video/_wildcard';
-import {
-  VIEWER_KEY as recordKey,
-  factory as recordFactory,
-} from '@/content-types/_record';
 
 export type ViewerComponent = ComponentType<{
   artifact: Artifact;
@@ -73,7 +69,6 @@ export const VIEWER_MAP: Record<string, ViewerFactory> = {
   [imageKey]: imageFactory as ViewerFactory,
   [audioKey]: audioFactory as ViewerFactory,
   [videoKey]: videoFactory as ViewerFactory,
-  [recordKey]: recordFactory as ViewerFactory,
 };
 
 /** Returns the lazy factory for a given viewer key, falling back to the basic artifact viewer. */

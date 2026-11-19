@@ -4,7 +4,18 @@
   "inherits": [
     "application/json"
   ],
-  "description": "Backlog item — one piece of work the platform loop carries from open to closed: open, then working (on next), in cut (on the day's release branch), validated (on 71/test), shipped (promoted), closed (done, out of the open Backlog; closed_in names the release). The chair report reads its state.",
+  "description": "Backlog item — one piece of work, carried from open to closed: open, working, in cut (taken into a release), validated, shipped, closed (done, out of the open Backlog; closed_in names the release).",
+  "view": {
+    "apart": {
+      "closed": {
+        "label": "Closed",
+        "when": {
+          "field": "context.state",
+          "equals": "closed"
+        }
+      }
+    }
+  },
   "ui": {
     "label": "Backlog item",
     "icon": "list-checks",
@@ -23,7 +34,8 @@
     "default_state": "view",
     "is_container": false,
     "creatable": true,
-    "viewer": "record",
+    "resource_uri": "ui://astra/vnd.agience.record.html",
+    "resource_server": "astra",
     "record": {
       "titlePath": "title",
       "fields": [
@@ -150,12 +162,12 @@
     },
     "release": {
       "type": "string",
-      "description": "The release that shipped it (YYYYMM.DD.N), once shipped.",
+      "description": "The release that shipped it, once shipped.",
       "mutable": true
     },
     "closed_in": {
       "type": "string",
-      "description": "The release it was closed in (YYYYMM.DD.N): set when the release that shipped it is recorded, or by hand for work verified earlier.",
+      "description": "The release it was closed in: set when the release that shipped it is recorded, or by hand for work verified earlier.",
       "mutable": true
     }
   },

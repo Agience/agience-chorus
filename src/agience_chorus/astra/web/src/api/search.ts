@@ -26,6 +26,7 @@ import type {
   SuggestionsResponse,
   SearchHit,
 } from './types/search';
+import type { Artifact } from './types/artifact';
 
 /** The wire request, exactly as `ArtifactRecallRequest` declares it. */
 type RecallRequest = {
@@ -36,6 +37,7 @@ type RecallRequest = {
   sort?: 'relevance' | 'recency';
   highlight?: boolean;
   state?: 'live' | 'archived';
+  artifacts?: boolean;
 };
 
 type RecallHit = {
@@ -57,6 +59,7 @@ type RecallResponse = {
   applied_filters?: string[];
   from_: number;
   size: number;
+  artifacts?: Artifact[];
 };
 
 /**
@@ -67,16 +70,88 @@ type RecallResponse = {
  */
 async function recall(request: SearchRequest, scope?: string[]): Promise<SearchResponse> {
   const body: RecallRequest = {
-    query_text: request.query_text,
+    query_text: composedQuery(request),
     scope,
     from_: request.from_ ?? 0,
     size: request.size ?? 20,
     sort: request.sort ?? 'relevance',
     highlight: request.highlight ?? true,
+    artifacts: true,
     ...(request.state === 'archived' ? { state: 'archived' as const } : {}),
   };
+  if (body.query_text?.trim() && body.sort === 'relevance' && !body.state) {
+    try {
+      const ranked = await runPlatformSearch(body);
+      if (ranked) return ranked;
+    } catch (e) {
+      console.warn('[search] the platform Search did not run; reading the plain recall', e);
+    }
+  }
   const resp = await api.post<RecallResponse>('/artifacts/recall', body);
   return mapRecallResponse(resp.data);
+}
+
+/** What `search.run` answers: Mantle's hits, ordered by the Search's rank keys. */
+type SearchRunResponse = { hits: RecallHit[]; total: number; search_id?: string };
+
+let platformSearch: Promise<string | null> | null = null;
+
+/** The platform Search artifact's id, as Mantle names it, read once. */
+function platformSearchId(): Promise<string | null> {
+  if (!platformSearch) {
+    platformSearch = api.get<{ search?: string | null }>('/artifacts/platform-operators')
+      .then((r) => r.data?.search ?? null)
+      .catch((e) => { platformSearch = null; throw e; });
+  }
+  return platformSearch;
+}
+
+/** Forgets the platform Search's id, so the next search reads it again (a new sign-in). */
+export function forgetPlatformSearch(): void {
+  platformSearch = null;
+}
+
+/** The search panel's `exact`, `tag` and `types` written into the query text as the filters they
+ * stand for. Mantle runs the text as it is. */
+function composedQuery(body: SearchRequest): string {
+  const parts: string[] = [];
+  const text = body.query_text.trim();
+  if (text) parts.push(body.exact ? `="${text.replace(/"/g, '')}"` : text);
+  const tag = (body.tag ?? '').trim();
+  if (tag) parts.push(body.tag_exact ? `tag:="${tag.replace(/"/g, '')}"` : `tag:${tag.replace(/\s+/g, '')}`);
+  const types = (body.types ?? []).map((t) => t.trim()).filter((t) => t && !t.includes(','));
+  if (types.length) parts.push(`type:${types.join(',')}`);
+  return parts.join(' ');
+}
+
+/**
+ * A text search runs the platform Search artifact in Crystal: Mantle answers what the caller may
+ * read, and the Search orders it. The page's artifacts are read in one batch, in hit order. Null when the node
+ * names no platform Search.
+ */
+async function runPlatformSearch(body: RecallRequest): Promise<SearchResponse | null> {
+  const searchId = await platformSearchId();
+  if (!searchId) return null;
+  const queryText = body.query_text;
+  const run = await api.post<SearchRunResponse>(
+    `/artifacts/${encodeURIComponent(searchId)}/op/invoke`,
+    { query_text: queryText, from: body.from_ ?? 0, size: body.size ?? 20,
+      ...(body.scope ? { scope: body.scope } : {}) },
+  );
+  const hits = run.data?.hits ?? [];
+  const rootIds = [...new Set(hits.map((h) => h.root_id).filter(Boolean))];
+  let artifacts: Artifact[] = [];
+  if (rootIds.length) {
+    const page = await api.post<Artifact[] | { items?: Artifact[] }>(
+      '/artifacts/batch', { artifact_ids: rootIds, include_archived: true });
+    const data = page.data;
+    const byId = new Map((Array.isArray(data) ? data : data?.items ?? []).map((a) => [a.id, a]));
+    artifacts = rootIds.flatMap((id) => (byId.has(id) ? [byId.get(id) as Artifact] : []));
+  }
+  return mapRecallResponse({
+    hits, total: run.data?.total ?? hits.length, query_text: queryText, ordering: 'search',
+    from_: body.from_ ?? 0, size: body.size ?? 20, artifacts,
+  });
 }
 
 /** Recall within one workspace. */
@@ -132,5 +207,21 @@ function mapRecallResponse(data: RecallResponse): SearchResponse {
     applied_filters: data?.applied_filters ?? [],
     from: data?.from_ ?? 0,
     size: data?.size ?? 20,
+    artifacts: data?.artifacts ?? [],
   };
+}
+
+/**
+ * What the platform Search finds for `query` among artifacts of `types`, as ids in its order.
+ * The Search artifact holds the rank and size; this only runs it.
+ */
+export async function searchChoices(query: string, types: string[]): Promise<string[]> {
+  const queryText = composedQuery({ query_text: query, types });
+  const searchId = await platformSearchId().catch(() => null);
+  const hits = searchId
+    ? (await api.post<SearchRunResponse>(`/artifacts/${encodeURIComponent(searchId)}/op/invoke`,
+      { query_text: queryText, from: 0, size: 20 })).data?.hits ?? []
+    : (await api.post<RecallResponse>('/artifacts/recall',
+      { query_text: queryText, highlight: false })).data?.hits ?? [];
+  return hits.flatMap((h) => (h.root_id && h.root_id !== h.id ? [h.id, h.root_id] : [h.id]));
 }

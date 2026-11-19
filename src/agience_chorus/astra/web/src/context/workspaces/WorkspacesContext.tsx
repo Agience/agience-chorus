@@ -8,7 +8,10 @@ export interface WorkspacesContextType {
   activeWorkspaceId: string | null;  
   createWorkspace: (name: string, description: string, options?: { activate?: boolean }) => Promise<Workspace>;  
   updateWorkspace: (workspace: Partial<Workspace> & { id: string }) => Promise<void>;
+  /** Move a workspace to Trash, where it stays restorable for 30 days. */
   deleteWorkspace: (id: string) => Promise<void>;
+  /** Take a workspace out of Trash and back into the list. */
+  restoreWorkspace: (id: string) => Promise<void>;
   setActiveWorkspaceId: (id: string | null) => void;
   /** Open a workspace as a tab: docked if the tabs are an explicit list, and selected. */
   openWorkspaceTab: (id: string) => void;

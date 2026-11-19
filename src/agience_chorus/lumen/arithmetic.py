@@ -135,6 +135,7 @@ def register_transform_operators(artifact_store, *, author: str = "ember-local")
         evolution.put_operator(artifact_store, {
             "id": t.name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
             "offer": t.offer,
+            "needs": ["compute.local"],
             "content": f"deterministic transform {t.name}: {t.offer}",
             "created_by": author,
             "collection_id": _SYSTEM_COLLECTION, "created_time": _REGISTERED_AT,

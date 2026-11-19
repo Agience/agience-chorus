@@ -4,10 +4,10 @@
 // F1). Origin verifies every WebAuthn assertion against its own address, so a ceremony run here
 // could not complete, and no page this app, or Mantle, serves is one Origin trusts for one. The
 // person is sent to Origin's `/login`, which returns the token in the URL fragment with the `state`
-// this browser issued (`spState`), as any service-provider sign-in does.
+// this browser issued (`display-state/spState`), as any service-provider sign-in does.
 
 import { getRuntimeConfig } from '../config/runtime';
-import { issueSpState } from './spState';
+import { issueSpState } from '@/display-state/spState';
 
 function loginUrl(): URL {
   const { originUri, idpUri } = getRuntimeConfig();

@@ -11,6 +11,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import type { Artifact } from '@/context/workspace/workspace.types';
 import { errorDetail } from '@/utils/errorDetail';
+import { formatDayTime } from '@/utils/dates';
+import { keyList, unique } from '@/display-state/lists';
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; items: T[] } | { state: 'forbidden' } | { state: 'failed' };
 
@@ -47,7 +49,7 @@ export function HistoryPanel({ artifact }: { artifact: Artifact }) {
         setAccess({ state: status === 403 || status === 404 ? 'forbidden' : 'failed' });
       });
     const places = [id, ...(artifact.container_ids ?? []), ...(artifact.collection_id ? [artifact.collection_id] : [])];
-    Promise.allSettled([...new Set(places.filter(Boolean))].map((r) => listGrants(String(r))))
+    Promise.allSettled(unique(keyList(places)).map((r) => listGrants(r)))
       .then((pages) => {
         if (cancelled) return;
         const found: Record<string, string> = {};
@@ -203,7 +205,7 @@ function AccessSection({ access, userId, names }: {
   if (access.state === 'forbidden') {
     return (
       <div className="text-sm text-gray-500" data-testid="history-forbidden">
-        Only people who administer this card can see who accessed it.
+        Only people who administer this artifact can see who accessed it.
       </div>
     );
   }
@@ -263,5 +265,5 @@ function who(ev: AccessEvent, userId?: string | null, names: Record<string, stri
 
 function formatTime(ts: string | number): string {
   const d = typeof ts === 'number' ? new Date(ts * (ts < 1e12 ? 1000 : 1)) : new Date(ts);
-  return Number.isNaN(d.getTime()) ? String(ts) : d.toLocaleString();
+  return formatDayTime(d) || String(ts);
 }

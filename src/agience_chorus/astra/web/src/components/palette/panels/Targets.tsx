@@ -4,6 +4,7 @@ import { Collection } from '../../../context/collections/collection.types';
 import { useCollections } from '../../../context/collections/CollectionsContext';
 import { AGIENCE_DRAG_CONTENT_TYPE, getAgienceDragPayload, setAgienceDragData } from '../../../dnd/agienceDrag';
 import { usePalette } from '../../../hooks/usePalette';
+import { keySet, withoutKey } from '@/display-state/lists';
 
 export default function TargetsPanel() {
   const { state, updatePanelData } = usePalette();
@@ -11,14 +12,14 @@ export default function TargetsPanel() {
   const { collections, isLoading } = useCollections();
   const [dragDepth, setDragDepth] = useState(0);
 
-  const selectedSet = useMemo(() => new Set(panelState.collections.map((c) => String(c.id))), [panelState.collections]);
+  const selectedSet = useMemo(() => keySet(panelState.collections.map((c) => String(c.id))), [panelState.collections]);
 
   const toggleTarget = useCallback(
     (item: Collection) => {
       updatePanelData('targets', (prev) => {
         const current = prev.collections;
         const exists = current.some((t) => t.id === item.id);
-        const updated = exists ? current.filter((t) => t.id !== item.id) : [...current, item];
+        const updated = exists ? withoutKey(current, (t) => t.id, item.id) : [...current, item];
         return { ...prev, collections: updated };
       });
     },

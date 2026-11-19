@@ -8,12 +8,10 @@
 // the `web` facet's implementation (the render runtime); the browser prism (prism-js)
 // grounds it.
 //
-// The definition is data: it validates, hashes, and refuses tampering like every
-// crystal. Because canonicalJson byte-matches Python's
-// json.dumps(sort_keys=True, separators=(",",":")), the sha computed here equals the
-// sha computed by the Python host — one crystal, one content address, any environment.
+// The definition is data. Crystal checks it like every crystal: its structure, and that
+// it hashes to the pinned sha below, before it activates.
 
-import { type Crystal, crystalArtifact, type CrystalArtifact } from './crystalModel';
+import { type Crystal } from './crystalModel';
 
 export const WORKBENCH: Crystal = {
   name: 'crystal.workbench',
@@ -46,25 +44,12 @@ export const WORKBENCH: Crystal = {
 };
 
 /**
- * The content address of crystal.workbench, pinning cross-language equivalence with
- * the Python reference definition.
+ * The content address of crystal.workbench, as the Python reference definition computes it:
  *
- * Computed by the Python definition:
+ *   python -c "from agience_chorus.aria.crystal_workbench import workbench_artifact;  *     import json; print(json.loads(workbench_artifact()['content'])['sha256'])"
  *
- *   cd agience-crystal/src && python -c "import sys, json; sys.path.insert(0, '.'); \
- *     from crystal.definitions.crystal_workbench import workbench_artifact; \
- *     print(json.loads(workbench_artifact()['content'])['sha256'])"
- *   → b24fe272b857b6b775af3584894758157be0712683aa9c0a17baabfd90b0c976
- *
- * The TS test suite recomputes the sha from the WORKBENCH constant above via the TS
- * canonicalJson/crystalSha and asserts equality with this pin, proving the two
- * implementations produce the same bytes for the same structure. Python is the
- * reference implementation: when either definition changes, update both together and
+ * The web app sends it as the crystal's claimed sha; Crystal refuses the crystal when the
+ * structure above does not hash to it. When either definition changes, change both and
  * re-derive the pin from Python.
  */
 export const WORKBENCH_SHA256 = 'b24fe272b857b6b775af3584894758157be0712683aa9c0a17baabfd90b0c976';
-
-/** The founding crystal as a store artifact — validated, sha-stamped, refusing tampering. */
-export function workbenchArtifact(): Promise<CrystalArtifact> {
-  return crystalArtifact(WORKBENCH);
-}

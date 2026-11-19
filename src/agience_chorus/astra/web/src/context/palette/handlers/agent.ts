@@ -1,6 +1,7 @@
 import { extractInformation } from '../../../api/agent';
 import { PaletteState } from '../palette.types';
 import type { Artifact } from '../../workspace/workspace.types';
+import { keyList, without } from '@/display-state/lists';
 
 type AgentRunContext = {
   userId: string;
@@ -12,9 +13,9 @@ function inferSourceAndArtifacts(selectedArtifactIds: string[]): {
   sourceArtifactId: string | null;
   contextArtifactIds: string[];
 } {
-  const ids = (selectedArtifactIds || []).map(String).filter(Boolean);
+  const ids = keyList(selectedArtifactIds);
   const sourceArtifactId = ids[0] ?? null;
-  const contextArtifactIds = sourceArtifactId ? ids.slice(1).filter((id) => id !== sourceArtifactId) : [];
+  const contextArtifactIds = sourceArtifactId ? without(ids.slice(1), sourceArtifactId) : [];
   return { sourceArtifactId, contextArtifactIds };
 }
 

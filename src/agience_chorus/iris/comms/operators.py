@@ -89,12 +89,20 @@ _COMMS_OPS = [
 _HANDLERS = {"op.comms.send": message_artifact}   # pure build; store write is the loop's job
 
 
+#: the capabilities each operator needs to run, by operator id.
+_NEEDS = {
+    "op.comms.send": ["store.write"],
+    "op.comms.inbox": ["store.read"],
+}
+
+
 def register_comms_operators(store, *, author: str = "ember-local") -> int:
     from crystal import evolution
     for name, offer in _COMMS_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
             "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
-            "context": offer, "content": "comms operator %s: %s" % (name, offer),
+            "context": offer, "offer": offer, "needs": list(_NEEDS[name]),
+            "content": "comms operator %s: %s" % (name, offer),
             "created_by": author}))
     return len(_COMMS_OPS)
 

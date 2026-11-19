@@ -1,13 +1,14 @@
 // components/browser/FilterChips.tsx
 import { EyeOff, File, FileCode, FileText, Grid3X3, Image, List, Video } from 'lucide-react';
-import { useMemo } from 'react';
-import { Artifact } from '../../context/workspace/workspace.types';
-import { getContentTypeCategory } from '../../utils/search';
+import type { ViewChip, ViewCount } from '../../api/collections';
 
 type ViewOption = 'grid' | 'list';
 
 interface FilterChipsProps {
-  artifacts: Artifact[];
+  /** The chips the container's view offers (archived, closed), each with its count. */
+  chips: ViewChip[];
+  /** The kinds among the members shown, most first, each with its count. */
+  kinds: ViewCount[];
   activeStates: Set<string>;
   activeContentTypes: Set<string>;
   hiddenContentTypes: Set<string>;
@@ -17,26 +18,11 @@ interface FilterChipsProps {
   onContentTypeToggle: (contentType: string) => void;
   onHiddenContentTypeToggle: (contentType: string) => void;
   onClearAll: () => void;
-  /** The container's archived members as the server counts them; overrides the count of
-   * `artifacts`, which holds only what is loaded (archived members are not). */
-  archivedCount?: number;
-  /** Closed Backlog items in the list (G6): hidden from it unless the Closed chip is on. The chip
-   *  shows only when there are some. */
-  closedCount?: number;
-}
-
-function getArtifactContentTypeCategory(artifact: Artifact): string {
-  try {
-    const context = typeof artifact.context === 'string' ? JSON.parse(artifact.context) : artifact.context;
-    const ct = context?.content_type || '';
-    return getContentTypeCategory(ct);
-  } catch {
-    return 'unknown';
-  }
 }
 
 export default function FilterChips({
-  artifacts,
+  chips,
+  kinds,
   activeStates,
   activeContentTypes,
   hiddenContentTypes,
@@ -46,36 +32,7 @@ export default function FilterChips({
   onContentTypeToggle,
   onHiddenContentTypeToggle,
   onClearAll,
-  archivedCount,
-  closedCount,
 }: FilterChipsProps) {
-  // Calculate counts for each state
-  const stateCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      archived: 0,
-    };
-
-    artifacts.forEach(artifact => {
-      if (artifact.state && artifact.state in counts) {
-        counts[artifact.state]++;
-      }
-    });
-
-    return counts;
-  }, [artifacts]);
-  
-  // Calculate counts for each content type
-  const contentTypeCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-
-    artifacts.forEach(artifact => {
-      const category = getArtifactContentTypeCategory(artifact);
-      counts[category] = (counts[category] || 0) + 1;
-    });
-
-    return counts;
-  }, [artifacts]);
-
   // Get icon for content type
   const getContentTypeIcon = (contentType: string) => {
     switch (contentType) {
@@ -103,8 +60,10 @@ export default function FilterChips({
         return 'PDFs';
       case 'document':
         return 'Docs';
-      default:
-        return contentType.charAt(0).toUpperCase() + contentType.slice(1);
+      default: {
+        const words = contentType.replace(/[-_.]+/g, ' ');
+        return words.charAt(0).toUpperCase() + words.slice(1);
+      }
     }
   };
   
@@ -120,17 +79,9 @@ export default function FilterChips({
     }
   };
   
-  const states = [
-    { key: 'archived', label: 'Archived', count: archivedCount ?? stateCounts.archived },
-    ...(closedCount ? [{ key: 'closed', label: 'Closed', count: closedCount }] : []),
-  ];
-  
-  // Sort content types by count (descending)
-  const contentTypes = Object.entries(contentTypeCounts)
-    .sort(([, a], [, b]) => b - a)
-    .filter(([type]) => type !== 'unknown')
-    .slice(0, 6) // Show top 6 types
-    .map(([type, count]) => ({ key: type, label: getContentTypeLabel(type), count }));
+  const states = chips;
+  // The six kinds the view counts most of.
+  const contentTypes = kinds.slice(0, 6).map(({ key, count }) => ({ key, label: getContentTypeLabel(key), count }));
 
   const hasActiveFilters = activeStates.size > 0 || activeContentTypes.size > 0 || hiddenContentTypes.size > 0;
   const showViewToggle = viewMode !== undefined && onViewModeChange !== undefined;

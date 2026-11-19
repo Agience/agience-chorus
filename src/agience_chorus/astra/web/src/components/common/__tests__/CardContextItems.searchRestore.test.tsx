@@ -13,7 +13,7 @@ vi.mock('../../ui/context-menu', () => ({
 }));
 
 const plainType = { actions: [] } as unknown as ContentTypeDefinition;
-const result = (state: string): Artifact => ({ id: 'a1', context: '{}', content: '', state } as unknown as Artifact);
+const result = (state: string): Artifact => ({ id: 'a1', allowed_actions: ['read', 'update', 'share'], context: '{}', content: '', state } as unknown as Artifact);
 
 // 2026-10-29, a tester: an archived search result could be restored only by opening it.
 describe('a search result', () => {

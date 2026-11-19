@@ -4,6 +4,7 @@ import { useWorkspaces } from '../../../context/workspaces/WorkspacesContext';
 import { AGIENCE_DRAG_CONTENT_TYPE, getAgienceDragPayload, setAgienceDragData } from '../../../dnd/agienceDrag';
 import { useWorkspace } from '../../../hooks/useWorkspace';
 import { usePalette } from '../../../hooks/usePalette';
+import { keySet, present, splitList, toggle, unique } from '@/display-state/lists';
 
 export default function ToolsPanel() {
   const { state, updatePanelData } = usePalette();
@@ -46,27 +47,21 @@ export default function ToolsPanel() {
   const toggleTool = useCallback(
     (toolName: string) => {
       updatePanelData('tools', (prev) => {
-        const selected = new Set(prev.tools);
-        if (selected.has(toolName)) selected.delete(toolName);
-        else selected.add(toolName);
-        return { ...prev, tools: Array.from(selected) };
+        return { ...prev, tools: toggle(prev.tools, toolName) };
       });
     },
     [updatePanelData]
   );
 
-  const selectedSet = useMemo(() => new Set(panelState.tools), [panelState.tools]);
+  const selectedSet = useMemo(() => keySet(panelState.tools), [panelState.tools]);
 
   const knownToolNames = useMemo(() => {
-    return new Set(tools.map((t) => t.tool.name));
+    return keySet(tools.map((t) => t.tool.name));
   }, [tools]);
 
   const extractToolCandidates = useCallback(
     (raw: string) => {
-      const tokens = raw
-        .split(/[\s,;]+/g)
-        .map((t) => t.trim())
-        .filter(Boolean)
+      const tokens = splitList(raw, /[\s,;]+/g)
         .flatMap((t) => {
           const parts = t.split('::');
           return parts.length > 1 ? [parts[parts.length - 1]] : [t];
@@ -76,7 +71,7 @@ export default function ToolsPanel() {
       for (const t of tokens) {
         if (knownToolNames.has(t)) hits.push(t);
       }
-      return Array.from(new Set(hits));
+      return unique(hits);
     },
     [knownToolNames]
   );
@@ -102,10 +97,8 @@ export default function ToolsPanel() {
 
       if (payload?.kind === 'artifacts') {
         const ids = payload.ids ?? [];
-        const texts = ids
-          .map((id) => workspaceArtifacts.find((c) => String(c.id) === String(id)))
-          .filter(Boolean)
-          .map((c) => `${c?.context ?? ''}\n${c?.content ?? ''}`);
+        const texts = present(ids.map((id) => workspaceArtifacts.find((c) => String(c.id) === String(id))))
+          .map((c) => `${c.context ?? ''}\n${c.content ?? ''}`);
         const candidates = extractToolCandidates(texts.join('\n'));
         if (candidates.length) candidates.forEach(toggleTool);
       }

@@ -1,0 +1,41 @@
+{
+  "content_type": "application/vnd.agience.role+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "A Role — a named set of actions a share or invite grants. The platform's Roles collection holds the roles offered; Mantle reads them each time, so an edited or added Role is offered at once.",
+  "context_schema": {
+    "role": {
+      "description": "the name a share or invite gives",
+      "index": [
+        "lexical"
+      ]
+    },
+    "actions": {
+      "description": "the CRUDEASIO actions the role grants: create, read, update, delete, evict, invoke, add, share, admin",
+      "index": [
+        "lexical"
+      ]
+    }
+  },
+  "ui": {
+    "label": "Role",
+    "icon": "shield",
+    "color": "#7c3aed",
+    "badge_class": "bg-violet-100 text-violet-800",
+    "tile_class": "ring-1 ring-violet-200/70",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "description": "A Role — the actions a share or invite grants."
+  }
+}

@@ -547,6 +547,27 @@ _CONTAINER_TYPES = frozenset({"application/vnd.agience.collection+json",
                               "application/vnd.agience.workspace+json"})
 
 
+#: A Search artifact: linked to a Chat, it is the search the answer runs, not evidence.
+_SEARCH_TYPE = "application/vnd.agience.search+json"
+
+_platform_search: dict[str, Optional[str]] = {}
+
+
+async def _platform_search_id(client: httpx.AsyncClient, headers: dict) -> Optional[str]:
+    """The platform Search Mantle names in its Platform operators, read once per process."""
+    if "id" not in _platform_search:
+        try:
+            resp = await client.get(f"{MANTLE_URI.rstrip('/')}/artifacts/platform-operators",
+                                    headers=headers, timeout=15)
+        except Exception:
+            return None
+        if resp.status_code != 200:
+            return None
+        body = resp.json()
+        _platform_search["id"] = (body.get("search") if isinstance(body, dict) else None) or None
+    return _platform_search["id"]
+
+
 async def _members(client: httpx.AsyncClient, headers: dict, container_id: str) -> list[str]:
     """The ids of the items in `container_id` the caller may read, one page (Mantle pages by what
     the caller may read; the grounding budget bounds what is used of it)."""
@@ -735,6 +756,7 @@ async def ask(
         artifact_ids = [*(artifact_ids or []), str(evidence)]
     findings: list[str] = []
     evidence: list[dict] = []
+    search_id: Optional[str] = None
     token = _delegation_token()
 
     # Explicit grounding cards — caller-supplied ids ⇒ caller's delegation only.
@@ -754,6 +776,9 @@ async def ask(
                     art = await _fetch_artifact_json(client, headers, aid, workspace_id)
                     if art is None:
                         findings.append(f"card {aid}: not fetchable under the caller's grants")
+                        continue
+                    if art.get("content_type") == _SEARCH_TYPE and aid in artifact_ids:
+                        search_id = search_id or aid
                         continue
                     if art.get("content_type") in _CONTAINER_TYPES and aid in artifact_ids:
                         # A linked collection answers from what it holds, each item cited.
@@ -776,7 +801,10 @@ async def ask(
 
     # Corpus grounding via op.retrieve.
     if token:
-        hits = _op_retrieve.retrieve(question, token, MANTLE_URI)
+        if not search_id:
+            async with httpx.AsyncClient() as client:
+                search_id = await _platform_search_id(client, {"Authorization": _op_retrieve._bearer(token)})
+        hits = _op_retrieve.retrieve(question, token, MANTLE_URI, search_id=search_id)
         seen = {e["id"] for e in evidence}
         evidence.extend(h for h in hits if h.get("id") not in seen)
         if not hits:

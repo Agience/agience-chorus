@@ -1,5 +1,6 @@
 import { AuthorityRefused } from '@/api/authority';
 import type { GrantResponse } from '@/api/types/grant';
+import { formatDay } from '@/utils/dates';
 
 export function errorDetailOf(err: unknown, fallback: string): string {
   // Origin's session routes throw AuthorityRefused(status, detail); the store's, an axios error.
@@ -17,7 +18,5 @@ export function inviteRefusal(err: unknown): string {
 /** When a pending invite was sent, as a short date (BUG-069), or '' if Origin gave none. */
 export function sentOn(g: GrantResponse): string {
   const at = (g as unknown as { sent_at?: string }).sent_at;
-  const d = at ? new Date(at) : null;
-  return d && !Number.isNaN(d.getTime())
-    ? d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+  return formatDay(at);
 }

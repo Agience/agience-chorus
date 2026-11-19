@@ -1,4 +1,5 @@
 import type { ShortcutCombo } from './types';
+import { splitList } from '@/display-state/lists';
 
 const MAC_PLATFORM_REGEX = /(Mac|iPhone|iPad|iPod)/i;
 
@@ -19,10 +20,7 @@ export function isMacPlatform(): boolean {
 }
 
 export function normalizeCombo(combo: string): string {
-  return combo
-    .split('+')
-    .map((part) => part.trim().toLowerCase())
-    .filter(Boolean)
+  return splitList(combo.toLowerCase(), '+')
     .join('+');
 }
 

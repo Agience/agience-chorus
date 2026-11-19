@@ -117,6 +117,14 @@
         <span class="info-value" id="keyAccess">—</span>
       </div>
       <div class="info-row">
+        <span class="info-label">Agent</span>
+        <span class="info-value" id="keyAgent">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Token ends in</span>
+        <span class="info-value" id="keyHint" style="font-family:monospace">—</span>
+      </div>
+      <div class="info-row">
         <span class="info-label">Expires</span>
         <span class="info-value" id="keyExpires">—</span>
       </div>
@@ -151,6 +159,10 @@
           </select>
         </div>
         <div class="form-group">
+          <label for="inputAgent">Agent <span style="font-weight:400;color:#9ca3af">— optional. With an agent, the key is that agent's, acting for you; without one, it is yours.</span></label>
+          <input id="inputAgent" type="text" placeholder="Agent artifact id">
+        </div>
+        <div class="form-group">
           <label for="inputDays">Expires in <span style="font-weight:400;color:#9ca3af">— days, 1 to 90. The key stops working then; revoke it sooner if you need to.</span></label>
           <input id="inputDays" type="number" min="1" max="90" value="30">
         </div>
@@ -161,7 +173,7 @@
       </div>
     </div>
 
-    <!-- State 2: Key stored. Its secret was shown once, by the host, when it was created. -->
+    <!-- State 2: the token is issued. It was shown once, by the host, when it was issued. -->
     <div id="storedSection" class="hidden">
       <div class="label">Bearer Token</div>
       <div class="copy-row">
@@ -178,7 +190,7 @@
     <!-- State 3: the key was revoked; the record stays. -->
     <div id="revokedSection" class="hidden">
       <div class="label">Revoked</div>
-      <p style="font-size:12px;color:#6b7280">This key no longer works. Anyone holding it was cut off when it was revoked.</p>
+      <p style="font-size:12px;color:#6b7280">This Key is archived and its token no longer works.</p>
     </div>
   </div>
 
@@ -260,6 +272,7 @@
     // =========================================================================
     let artifactId = null;
     let artifactContext = {};
+    let archived = false;
     let working = false;
 
     // =========================================================================
@@ -272,6 +285,7 @@
           try {
             const data = JSON.parse(block.text);
             artifactId = data.artifact_id || artifactId;
+            archived = data.state === 'archived';
             const rawCtx = data.context;
             artifactContext = typeof rawCtx === 'string' ? JSON.parse(rawCtx) : (rawCtx || {});
             render();
@@ -288,88 +302,84 @@
     // Rendering
     // =========================================================================
     function render() {
+      // A Key carries its own fields: `collections`, `actions`, `expires_at`, an optional `agent`,
+      // and, once issued, `token_hash` and `hint`. Archiving the Key ends its token.
       const ctx = artifactContext;
-      const keyMeta = ctx.key || {};
-      const revoked = Boolean(keyMeta.revoked_at);
-      const hasKeyStored = Boolean(keyMeta.api_key_id) && !revoked;
+      const issued = Boolean(ctx.token_hash);
+      const revoked = archived && issued;
+      const live = issued && !revoked;
 
-      // Header title
-      document.getElementById('headerTitle').textContent = ctx.title || 'API Key';
+      document.getElementById('headerTitle').textContent = ctx.title || 'Key';
 
-      // Key info card
-      const resources = keyMeta.resources;
-      const titles = keyMeta.resource_titles || {};
+      const collections = Array.isArray(ctx.collections) ? ctx.collections : [];
+      const titles = ctx.collection_titles || {};
       document.getElementById('keyScope').textContent =
-        resources?.length ? resources.map((id) => titles[id] || id).join('\n') : '—';
-      document.getElementById('keyAccess').textContent =
-        keyMeta.role === 'editor' ? 'Read and write' : keyMeta.role === 'viewer' ? 'Read only' : '—';
-      const expEl = document.getElementById('keyExpires');
-      if (expEl) expEl.textContent = keyMeta.expires_at ? new Date(keyMeta.expires_at).toLocaleDateString() : 'never';
+        collections.length ? collections.map((id) => titles[id] || id).join('\n') : '—';
+      const actions = Array.isArray(ctx.actions) ? ctx.actions : [];
+      document.getElementById('keyAccess').textContent = actions.length ? actions.join(', ') : '—';
+      document.getElementById('keyAgent').textContent = ctx.agent || (issued ? 'none: your own key' : '—');
+      document.getElementById('keyHint').textContent = ctx.hint ? '…' + ctx.hint : '—';
+      document.getElementById('keyExpires').textContent =
+        ctx.expires_at ? new Date(ctx.expires_at).toLocaleDateString() : '—';
 
-      // Status badge
       const badgeEl = document.getElementById('keyStatusBadge');
       if (revoked) {
         badgeEl.innerHTML = '<span class="status-badge none"><span class="status-dot none"></span>Revoked</span>';
-      } else if (hasKeyStored) {
-        badgeEl.innerHTML = '<span class="status-badge stored"><span class="status-dot stored"></span>Stored</span>';
+      } else if (live) {
+        badgeEl.innerHTML = '<span class="status-badge stored"><span class="status-dot stored"></span>Issued</span>';
       } else {
         badgeEl.innerHTML = '<span class="status-badge none"><span class="status-dot none"></span>No key</span>';
       }
 
-      // Section visibility
-      document.getElementById('createSection').classList.toggle('hidden', hasKeyStored || revoked);
-      document.getElementById('storedSection').classList.toggle('hidden', !hasKeyStored);
+      document.getElementById('createSection').classList.toggle('hidden', issued);
+      document.getElementById('storedSection').classList.toggle('hidden', !live);
       document.getElementById('revokedSection').classList.toggle('hidden', !revoked);
     }
 
     // =========================================================================
     // Actions
     // =========================================================================
-    // A key reaches the collections it names: `role` is `viewer` or `editor`, and `resources` are
-    // what it reaches. The host asks first, then Origin mints it on its own page, where the person
-    // approves and sees the secret once; the view gets the key's record, never the secret.
-    // Every key expires (FR-019; at most 90 days, John 2026-11-14): 30 by default.
+    // The host asks the person first, then fills this Key (or, once it is issued, creates a new
+    // one) with what the view names; Mantle issues the token and the host shows it once. The view
+    // gets the Key's id, hint and fields, never the token. Every key expires within 90 days.
     const KEY_MAX_DAYS = 90;
+    const ACCESS = { viewer: ['read'], editor: ['create', 'read', 'update', 'delete', 'evict'] };
     function expiryIn(days) {
       const d = Math.round(Number(days));
       if (!Number.isFinite(d) || d < 1 || d > KEY_MAX_DAYS) throw new Error('Expires in is 1 to ' + KEY_MAX_DAYS + ' days.');
-      return { days: d, at: new Date(Date.now() + d * 86400000).toISOString() };
+      return new Date(Date.now() + d * 86400000).toISOString();
     }
 
-    async function issue(name, role, resources, days, resourceTitles) {
-      const exp = expiryIn(days);
+    async function issue(name, collections, collectionTitles, actions, days, agent) {
       const result = await sendRpc('tools/call', {
         name: 'create_api_key',
-        arguments: { name, role, resources, expires_at: exp.at }
+        arguments: { content_type: 'application/vnd.agience.key+json', name, collections, collection_titles: collectionTitles || {}, actions,
+                     expires_at: expiryIn(days), ...(agent ? { agent } : {}) }
       });
       const resultText = result?.content?.[0]?.text;
       if (!resultText) return;
-      const created = JSON.parse(resultText);
-      artifactContext = { ...artifactContext, key: { api_key_id: created.id, name, role, resources,
-                                                     resource_titles: resourceTitles || {},
-                                                     expires_at: created.expires_at || exp.at,
-                                                     expires_in_days: exp.days } };
-      await sendRpc('tools/call', {
-        name: 'update_artifact',
-        arguments: { id: artifactId, patch: { context: JSON.stringify(artifactContext) } }
-      });
-      render();
+      const made = JSON.parse(resultText);
+      // The hosted Key was filled: show what it now holds. A new Key opens on its own.
+      if (made.id === artifactId && made.context) {
+        artifactContext = made.context;
+        render();
+      }
     }
 
     window.handleGenerate = async function() {
-      const name = artifactContext.title || 'api-key';
-      const resources = picked.map((c) => c.id);
-      const role = document.getElementById('inputAccess').value;
-      const days = document.getElementById('inputDays').value;
+      const collections = picked.map((c) => c.id);
       clearError();
-      if (!resources.length) {
+      if (!collections.length) {
         showError('Add at least one collection the key reaches.');
         return;
       }
       setWorking(true);
       try {
-        await issue(name, role, resources, days,
-                    Object.fromEntries(picked.filter((c) => c.title).map((c) => [c.id, c.title])));
+        await issue(artifactContext.title || 'Key', collections,
+                    Object.fromEntries(picked.filter((c) => c.title).map((c) => [c.id, c.title])),
+                    ACCESS[document.getElementById('inputAccess').value] || ACCESS.viewer,
+                    document.getElementById('inputDays').value,
+                    document.getElementById('inputAgent').value.trim());
       } catch (err) {
         showError(err.message || 'Failed to generate key.');
       } finally {
@@ -377,16 +387,17 @@
       }
     };
 
+    // Rotating archives this Key and issues a new Key with the same fields.
     window.handleRotate = async function() {
       clearError();
       setWorking(true);
       try {
-        const keyMeta = artifactContext.key || {};
-        if (keyMeta.api_key_id) {
-          await sendRpc('tools/call', { name: 'delete_api_key', arguments: { id: keyMeta.api_key_id } });
-        }
-        await issue(artifactContext.title || keyMeta.name || 'api-key', keyMeta.role || 'viewer', keyMeta.resources || [],
-                    Math.min(keyMeta.expires_in_days || 30, KEY_MAX_DAYS), keyMeta.resource_titles);
+        const ctx = artifactContext;
+        await sendRpc('tools/call', { name: 'delete_api_key', arguments: {} });
+        archived = true;
+        render();
+        await issue(ctx.title || 'Key', ctx.collections || [], ctx.collection_titles, ctx.actions || [],
+                    document.getElementById('inputDays').value, ctx.agent);
       } catch (err) {
         showError(err.message || 'Failed to rotate key.');
       } finally {
@@ -398,13 +409,8 @@
       clearError();
       setWorking(true);
       try {
-        const keyMeta = artifactContext.key || {};
-        await sendRpc('tools/call', { name: 'delete_api_key', arguments: { id: keyMeta.api_key_id } });
-        artifactContext = { ...artifactContext, key: { ...keyMeta, revoked_at: new Date().toISOString() } };
-        await sendRpc('tools/call', {
-          name: 'update_artifact',
-          arguments: { id: artifactId, patch: { context: JSON.stringify(artifactContext) } }
-        });
+        await sendRpc('tools/call', { name: 'delete_api_key', arguments: {} });
+        archived = true;
         render();
       } catch (err) {
         showError(err.message || 'Failed to revoke key.');

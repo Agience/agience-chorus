@@ -4,6 +4,7 @@ referenced secret, else none."""
 from __future__ import annotations
 
 import asyncio
+import json
 
 from agience_chorus.iris import server
 
@@ -34,3 +35,38 @@ def test_a_server_tool_step_sends_one_tools_call(monkeypatch):
     asyncio.run(server.use_server_tool("srv-1", "ping"))
     assert sent == [("srv-1", "tools/call", {"name": "echo", "arguments": {"text": "hi"}}),
                     ("srv-1", "tools/call", {"name": "ping", "arguments": {}})]
+
+
+def test_a_server_tool_step_runs_through_op_mcp_call(monkeypatch):
+    """The step's call goes through the `op.mcp.call` handler, and its answer is the server's."""
+    from agience_chorus.iris.comms import mcp_tekton
+    made = []
+    real = mcp_tekton.mcp_handler
+
+    def spy(call_tool=None, **kw):
+        made.append(kw.get("server_id"))
+        return real(call_tool, **kw)
+    monkeypatch.setattr(mcp_tekton, "mcp_handler", spy)
+
+    async def call(server_id, method, params=None):
+        return '{"result": {"content": [{"type": "text", "text": "hi"}], "isError": false}}'
+    monkeypatch.setattr(server, "call_mcp_server", call)
+    out = asyncio.run(server.use_server_tool("srv-1", "echo", {"text": "hi"}))
+    assert made == ["srv-1"]
+    assert json.loads(out)["result"]["content"][0]["text"] == "hi"
+
+
+def test_a_refused_server_tool_answers_the_refusal(monkeypatch):
+    async def call(server_id, method, params=None):
+        return '{"error": "you may read this MCP server but not run it (invoke)", "status": 403}'
+    monkeypatch.setattr(server, "call_mcp_server", call)
+    out = json.loads(asyncio.run(server.use_server_tool("srv-1", "echo")))
+    assert out["status"] == 403
+
+
+def test_no_server_named_calls_nothing(monkeypatch):
+    async def call(*a, **kw):
+        raise AssertionError("nothing is called")
+    monkeypatch.setattr(server, "call_mcp_server", call)
+    out = json.loads(asyncio.run(server.use_server_tool("", "echo")))
+    assert out["status"] == 400 and "no external MCP organon" in out["error"]

@@ -6,16 +6,18 @@ import { CardEditor } from './CardEditor';
 import { CollectionPicker } from '../modals/CollectionPicker';
 import { BulkTagDialog, type BulkTagApplyRequest } from '../modals/BulkTagDialog';
 import { addArtifactToCollection } from '../../api/collections';
+import { getArtifact } from '../../api/artifacts';
+import { errorDetail } from '../../utils/errorDetail';
 import { useConfirm } from '../../context/dialog/useConfirm';
 import { BULK_CONFIRM, BUTTON_LABELS, TRASH_RETENTION_DAYS } from '@/constants/strings';
 import { noun } from '@/product/copy';
 import { toast } from 'sonner';
-import { canDeleteArtifact } from '@/utils/artifact-permissions';
-import { useCurrentUserId } from '@/hooks/useCurrentUserId';
+import { allows } from '@/utils/artifact-permissions';
 import { getContentType } from '@/registry/content-types';
 import ContainerCardViewer from '@/components/containers/ContainerCardViewer';
 import ViewCardViewer from '@/components/view/ViewCardViewer';
 import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
+import { keyedIn, unique } from '@/display-state/lists';
 
 interface PreviewPaneProps {
   /** ID of artifact to preview (null = no selection) */
@@ -116,9 +118,9 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center h-full px-8 text-center">
       <FileText className="w-16 h-16 text-gray-300 mb-4" />
-      <h3 className="text-lg font-semibold text-gray-700 mb-2">No card selected</h3>
+      <h3 className="text-lg font-semibold text-gray-700 mb-2">No artifact selected</h3>
       <p className="text-sm text-gray-500">
-        Select a card from the list to preview its content here
+        Select an artifact from the list to preview it here
       </p>
     </div>
   );
@@ -130,14 +132,12 @@ function EmptyState() {
 function MultiSelectSummary({ count, onClose }: { count: number; onClose?: () => void }) {
   const { artifacts, selectedArtifactIds, removeArtifact, deleteArtifact, updateArtifact, unselectAllArtifacts } = useWorkspace();
   const dangerConfirm = useConfirm();
-  const currentUserId = useCurrentUserId();
   const [showCollectionPicker, setShowCollectionPicker] = useState(false);
   const [showBulkTagDialog, setShowBulkTagDialog] = useState(false);
   
   // Get selected artifacts with their titles
   const selectedArtifacts = useMemo(() => {
-    return artifacts
-      .filter(c => selectedArtifactIds.includes(String(c.id)))
+    return keyedIn(artifacts, c => c.id, selectedArtifactIds)
       .map(c => {
         let ctx: { title?: string; filename?: string; [key: string]: unknown } = {};
         try {
@@ -149,7 +149,7 @@ function MultiSelectSummary({ count, onClose }: { count: number; onClose?: () =>
         }
         return {
           id: String(c.id),
-          title: ctx.title || ctx.filename || 'Untitled Card',
+          title: ctx.title || ctx.filename || 'Untitled artifact',
           state: c.state,
         };
       });
@@ -176,18 +176,15 @@ function MultiSelectSummary({ count, onClose }: { count: number; onClose?: () =>
 
   const handleBulkApplyTags = async ({ tags, replaceExisting }: BulkTagApplyRequest) => {
     for (const artifactId of selectedArtifactIds) {
-      const artifact = artifacts.find((entry) => String(entry.id) === artifactId);
-      if (!artifact) continue;
-
-      const context = safeParseArtifactContext(artifact.context);
-      const currentTags = Array.isArray(context.tags) ? context.tags.map(String) : [];
-      await updateArtifact({
-        id: artifactId,
-        context: stringifyArtifactContext({
-          ...context,
-          tags: replaceExisting ? tags : Array.from(new Set([...currentTags, ...tags])),
-        }),
-      });
+      // Read the artifact as stored, merge the tags, and write the whole list.
+      try {
+        const context = safeParseArtifactContext((await getArtifact(artifactId)).context);
+        const held = !replaceExisting && Array.isArray(context.tags) ? context.tags : [];
+        await updateArtifact({ id: artifactId, context: stringifyArtifactContext({ ...context, tags: unique([...held, ...tags]) }) });
+      } catch (err) {
+        toast.error('Could not add the tags', { description: errorDetail(err, 'The tags were not saved') });
+        return;
+      }
     }
   };
 
@@ -205,7 +202,7 @@ function MultiSelectSummary({ count, onClose }: { count: number; onClose?: () =>
       let trashed = 0;
       for (const artifactId of selectedArtifactIds) {
         const artifact = artifacts.find(c => String(c.id) === artifactId);
-        if (artifact && canDeleteArtifact(artifact, currentUserId)) {
+        if (artifact && allows(artifact, 'delete')) {
           if (await deleteArtifact(artifactId, { announce: false })) trashed += 1;
         } else {
           await removeArtifact(artifactId);
@@ -231,7 +228,7 @@ function MultiSelectSummary({ count, onClose }: { count: number; onClose?: () =>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <h2 className="text-base font-semibold text-gray-900">
-          {count} Cards Selected
+          {count} artifacts selected
         </h2>
         <button
           onClick={() => {

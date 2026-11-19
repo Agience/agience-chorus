@@ -7,8 +7,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Origin's preview digest of exactly that id, and grants on it, whatever page is open.
 const listGrantsMock = vi.fn();
 const createGrantMock = vi.fn();
-vi.mock('@/api/collections', () => ({
+const { ROLES } = vi.hoisted(() => ({ ROLES: [
+  { name: 'viewer', actions: ['read'] }, { name: 'contributor', actions: ['create', 'read'] },
+  { name: 'admin', actions: ['create', 'read', 'update', 'delete', 'evict', 'invoke', 'add', 'share', 'admin'] },
+] }));
+vi.mock('@/api/collections', async (orig) => ({
+  ...(await orig<typeof import('@/api/collections')>()),
+  listRoles: async () => ROLES,
   listGrants: (...a: unknown[]) => listGrantsMock(...a),
+  markMembers: async (_id: string, gs: never[]) => (await import('./memberMarks')).marked(gs),
   deleteGrant: vi.fn(),
   createGrant: (...a: unknown[]) => createGrantMock(...a),
 }));

@@ -65,12 +65,19 @@ _FETCH_OPS = [
 _HANDLERS = {"op.fetch.get": _get}
 
 
+#: the capabilities each operator needs to run, by operator id.
+_NEEDS = {
+    "op.fetch.get": ["net.get"],
+}
+
+
 def register_fetch_operators(store, *, author: str = "ember-local") -> int:
     from crystal import evolution
     for name, offer in _FETCH_OPS:
         evolution.put_operator(store, {
             "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
-            "context": offer, "content": f"fetch operator {name}: {offer}  [read-only / GET-only]",
+            "context": offer, "offer": offer, "needs": list(_NEEDS[name]),
+            "content": f"fetch operator {name}: {offer}  [read-only / GET-only]",
             "created_by": author})
     return len(_FETCH_OPS)
 

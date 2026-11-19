@@ -3,10 +3,11 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import CollectionArtifactViewer from '../CollectionArtifactViewer';
 import type { Artifact } from '@/context/workspace/workspace.types';
+import { announceMembershipChange } from '@/constants/strings';
 
-const { listMock, removeFromCollectionMock, deleteArtifactMock, confirmMock, patchMock, store } = vi.hoisted(() => ({
+const { listMock, changeMembershipsMock, deleteArtifactMock, confirmMock, patchMock, store } = vi.hoisted(() => ({
   listMock: vi.fn(),
-  removeFromCollectionMock: vi.fn(),
+  changeMembershipsMock: vi.fn(),
   deleteArtifactMock: vi.fn(),
   confirmMock: vi.fn(),
   patchMock: vi.fn(),
@@ -16,7 +17,7 @@ const { listMock, removeFromCollectionMock, deleteArtifactMock, confirmMock, pat
 vi.mock('@/api/collections', () => ({
   addArtifactToCollection: vi.fn(),
   listCollectionArtifacts: (...args: unknown[]) => listMock(...args),
-  removeArtifactFromCollection: (...args: unknown[]) => removeFromCollectionMock(...args),
+  changeMemberships: (...args: unknown[]) => changeMembershipsMock(...args),
   subscribeCollectionEvents: () => () => {},
 }));
 
@@ -60,7 +61,10 @@ const member = { id: 'm1', root_id: 'm1', context: '{}', content: '', state: 'li
 describe('CollectionArtifactViewer remove and delete', () => {
   beforeEach(() => {
     listMock.mockReset().mockResolvedValue([member]);
-    removeFromCollectionMock.mockReset().mockResolvedValue(undefined);
+    changeMembershipsMock.mockReset().mockResolvedValue({
+      items: [{ id: 'm1', root_id: 'm1', committed_collection_ids: ['other'], container_ids: ['other'], containers: [] }],
+      all: [], some: ['other'], archived: [], failed: [],
+    });
     deleteArtifactMock.mockReset().mockResolvedValue(true);
     confirmMock.mockReset();
     patchMock.mockReset();
@@ -73,23 +77,37 @@ describe('CollectionArtifactViewer remove and delete', () => {
     store.artifacts = [{ ...member, committed_collection_ids: ['col-1', 'other'] }];
     render(<CollectionArtifactViewer artifact={collection} />);
     fireEvent.click(await screen.findByText('remove m1'));
-    await waitFor(() => expect(patchMock).toHaveBeenCalledWith({ id: 'm1', committed_collection_ids: ['other'] }));
+    await waitFor(() => expect(patchMock).toHaveBeenCalledWith({ id: 'm1', committed_collection_ids: ['other'], container_ids: ['other'], containers: [] }));
   });
 
-  // 2026-10-13, a tester: a collection kept showing an archived artifact a workspace had dropped.
-  it('does not show an archived card the workspace store still holds', async () => {
+  it('shows only what Mantle lists, not what the workspace store says this container holds', async () => {
     listMock.mockResolvedValue([]);
-    store.artifacts = [{ id: 'a1', root_id: 'a1', context: '{}', content: '', state: 'archived', committed_collection_ids: ['col-1'] }];
+    store.artifacts = [
+      { id: 'a1', root_id: 'a1', context: '{}', content: '', state: 'archived', committed_collection_ids: ['col-1'] },
+      { id: 'a2', root_id: 'a2', context: '{}', content: '', state: 'live', committed_collection_ids: ['col-1'] },
+    ];
     render(<CollectionArtifactViewer artifact={collection} />);
     await screen.findByTestId('grid');
     expect(screen.queryByText('a1')).toBeNull();
+    expect(screen.queryByText('a2')).toBeNull();
+  });
+
+  it('lists the members again when a membership naming this container changes', async () => {
+    listMock.mockResolvedValueOnce([]).mockResolvedValue([member]);
+    render(<CollectionArtifactViewer artifact={collection} />);
+    await screen.findByTestId('grid');
+    expect(screen.queryByText('m1')).toBeNull();
+    announceMembershipChange({ container_id: 'other' });
+    announceMembershipChange({ container_id: 'col-1' });
+    expect(await screen.findByText('m1')).toBeTruthy();
+    expect(listMock).toHaveBeenCalledTimes(2);
   });
 
   it('calls a workspace a workspace', async () => {
     const workspace = { ...collection, context: '{"content_type":"application/vnd.agience.workspace+json"}' } as Artifact;
     render(<CollectionArtifactViewer artifact={workspace} />);
     expect(await screen.findByTestId('grid')).toHaveAttribute('data-noun', 'workspace');
-    expect(screen.getByTitle('New card in this workspace')).toBeTruthy();
+    expect(screen.getByTitle('New artifact in this workspace')).toBeTruthy();
   });
 
   it('tells the grid it can delete', async () => {
@@ -101,7 +119,7 @@ describe('CollectionArtifactViewer remove and delete', () => {
     render(<CollectionArtifactViewer artifact={collection} />);
     fireEvent.click(await screen.findByText('remove m1'));
 
-    await waitFor(() => expect(removeFromCollectionMock).toHaveBeenCalledWith('col-1', 'm1'));
+    await waitFor(() => expect(changeMembershipsMock).toHaveBeenCalledWith(['m1'], { remove: ['col-1'] }));
     expect(confirmMock).not.toHaveBeenCalled();
     expect(deleteArtifactMock).not.toHaveBeenCalled();
   });
@@ -113,7 +131,7 @@ describe('CollectionArtifactViewer remove and delete', () => {
 
     await waitFor(() => expect(deleteArtifactMock).toHaveBeenCalledWith('m1'));
     expect(confirmMock).toHaveBeenCalledTimes(1);
-    expect(removeFromCollectionMock).not.toHaveBeenCalled();
+    expect(changeMembershipsMock).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByText('remove m1')).toBeNull());
   });
 
@@ -124,7 +142,7 @@ describe('CollectionArtifactViewer remove and delete', () => {
 
     await waitFor(() => expect(confirmMock).toHaveBeenCalled());
     expect(deleteArtifactMock).not.toHaveBeenCalled();
-    expect(removeFromCollectionMock).not.toHaveBeenCalled();
+    expect(changeMembershipsMock).not.toHaveBeenCalled();
     expect(screen.getByText('remove m1')).toBeInTheDocument();
   });
 });

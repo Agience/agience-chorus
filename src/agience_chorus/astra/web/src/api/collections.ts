@@ -1,6 +1,7 @@
 // api/collections.ts
 
-import { get, getList, post, postList, patch, del } from './api';
+import { get, getList, post, postList, del } from './api';
+import { sameKeys } from '@/display-state/lists';
 import {
   changeGrant, listGrantsAtOrigin, makeGrant, revokeGrant, type GrantInput,
 } from './authority';
@@ -8,7 +9,8 @@ import type { RemoveResult } from '../utils/removal';
 import { COLLECTION_CONTENT_TYPE } from '@/utils/content-type';
 import { subscribeEvents, type BusEvent } from './events';
 import { completeFromFeed } from './feedArtifact';
-import { titled } from '@/utils/untitled';
+import { withMarks } from './marks';
+import { namedCreate, updateArtifact } from './artifacts';
 import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
 import {
   CollectionResponse,
@@ -38,22 +40,25 @@ export async function listCollections(action: string = 'read',
   // `encodeURIComponent`, not `URLSearchParams`: the latter is form-encoding and would be a
   // different encoder over the same values. This keeps the bytes on the wire identical.
   const scope = action === 'read' ? '' : `&action=${encodeURIComponent(action)}`;
-  // Each is `titled`: its `name` is the title it is shown by.
-  const list = await getList<CollectionResponse>(
+  // Each `name` is the title Mantle shows it by.
+  return withMarks(getList<CollectionResponse>(
     `/artifacts/visible?content_type=${encodeURIComponent(contentType)}${scope}`,
-  );
-  return list.map(titled);
+  ), contentType);
 }
 
-// Every artifact of one content type the caller can read: what a picker offers for an argument
-// that names an artifact of that type.
-export function listVisibleOfType(contentType: string): Promise<ArtifactResponse[]> {
-  return getList('/artifacts/visible', { params: { content_type: contentType } });
+// Every artifact of any of `contentTypes` the caller may do `action` to, in one answer from
+// Mantle, each once and named by the title Mantle shows it by: what a picker offers for an
+// argument that names an artifact of those types.
+export function listVisibleOfTypes(contentTypes: string[], action: string = 'read'): Promise<ArtifactResponse[]> {
+  const scope = action === 'read' ? '' : `&action=${encodeURIComponent(action)}`;
+  return getList(
+    `/artifacts/visible?content_type=${contentTypes.map(encodeURIComponent).join('&content_type=')}${scope}`,
+  );
 }
 
 // get a single collection
 export async function getCollection(id: string, _grantKey?: string): Promise<CollectionResponse> {
-  return titled(await get<CollectionResponse>(`/artifacts/${id}`));
+  return get<CollectionResponse>(`/artifacts/${id}`);
 }
 
 
@@ -65,13 +70,15 @@ export async function createCollection(
   // A collection is an artifact — created in a container (the active workspace),
   // it becomes a member and shows there like anything else. Omit container for
   // a top-level collection.
-  // The title is content and lives in the context; `name` is kept beside it for older readers.
-  return titled(await post<CollectionResponse>('/artifacts', {
+  // The title is content and lives in the context. A blank name is sent blank: Crystal names it.
+  const title = String(input.name ?? '').trim();
+  return namedCreate<CollectionResponse>({
     ...input,
+    name: title,
     content_type: COLLECTION_CONTENT_TYPE,
-    context: stringifyArtifactContext({ content_type: COLLECTION_CONTENT_TYPE, title: input.name }),
+    context: stringifyArtifactContext({ content_type: COLLECTION_CONTENT_TYPE, ...(title ? { title } : {}) }),
     ...(containerId ? { container_id: containerId } : {}),
-  }));
+  });
 }
 
 // update name/description
@@ -81,10 +88,10 @@ export async function updateCollection(
 ): Promise<CollectionResponse> {
   // A rename sets the context's title too, which is what cards and pickers show. The whole client
   // context is sent: an update replaces the client's keys, so it is read first.
-  if (input.name === undefined) return titled(await patch<CollectionResponse>(`/artifacts/${id}`, input));
+  if (input.name === undefined) return updateArtifact<CollectionResponse>(id, input);
   const current = await get<CollectionResponse>(`/artifacts/${id}`);
   const context = stringifyArtifactContext({ ...safeParseArtifactContext(current.context), title: input.name });
-  return titled(await patch<CollectionResponse>(`/artifacts/${id}`, { ...input, context }));
+  return updateArtifact<CollectionResponse>(id, { ...input, context });
 }
 
 // delete collection
@@ -98,9 +105,39 @@ export function listGrants(collectionId: string): Promise<GrantResponse[]> {
   return listGrantsAtOrigin(collectionId);
 }
 
+/** A grant as the resource's types mark it: `member`, `invited` or `declined`, or another mark a type declares. */
+export type Member = GrantResponse & { mark: string };
+
+/** Who a resource is shared with: Crystal marks the grants the caller listed as the resource's
+ * types declare, in the order given, and leaves out a grant no mark names. */
+export async function markMembers(resourceId: string, grants: GrantResponse[]): Promise<Member[]> {
+  const got = await post<{ members?: Member[] }>(`/artifacts/${encodeURIComponent(resourceId)}/op/members`, { grants });
+  return Array.isArray(got?.members) ? got.members : [];
+}
+
 // A grant, an invite, a change or a revocation is made at Origin, in the person's Origin session
 // (review 12): the token Mantle holds changes no authority. Mantle lists them once it has applied
 // Origin's entries from the feed.
+/** A role preset as Mantle answers it: its name and the actions it grants. */
+export interface Role { name: string; actions: string[] }
+
+/** The roles a share or invite offers, from Mantle. */
+export async function listRoles(): Promise<Role[]> {
+  const got = await get<{ roles: Role[] }>('/grants/roles');
+  return got.roles;
+}
+
+/** A role as Mantle names it, with its first letter raised for display. */
+export function shownRole(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/** The Mantle role whose actions are exactly `actions`, as shown, or null when none is. */
+export function roleNamed(actions: string[], roles: Role[]): string | null {
+  const match = roles.find((r) => sameKeys(r.actions, actions));
+  return match ? shownRole(match.name) : null;
+}
+
 export function createGrant(
   collectionId: string,
   input: Omit<GrantCreate, 'resource_id'>
@@ -134,8 +171,34 @@ export const getCollectionArtifacts = listCollectionArtifacts;
 
 /** A container's archived members, homed there or linked in. Default listings read past them;
  * this is how they are found and restored. Works for workspaces and collections alike. */
-export function listArchivedChildren(containerId: string): Promise<ArtifactResponse[]> {
-  return getList<ArtifactResponse>(`/artifacts/${encodeURIComponent(containerId)}/children?state=archived`);
+/** What the person chose in a container's view: the chips set apart (`archived`, `closed`), the
+ *  kinds to show only or never, and a sort the types declare. */
+export interface ViewChoices { apart: string[]; kinds: string[]; hidden_kinds: string[]; sort: string }
+export interface ViewChip { key: string; label: string; count: number }
+export interface ViewCount { key: string; count: number }
+export interface ViewSection { id: string; title: string; keys: string[] }
+/** A container's view as Crystal runs it from its members' types: the members that show, in
+ *  order, and the chips and kinds to offer with their counts. */
+export interface ViewResult {
+  artifacts: ArtifactResponse[];
+  chips: ViewChip[];
+  kinds: ViewCount[];
+  kind_of: Record<string, string>;
+  /** The actions each member's type withholds from it now (while its content arrives, say), by
+   *  its key; a member withheld nothing is absent. */
+  locked?: Record<string, string[]>;
+  sorts: string[];
+  /** The shown members' keys that stay in the main list. */
+  primary: string[];
+  /** The shown members another member produced, gathered by the one that produced them or by
+   *  what they are. */
+  sections: ViewSection[];
+  /** How many members each member produced, by its id. */
+  owned: Record<string, number>;
+}
+
+export function runView(containerId: string, choices: ViewChoices): Promise<ViewResult> {
+  return post<ViewResult>(`/artifacts/${encodeURIComponent(containerId)}/op/view`, choices);
 }
 
 export function getCollectionArtifact(_collectionId: string, rootId: string, _grantKey?: string): Promise<ArtifactResponse> {
@@ -247,42 +310,34 @@ export function subscribeCollectionEvents(
   );
 }
 
-/**
- * Make `artifact` a member of exactly `nextIds` among the collections it is in now: added to each
- * new one, removed from each one left. Returns the memberships it holds afterwards, so a view can
- * show them at once rather than at its next refresh (BUG-021). Every change is tried; the first
- * failure is thrown after the rest have run, with what did change already in the returned list
- * of the error (`partial`).
- */
-export async function setArtifactCollections(
-  artifact: { id?: string | number; root_id?: string | null; committed_collection_ids?: string[] | null },
-  nextIds: string[],
-): Promise<string[]> {
-  const current = (artifact.committed_collection_ids ?? []).map(String);
-  const next = new Set(nextIds.map(String));
-  const held = new Set(current);
-  const rootId = String(artifact.root_id ?? artifact.id);
-  let failure: unknown = null;
-  for (const id of next) {
-    if (held.has(id)) continue;
-    try {
-      await addArtifactToCollection(id, String(artifact.id));
-      held.add(id);
-    } catch (err) {
-      failure ??= err;
-    }
-  }
-  for (const id of current) {
-    if (next.has(id)) continue;
-    try {
-      await removeArtifactFromCollection(id, rootId);
-      held.delete(id);
-    } catch (err) {
-      failure ??= err;
-    }
-  }
-  if (failure) {
-    throw Object.assign(failure instanceof Error ? failure : new Error(String(failure)), { partial: [...held] });
-  }
-  return [...held];
+/** Where each artifact is held after a membership change, as Mantle reads it. */
+export interface MembershipItem {
+  id: string;
+  root_id: string;
+  container_ids: string[];
+  containers: { id: string; name: string }[];
+  committed_collection_ids: string[];
+}
+
+/** Mantle's answer: the containers holding all the artifacts and those holding some; the
+ *  artifacts a removal archived; and each change it refused (the rest were made). */
+export interface Memberships {
+  items: MembershipItem[];
+  all: string[];
+  some: string[];
+  archived: string[];
+  failed: { artifact_id: string; container_id: string; detail: string }[];
+}
+
+/** The change a picker asks for: `held` is what it ticked, `cleared` the mixed ones it cleared. */
+export interface MembershipChange {
+  held?: string[];
+  cleared?: string[];
+  add?: string[];
+  remove?: string[];
+}
+
+/** Ask Mantle where `artifactIds` are held, making `change` first when one is given. */
+export function changeMemberships(artifactIds: string[], change: MembershipChange = {}): Promise<Memberships> {
+  return post('/artifacts/memberships', { artifact_ids: artifactIds, ...change });
 }

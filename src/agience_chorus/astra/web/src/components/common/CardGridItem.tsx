@@ -1,5 +1,5 @@
 ﻿// "Artifact Preview" – the small grid tile representation of a single artifact inside the Artifact Grid.
-import { artifactTitle } from '@/utils/untitled';
+import { artifactTitle } from '@/utils/artifactContext';
 import { MouseEvent, DragEvent, useState, useRef, useEffect, useMemo } from 'react';
 import clsx from 'clsx';
 import {
@@ -8,8 +8,7 @@ import {
 } from 'react-icons/fi';
 import { Artifact } from '../../context/workspace/workspace.types';
 import { getStableArtifactId } from '@/utils/artifact-identifiers';
-import { invokeArtifact } from '@/api/artifacts';
-import { addArtifactToCollection } from '@/api/collections';
+import { dropOn } from '@/api/drops';
 import { toast } from 'sonner';
 import {
   ContextMenu,
@@ -22,14 +21,14 @@ import { TYPE_COLORS } from '@/utils/type-colors';
 import { getArtifactType, getArtifactIcon, getArtifactColor, shouldShowStateBadge, getStateBadgeLabel } from '@/utils/artifact-visual-helpers';
 import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { useCollections } from '../../context/collections/CollectionsContext';
 import { getContentType } from '@/registry/content-types';
 import { ContainerTreePreview } from '../containers/ContainerCardViewer';
 import { AGIENCE_DRAG_CONTENT_TYPE, getDroppedArtifactIds } from '@/dnd/agienceDrag';
 import { CardContextItems } from './CardContextItems';
 import type { CardActionId } from './CardContextItems';
 import { useWorkspace } from '@/hooks/useWorkspace';
-import { buildCollectionLabelMap, resolveCollectionLabel } from '@/utils/collectionLabels';
+import { formatDay } from '@/utils/dates';
+import { keyList } from '@/display-state/lists';
 type GridDragData = { ids?: string[]; rootIds?: string[]; versionIds?: string[] } | undefined;
 
 function getDragStableId(
@@ -157,8 +156,7 @@ export const CardGridItem = ({
 }: CardGridItemProps) => {
   const [hovered, setHovered] = useState(forceHover);
   const draggingRef = useRef(false);
-  const { collections } = useCollections();
-  const { artifacts, displayedArtifacts = [], refreshArtifacts } = useWorkspace();
+  const { refreshArtifacts } = useWorkspace();
 
   // Artifact type visual system
   const artifactType = getArtifactType(artifact);
@@ -170,31 +168,17 @@ export const CardGridItem = ({
   const contentType = useMemo(() => getContentType(artifact), [artifact]);
   const removeLabel = `Remove from ${activeSource?.noun ?? (activeSource?.type === 'collection' ? 'collection' : 'workspace')}`;
 
-  // Drop zone — any artifact can opt in via context.drop.enabled
-  const dropConfig = useMemo(() => {
-    try {
-      const ctx = typeof artifact.context === 'string'
-        ? JSON.parse(artifact.context)
-        : artifact.context;
-      if (ctx?.drop?.enabled) {
-        return ctx.drop as { enabled: boolean; label?: string; accepts?: string[] };
-      }
-    } catch { /* ignore */ }
-    return null;
-  }, [artifact.context]);
   const [isDropTarget, setIsDropTarget] = useState(false);
-  const collectionLabelMap = useMemo(
-    () => buildCollectionLabelMap([...artifacts, ...displayedArtifacts], collections),
-    [artifacts, displayedArtifacts, collections],
+  // The names of the containers holding it that its reader may read, from Mantle.
+  const containerNames = useMemo(
+    () => new Map((artifact.containers ?? []).map(({ id, name }) => [id, name])),
+    [artifact.containers],
   );
   const showContainerTreePreview =
     contentType.isContainer && Boolean(contentType.containerVariant);
 
-  // Collection/workspace cards accept dropping an existing artifact to add it
-  // as a member. This is distinct from the context.drop transform zone above:
-  // any container that isn't already a transform drop target opts in.
-  const isMemberDropTarget =
-    contentType.isContainer && !dropConfig && artifact.state !== 'archived';
+  // The type declares whether it takes drops; Crystal keeps what it accepts and acts on it.
+  const dropZone = artifact.state !== 'archived' ? contentType.drop : undefined;
 
   // If forceHover becomes true, set hovered to true
   useEffect(() => {
@@ -254,11 +238,11 @@ export const CardGridItem = ({
     const rootIds =
       Array.isArray(dragData?.rootIds) && dragData.rootIds.length > 0
         ? dragData.rootIds
-        : [String(artifact.root_id ?? artifact.id ?? '')].filter(Boolean);
+        : keyList([artifact.root_id ?? artifact.id]);
     const versionIds =
       Array.isArray(dragData?.versionIds) && dragData.versionIds.length > 0
         ? dragData.versionIds
-        : [String(artifact.id ?? '')].filter(Boolean);
+        : keyList([artifact.id]);
 
     // Include workspace and collection context for sidebar drop handling
     const payload = { 
@@ -287,88 +271,10 @@ export const CardGridItem = ({
     draggingRef.current = false;
   };
 
-  // ── Drop zone handlers (driven by context.drop) ──────────────────────
+  // ── Drop zone (shown when the type declares `drop`) ──────────────────
   const handleDropDragOver = (e: DragEvent) => {
-    if (!dropConfig) return;
-    if (!e.dataTransfer.types.includes('application/x-agience-artifact')) return;
-    e.stopPropagation();
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setIsDropTarget(true);
-  };
-
-  const handleDropDragLeave = (e: DragEvent) => {
-    if (!dropConfig) return;
-    const el = e.currentTarget as HTMLElement;
-    const rel = e.relatedTarget as Node | null;
-    if (!rel || !el.contains(rel)) {
-      setIsDropTarget(false);
-    }
-  };
-
-  const mimeMatches = (artifactMime: string | undefined, accepts: string[]): boolean => {
-    if (!artifactMime) return true; // unknown type — let the server decide
-    const norm = artifactMime.split(';')[0]?.trim().toLowerCase() ?? '';
-    return accepts.some(pattern => {
-      if (pattern === '*/*') return true;
-      if (pattern.endsWith('/*')) return norm.startsWith(pattern.slice(0, -1));
-      return norm === pattern.toLowerCase();
-    });
-  };
-
-  const handleDropOnCard = async (e: DragEvent) => {
-    if (!dropConfig) return;
-    e.stopPropagation();
-    e.preventDefault();
-    setIsDropTarget(false);
-
-    const raw = e.dataTransfer.getData('application/x-agience-artifact');
-    if (!raw) return;
-    let ids: string[] = [];
-    try {
-      const payload = JSON.parse(raw);
-      if (Array.isArray(payload.ids)) ids = payload.ids.map(String);
-    } catch { return; }
-    ids = ids.filter(id => id !== String(artifact.id));
-    if (!ids.length) return;
-
-    // Filter by accepted MIME types if configured
-    if (dropConfig.accepts?.length) {
-      const allArtifacts = [...(artifacts || []), ...(displayedArtifacts || [])];
-      ids = ids.filter(id => {
-        const a = allArtifacts.find(art => String(art.id) === id || String(art.root_id) === id);
-        return mimeMatches(a?.content_type, dropConfig.accepts!);
-      });
-      if (!ids.length) {
-        toast.warning(`This transform only accepts: ${dropConfig.accepts.join(', ')}`);
-        return;
-      }
-    }
-
-    const artifactId = String(artifact.id);
-    const workspaceId = activeSource?.type === 'workspace' ? activeSource.id : undefined;
-    const label = dropConfig.label ?? 'Running transform';
-
-    toast.info(`${label}…`);
-    try {
-      const result = await invokeArtifact(artifactId, undefined, undefined, workspaceId, ids);
-      if (result.error) {
-        toast.error(`Transform failed: ${result.error}`);
-      } else {
-        toast.success('Transform completed');
-      }
-    } catch (err) {
-      toast.error(`Transform failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-  };
-
-  // ── Member drop handlers (add an existing artifact into this container) ──
-  const handleMemberDragOver = (e: DragEvent) => {
-    if (!isMemberDropTarget) return;
-    // During dragover only `types` is readable (not values), so gate on the MIME
-    // keys. Accept both drag conventions — the legacy card-grid payload and the
-    // shared agienceDrag payload (list view, floating windows, sidebar, palette) —
-    // otherwise drags from those sources never activate this drop target.
+    if (!dropZone) return;
+    // During dragover only `types` is readable, so gate on both drag conventions.
     const types = Array.from(e.dataTransfer.types ?? []);
     if (!types.includes('application/x-agience-artifact') && !types.includes(AGIENCE_DRAG_CONTENT_TYPE)) return;
     e.stopPropagation();
@@ -377,8 +283,8 @@ export const CardGridItem = ({
     setIsDropTarget(true);
   };
 
-  const handleMemberDragLeave = (e: DragEvent) => {
-    if (!isMemberDropTarget) return;
+  const handleDropDragLeave = (e: DragEvent) => {
+    if (!dropZone) return;
     const el = e.currentTarget as HTMLElement;
     const rel = e.relatedTarget as Node | null;
     if (!rel || !el.contains(rel)) {
@@ -386,45 +292,37 @@ export const CardGridItem = ({
     }
   };
 
-  const handleMemberDrop = async (e: DragEvent) => {
-    if (!isMemberDropTarget) return;
+  const handleDropOnCard = async (e: DragEvent) => {
+    if (!dropZone) return;
     e.stopPropagation();
     e.preventDefault();
     setIsDropTarget(false);
 
-    // Accept both drag conventions. The legacy card-grid payload carries
-    // versionIds (precise version linking); the shared agienceDrag payload
-    // carries ids. The backend resolves either to the artifact's root_id.
-    let sourceIds: string[] = [];
+    let ids: string[] = [];
     const raw = e.dataTransfer.getData('application/x-agience-artifact');
     if (raw) {
       try {
         const payload = JSON.parse(raw);
         const vids = Array.isArray(payload.versionIds) ? payload.versionIds : [];
-        const ids = Array.isArray(payload.ids) ? payload.ids : [];
-        sourceIds = (vids.length ? vids : ids).map(String);
+        ids = (vids.length ? vids : Array.isArray(payload.ids) ? payload.ids : []).map(String);
       } catch { /* fall through to the shared payload */ }
     }
-    if (!sourceIds.length) {
-      sourceIds = getDroppedArtifactIds(e.dataTransfer).map(String);
-    }
-    if (!sourceIds.length) return;
+    if (!ids.length) ids = getDroppedArtifactIds(e.dataTransfer).map(String);
+    if (!ids.length) return;
 
-    const containerId = String(artifact.root_id ?? artifact.id);
-    sourceIds = sourceIds.filter(
-      (id) => id && id !== containerId && id !== String(artifact.id),
-    );
-    if (!sourceIds.length) return;
-
+    const targetId = String(artifact.root_id ?? artifact.id);
+    const workspaceId = activeSource?.type === 'workspace' ? activeSource.id : undefined;
     try {
-      for (const sourceId of sourceIds) {
-        await addArtifactToCollection(containerId, sourceId);
+      const got = await dropOn(targetId, ids, workspaceId);
+      if (got.accepted.length) {
+        toast.success(got.accepted.length > 1 ? `Took ${got.accepted.length} items` : 'Took 1 item');
+        if (activeSource?.id) await refreshArtifacts(activeSource.id);
       }
-      toast.success(sourceIds.length > 1 ? `Added ${sourceIds.length} items` : 'Added to collection');
-      // Refresh the current view so the container's member count updates.
-      if (activeSource?.id) await refreshArtifacts(activeSource.id);
+      if (got.refused.length) {
+        toast.warning(got.refused.length > 1 ? `${got.refused.length} items were not taken` : '1 item was not taken');
+      }
     } catch (err) {
-      toast.error(`Couldn't add to collection: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      toast.error(`Drop failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -557,10 +455,10 @@ export const CardGridItem = ({
           draggable={draggable}
           onDragStart={draggable ? handleDragStart : undefined}
           onDragEnd={draggable ? handleDragEnd : undefined}
-          onDragOver={dropConfig ? handleDropDragOver : (isMemberDropTarget ? handleMemberDragOver : undefined)}
-          onDragLeave={dropConfig ? handleDropDragLeave : (isMemberDropTarget ? handleMemberDragLeave : undefined)}
-          onDrop={dropConfig ? handleDropOnCard : (isMemberDropTarget ? handleMemberDrop : undefined)}
-          title={isDropTarget ? (dropConfig ? (dropConfig.label ?? 'Drop to run') : 'Drop to add') : undefined}
+          onDragOver={dropZone ? handleDropDragOver : undefined}
+          onDragLeave={dropZone ? handleDropDragLeave : undefined}
+          onDrop={dropZone ? handleDropOnCard : undefined}
+          title={isDropTarget ? (dropZone?.label || 'Drop here') : undefined}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
         >
@@ -585,35 +483,35 @@ export const CardGridItem = ({
 
       {renderActions()}
 
-      {/* Title: max 2 lines with type icon */}
+      {/* Title: max 2 lines with type icon. Badges sit under the title and never narrow it. */}
       {heading && (
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="flex items-start gap-1.5 flex-1 min-w-0">
-            <CardIcon className="flex-shrink-0 mt-0.5" size={14} style={{ color: artifactBarColor }} />
-            <div className="min-w-0 flex-1">
-              <h3 className="font-semibold text-gray-900 text-sm line-clamp-2" title={heading}>
-                {heading}
-              </h3>
-              {artifactCount > 0 && (
-                <div className="mt-1">
-                  <Badge className="border-0 bg-slate-100 text-slate-700 text-[10px] px-1.5 py-0.5 font-medium">
+        <div className="flex items-start gap-1.5 mb-2 min-w-0">
+          <CardIcon className="flex-shrink-0 mt-0.5" size={14} style={{ color: artifactBarColor }} />
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-gray-900 text-sm line-clamp-2" title={heading}>
+              {heading}
+            </h3>
+            {(artifactCount > 0 || contentType.badgeClassName) && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {artifactCount > 0 && (
+                  <Badge className="whitespace-nowrap border-0 bg-slate-100 text-slate-700 text-[10px] px-1.5 py-0.5 font-medium">
                     {artifactCount} artifact{artifactCount === 1 ? '' : 's'}
                   </Badge>
-                </div>
-              )}
-            </div>
+                )}
+                {contentType.badgeClassName && (
+                  <Badge
+                    className={clsx(
+                      'whitespace-nowrap border-0 text-[10px] px-1.5 py-0.5 font-medium',
+                      contentType.badgeClassName
+                    )}
+                    title={contentType.label}
+                  >
+                    {contentType.label}
+                  </Badge>
+                )}
+              </div>
+            )}
           </div>
-          {contentType.badgeClassName && (
-            <Badge
-              className={clsx(
-                'border-0 text-[10px] px-1.5 py-0.5 font-medium shrink-0',
-                contentType.badgeClassName
-              )}
-              title={contentType.label}
-            >
-              {contentType.label}
-            </Badge>
-          )}
         </div>
       )}
 
@@ -638,7 +536,7 @@ export const CardGridItem = ({
 
       {/* Footer: date and state badge */}
       <div className="flex items-center justify-between text-xs text-gray-500 mt-3 pt-2 border-t border-gray-100">
-        <span>{artifact.created_time ? new Date(artifact.created_time).toLocaleDateString() : ''}</span>
+        <span>{formatDay(artifact.created_time)}</span>
         <div className="flex gap-1.5 items-center">
           {/* Show collection badge if artifact belongs to collections */}
           {collectionIds.length > 0 && (
@@ -674,7 +572,7 @@ export const CardGridItem = ({
                                 className="inline-block h-1.5 w-1.5 rounded-full"
                                 style={{ backgroundColor: TYPE_COLORS.resources.solid500 }}
                               />
-                              {resolveCollectionLabel(collectionId, collectionLabelMap)}
+                              {containerNames.has(collectionId) ? (containerNames.get(collectionId) || 'Untitled') : 'Not open to you'}
                             </span>
                           </div>
                         </li>

@@ -32,13 +32,81 @@
     },
     "timer": {
       "type": "object",
-      "description": "schedule (one of every_minutes, daily_at HH:MM UTC, at ISO time), target {artifact_id, operation, body}, optional results_to (where each run is recorded), optional inbox_to (where a failed run is raised as an Inbox item), enabled",
-      "mutable": true
+      "description": "schedule (one of every_minutes, daily_at HH:MM UTC, at an instant), target {artifact_id, operation, body}, optional results_to (where each run is recorded), optional inbox_to (where a failed run is raised as an Inbox item), enabled",
+      "mutable": true,
+      "properties": {
+        "schedule": {
+          "type": "object",
+          "properties": {
+            "every_minutes": {
+              "type": "integer",
+              "label": "Every N minutes",
+              "editor": "number",
+              "minimum": 1
+            },
+            "daily_at": {
+              "type": "string",
+              "format": "time",
+              "label": "Daily at",
+              "description": "Stored as HH:MM UTC; shown and picked in local time.",
+              "display": "local",
+              "editor": "time"
+            },
+            "at": {
+              "type": "string",
+              "format": "date-time",
+              "label": "Once, at",
+              "description": "Stored as an ISO 8601 instant; shown and picked in local time.",
+              "display": "local",
+              "editor": "datetime"
+            }
+          }
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "artifact_id": {
+              "type": "string",
+              "label": "Target",
+              "editor": "link",
+              "x-content-types": [
+                "application/vnd.agience.transform+json",
+                "application/vnd.agience.operator+json"
+              ],
+              "description": "The workflow or operator the timer runs."
+            }
+          }
+        },
+        "results_to": {
+          "type": "string",
+          "label": "Record each run in",
+          "editor": "link",
+          "description": "A collection or workspace; each run is recorded there."
+        },
+        "inbox_to": {
+          "type": "string",
+          "label": "Raise a failed run in",
+          "editor": "link",
+          "description": "Your Inbox, or another workspace; a failed run is raised there."
+        },
+        "titles": {
+          "type": "object",
+          "description": "The titles of the linked artifacts as they were when picked, keyed by field (target, results_to, inbox_to). Shown, never read."
+        }
+      }
     },
     "timer_state": {
       "type": "object",
       "description": "Written by Lumen on each run: last_run, last_status, last_error, runs",
-      "mutable": false
+      "mutable": false,
+      "properties": {
+        "last_run": {
+          "type": "string",
+          "format": "date-time",
+          "label": "Last run",
+          "display": "local"
+        }
+      }
     },
     "key": {
       "type": "object",

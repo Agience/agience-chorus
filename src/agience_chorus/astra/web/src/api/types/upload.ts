@@ -4,7 +4,7 @@ export interface UploadInitiateRequest {
   filename: string;
   content_type: string;
   size: number;
-  order_key?: string; // Fractional index key for artifact ordering
+  before_id?: string; // Place it just before this member; Mantle computes the order key
   context?: Record<string, unknown>;
 }
 

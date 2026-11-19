@@ -2,8 +2,7 @@
 
 export type JSONValue = string | number | boolean | null | JSONValue[] | { [k: string]: JSONValue };
 
-/** `live` is every artifact that is not archived. Legacy `committed`/`draft` values are mapped
- * to `live` at the API boundary (`utils/artifactState`). */
+/** Mantle names every artifact `live` or `archived`. */
 export type ArtifactState = 'live' | 'archived';
 
 export interface ArtifactCreate {
@@ -30,6 +29,8 @@ export interface ArtifactResponse {
   context: string;
   content: string;
   created_by?: string;
+  /** The actions Mantle allows the caller on this artifact; the Facet offers only these. */
+  allowed_actions?: string[];
   created_time?: string;
   modified_by?: string;
   modified_time?: string;
@@ -46,6 +47,8 @@ export interface ArtifactResponse {
   /** Every container holding this artifact, workspaces included: a workspace is a collection is an
    * artifact. `committed_collection_ids` leaves workspaces out, for the sharing checks. */
   container_ids?: string[];
+  /** The containers holding it that its reader may read, each with its name, from Mantle. */
+  containers?: { id: string; name: string }[];
   /** True when at least one child artifact exists (via parent_id edge). */
   has_children?: boolean;
   /** Number of child artifacts, if available. */

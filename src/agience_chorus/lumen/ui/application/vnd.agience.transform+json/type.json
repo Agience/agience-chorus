@@ -193,27 +193,6 @@
           "type": "string"
         }
       }
-    },
-    "drop": {
-      "type": "object",
-      "description": "Drop zone configuration. When enabled, the artifact card accepts artifact drops and invokes the transform with the dropped artifact IDs.",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Whether this transform card accepts artifact drops. Default false."
-        },
-        "label": {
-          "type": "string",
-          "description": "Tooltip shown when dragging over the card. Default: 'Drop to run'."
-        },
-        "accepts": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "MIME content_type filters the card will accept. Supports wildcards (e.g. 'text/*'). Omit or set ['*/*'] to accept any artifact."
-        }
-      }
     }
   },
   "operations": {
@@ -238,7 +217,7 @@
         "properties": {
           "context": {
             "type": "object",
-            "description": "The workflow as the person's own session reads it, used only when Lumen cannot read its sealed steps (BUG-044)."
+            "description": "The workflow as the person's own session reads it, used only when Lumen cannot read its sealed steps."
           },
           "workspace_id": {
             "type": "string"
@@ -281,6 +260,7 @@
       }
     }
   },
+  "drop": { "accepts": ["*/*"], "op": "invoke", "label": "Drop to run" },
   "ui": {
     "label": "Workflow",
     "icon": "zap",

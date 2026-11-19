@@ -26,28 +26,31 @@ export interface RawTypeJson {
   extensions?: string[];
   inherits?: string[];
   description?: string;
+  not_for?: string[];
+  context_schema?: Record<string, Record<string, unknown>>;
 }
 
 /**
- * A single field in a generic-record viewer schema (the `ui.record` block).
+ * A single field in a type's `ui.record` layout.
  * `path` is a dot-path into the artifact's parsed `context`.
  */
 export interface RecordFieldConfig {
   path: string;
   label?: string;
   editable?: boolean;
-  editor?: 'text' | 'number' | 'url' | 'textarea' | 'boolean';
+  editor?: 'text' | 'number' | 'url' | 'textarea' | 'boolean' | 'select';
+  /** The choices a select editor offers. */
+  options?: string[];
 }
 
 /**
- * Declarative config for the generic `_record` viewer. A type opts in by setting
- * `ui.viewer: "record"` and declaring this block — the viewer then renders a
- * schema-driven view/edit/save form with no per-type code.
+ * A type's `ui.record` layout of named fields. The record view artifact that the type's
+ * `ui.resource_uri` names reads it, passed through by the view host, and renders view, edit and
+ * save from it with no per-type code.
  */
 export interface RecordConfig {
   titlePath?: string;
   subtitlePath?: string;
-  badgePath?: string;
   fields?: RecordFieldConfig[];
   collections?: RecordFieldConfig[];
   objects?: RecordFieldConfig[];
@@ -128,6 +131,8 @@ export interface ResolvedContentType {
   /** e.g. "image" for "image/*" — used for fast category matching */
   wildcard_prefix: string | null;
   extensions: string[];
+  /** For a wildcard: patterns (`*` any run) of the types in its category it does not cover. */
+  not_for: string[];
   description: string;
   // Presentation
   label: string;
@@ -157,6 +162,8 @@ export interface ResolvedContentType {
   container_variant: string | null;
   /** Generic-record viewer schema (view/edit/save). Null when the type doesn't use it. */
   record: RecordConfig | null;
+  /** The type's context fields, by key, as its `context_schema` declares them. */
+  context_schema: Record<string, Record<string, unknown>>;
   frontend_version: number | null;
   implementations: ResolvedFrontendImplementation[];
 }
@@ -332,6 +339,7 @@ const FALLBACK: ResolvedContentType = {
   is_wildcard: true,
   wildcard_prefix: null,
   extensions: [],
+  not_for: [],
   description: 'An artifact: content plus its context',
   label: 'Artifact',
   icon: 'package',
@@ -349,6 +357,7 @@ const FALLBACK: ResolvedContentType = {
   resource_server: null,
   container_variant: null,
   record: null,
+  context_schema: {},
   viewer: null,
   provider: null,
   default_depth: null,
@@ -405,6 +414,7 @@ function buildDefinitions(typesRoots: string[]): ResolvedContentType[] {
       is_wildcard: isWildcard,
       wildcard_prefix: prefix,
       extensions: (m.extensions as string[]) ?? [],
+      not_for: m.not_for ?? [],
       description: (m.description as string) ?? '',
       label: (m.label as string) ?? contentType,
       icon: (m.icon as string) ?? 'file',
@@ -426,6 +436,7 @@ function buildDefinitions(typesRoots: string[]): ResolvedContentType[] {
       max_depth: (m.max_depth as number | null | undefined) ?? null,
       container_variant: (m.container_variant as string | null | undefined) ?? null,
       record: (m.record as RecordConfig | null | undefined) ?? null,
+      context_schema: (m.context_schema as Record<string, Record<string, unknown>> | undefined) ?? {},
       frontend_version: (m.frontend_version as number | null | undefined) ?? null,
       implementations: resolveFrontendImplementations(
         contentType,

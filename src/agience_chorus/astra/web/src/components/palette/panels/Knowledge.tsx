@@ -3,6 +3,7 @@ import { usePalette } from '../../../hooks/usePalette';
 import { useWorkspace } from '../../../hooks/useWorkspace';
 import CardGrid from '../../common/CardGrid';
 import { getAgienceDragPayload, getDroppedArtifactIds, isAgienceDrag } from '../../../dnd/agienceDrag';
+import { keySet, toggle, withoutKey } from '@/display-state/lists';
 
 export default function KnowledgePanel() {
   const { state, updatePanelData } = usePalette();
@@ -12,17 +13,14 @@ export default function KnowledgePanel() {
   const panelState = state.panelData.knowledge;
   const selectedTools = state.panelData.tools.tools;
 
-  const selectedToolSet = useMemo(() => new Set(selectedTools.map(String)), [selectedTools]);
+  const selectedToolSet = useMemo(() => keySet(selectedTools.map(String)), [selectedTools]);
 
   const toggleTool = useCallback(
     (toolName: string) => {
       const name = String(toolName || '').trim();
       if (!name) return;
       updatePanelData('tools', (prev) => {
-        const next = new Set((prev.tools ?? []).map(String));
-        if (next.has(name)) next.delete(name);
-        else next.add(name);
-        return { ...prev, tools: Array.from(next) };
+        return { ...prev, tools: toggle((prev.tools ?? []).map(String), name) };
       });
     },
     [updatePanelData]
@@ -73,7 +71,7 @@ export default function KnowledgePanel() {
   const removeArtifact = useCallback((id: string) => {
     updatePanelData('knowledge', (prev) => {
       const existing = prev.artifacts;
-      return { ...prev, artifacts: existing.filter(c => String(c.id) !== id) };
+      return { ...prev, artifacts: withoutKey(existing, c => c.id, id) };
     });
   }, [updatePanelData]);
 

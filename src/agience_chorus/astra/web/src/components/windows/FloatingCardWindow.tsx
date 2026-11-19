@@ -1,15 +1,14 @@
 // "Artifact Floating" – full-size movable window for a single artifact on the desktop.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { besideRect, type OpenArtifactOptions, type WindowRect } from '@/utils/windowPlacement';
 import { X, FolderOpen, Info, Pencil, Tag, Calendar, Folder, Layers, History, Share2, Copy } from 'lucide-react';
 import { useShare } from '@/context/share/useShare';
 import { HistoryPanel } from './HistoryPanel';
 import { IconButton } from '@/components/ui/icon-button';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
-import { useCollections } from '@/hooks/useCollections';
 import type { Artifact } from '@/context/workspace/workspace.types';
 import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
-import { titleOrFallback } from '@/utils/untitled';
 import type { ArtifactContext } from '@/utils/artifactContext';
 import { getContentType } from '@/registry/content-types';
 import type { ContentTypeDefinition } from '@/registry/content-types';
@@ -23,13 +22,14 @@ import { CollectionPicker } from '@/components/modals/CollectionPicker';
 import { BindingPicker } from '@/components/modals/BindingPicker';
 import { copyId } from '@/utils/copyId';
 import { useDebouncedSave } from '@/hooks/useDebouncedSave';
-import { addArtifactToCollection, setArtifactCollections } from '@/api/collections';
+import { addArtifactToCollection, changeMemberships } from '@/api/collections';
 import { errorDetail } from '@/utils/errorDetail';
-import { getArtifact, getChildren } from '@/api/artifacts';
+import { getChildren } from '@/api/artifacts';
 import { readUiResource } from '@/api/mcp';
 import { toast } from 'sonner';
 import { COLLECTION_CONTENT_TYPE, WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
-import { buildCollectionLabelMap, resolveCollectionLabel } from '@/utils/collectionLabels';
+import { formatDay } from '@/utils/dates';
+import { keyList, splitList, without } from '@/display-state/lists';
 
 /** Which panel is active in the floating window body */
 type ActivePanel = 'content' | 'context' | 'collections' | 'children' | 'history';
@@ -65,7 +65,8 @@ function ContextPanel({ artifact }: { artifact: Artifact }) {
 		onSave: async () => {
 			const updatedContext: ArtifactContext = {
 				...ctx,
-				title: titleOrFallback(editTitle, artifact.content, ctx.title || ctx.filename || ''),
+				// A blank title is sent blank: Mantle derives one from the content.
+				title: editTitle.trim(),
 				description: editDescription,
 				content_type: editContentType || undefined,
 				tags: editTags,
@@ -109,7 +110,7 @@ function ContextPanel({ artifact }: { artifact: Artifact }) {
 	};
 
 	const handleRemoveTag = (tag: string) => {
-		setEditTags(editTags.filter((t) => t !== tag));
+		setEditTags(without(editTags, tag));
 	};
 
 	const timestamp = useMemo(() => {
@@ -127,7 +128,7 @@ function ContextPanel({ artifact }: { artifact: Artifact }) {
 		}
 		if (days === 1) return 'Yesterday';
 		if (days < 7) return `${days} days ago`;
-		return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+		return formatDay(date);
 	}, [artifact]);
 
 	return (
@@ -268,90 +269,30 @@ function ContextPanel({ artifact }: { artifact: Artifact }) {
 // ─── Collections Panel ───────────────────────────────────────────────────────
 
 function CollectionsPanel({ artifact }: { artifact: Artifact }) {
-	const { artifacts, displayedArtifacts = [], isEditable, patchArtifactLocally } = useWorkspace();
-	const { collections = [] } = useCollections();
+	const { isEditable, patchArtifactLocally } = useWorkspace();
 	const [showPicker, setShowPicker] = useState(false);
-	// What a change here made the memberships, until the artifact this window holds says so too
-	// (BUG-021: the panel kept the old list until a reload).
-	const [changedIds, setChangedIds] = useState<string[] | null>(null);
-	// Kept until the artifact this window holds shows the same memberships: a reload of it that
-	// has not caught up yet must not bring the old list back.
-	useEffect(() => {
-		if (!changedIds) return;
-		const held = new Set((artifact.committed_collection_ids ?? []).map(String));
-		if (held.size === changedIds.length && changedIds.every((id) => held.has(String(id)))) setChangedIds(null);
-	}, [artifact.committed_collection_ids, changedIds]);
-
 	const isReadOnly = !isEditable(artifact);
 
-	const committedCollectionIds = useMemo(
-		() => changedIds ?? (Array.isArray(artifact.committed_collection_ids)
-			? artifact.committed_collection_ids
-			: []),
-		[artifact.committed_collection_ids, changedIds],
-	);
-
-	// Every container it is in, workspaces included: a workspace is a collection is an artifact.
-	const containerIds = useMemo(() => {
-		const stored = Array.isArray(artifact.container_ids) ? artifact.container_ids : committedCollectionIds;
-		if (!changedIds) return stored;
-		// After a change: the containers that are not collections (workspaces) as stored, then the
-		// collections as the change left them.
-		const before = new Set((artifact.committed_collection_ids ?? []).map(String));
-		return [...stored.map(String).filter((id) => !before.has(id)), ...changedIds]
-			.filter((id, i, all) => all.indexOf(id) === i);
-	}, [artifact.container_ids, artifact.committed_collection_ids, committedCollectionIds, changedIds]);
-	const { workspaces = [] } = useWorkspaces();
-	const [fetchedNames, setFetchedNames] = useState<Record<string, string>>({});
-
-	const labelMap = useMemo(() => {
-		const map = buildCollectionLabelMap([...artifacts, ...displayedArtifacts], collections);
-		for (const w of workspaces) if (w.id && w.name && !map.has(String(w.id))) map.set(String(w.id), w.name);
-		for (const [id, name] of Object.entries(fetchedNames)) if (!map.has(id)) map.set(id, name);
-		return map;
-	}, [artifacts, displayedArtifacts, collections, workspaces, fetchedNames]);
-
-	// A container this view has not loaded is named by reading it.
-	useEffect(() => {
-		const unknown = containerIds.filter((id) => !labelMap.has(String(id)) && !(String(id) in fetchedNames));
-		if (!unknown.length) return;
-		let cancelled = false;
-		void Promise.all(unknown.map((id) => getArtifact(String(id))
-			.then((a) => [String(id), a?.name || safeParseArtifactContext(a?.context).title || ''] as const)
-			.catch(() => [String(id), ''] as const)))
-			.then((pairs) => {
-				if (cancelled) return;
-				setFetchedNames((prev) => {
-					const next = { ...prev };
-					for (const [id, name] of pairs) next[id] = String(name || '');
-					return next;
-				});
-			});
-		return () => { cancelled = true; };
-	}, [containerIds, labelMap, fetchedNames]);
-
-	const memberships = useMemo(() => containerIds.map((id) => ({
-		id,
-		name: labelMap.get(String(id)) || resolveCollectionLabel(id, labelMap),
-		status: 'member' as const,
-	})), [containerIds, labelMap]);
+	// Every container it is in, workspaces included, and the names of those its reader may read:
+	// both come from Mantle on the artifact.
+	const containerIds = artifact.container_ids ?? [];
+	const memberships = (artifact.containers ?? []).map(({ id, name }) => ({
+		id, name: name || 'Untitled', status: 'member' as const,
+	}));
 
 	const handleSelectCollections = async (collectionIds: string[]) => {
-		// Against every container it is in, workspaces included (BUG-042): the picker ticks them all.
-		const current = { ...artifact, committed_collection_ids: containerIds };
-		let now: string[];
+		// Mantle makes the change against every container it is in, workspaces included (BUG-042),
+		// and answers where it is held now, so the panel shows its memberships at once (BUG-021).
 		try {
-			now = await setArtifactCollections(current, collectionIds);
+			const { items: [now], failed } = await changeMemberships([String(artifact.id)], { held: collectionIds });
+			if (failed.length) toast.error('Could not change every collection', { description: failed[0].detail });
+			if (now) {
+				patchArtifactLocally({ id: artifact.id, committed_collection_ids: now.committed_collection_ids,
+					container_ids: now.container_ids, containers: now.containers });
+			}
 		} catch (err) {
-			now = (err as { partial?: string[] }).partial ?? committedCollectionIds;
 			toast.error('Could not change every collection', { description: errorDetail(err, 'Some changes were not saved') });
 		}
-		// Both lists the panel reads: the patch reaches this window's artifact and clears the local
-		// override, so a stale `container_ids` would bring the old list back (BUG-021, reopened).
-		const containers = now.filter((id, i, all) => all.indexOf(id) === i);
-		const collectionsNow = containers.filter((id) => !workspaces.some((w) => String(w.id) === id));
-		setChangedIds(collectionsNow);
-		patchArtifactLocally({ id: artifact.id, committed_collection_ids: collectionsNow, container_ids: containers });
 		setShowPicker(false);
 	};
 
@@ -491,10 +432,11 @@ export default function FloatingCardWindow(props: {
 	initialRect?: Partial<Rect>;
 	initialViewState?: string;
 	onOpenCollection?: (collectionId: string) => void;
-	onOpenArtifact?: (artifact: Artifact) => void;
+	onOpenArtifact?: (artifact: Artifact, options?: OpenArtifactOptions) => void;
 	windowIndex?: number;
+	openedFrom?: WindowRect;
 }) {
-	const { artifactId, zIndex, onClose, onFocus, onSnapToGrid, initialRect, initialViewState, onOpenCollection, onOpenArtifact, windowIndex = 0 } = props;
+	const { artifactId, zIndex, onClose, onFocus, onSnapToGrid, initialRect, initialViewState, onOpenCollection, onOpenArtifact, windowIndex = 0, openedFrom } = props;
 	const share = useShare();
 	const containerRef = useRef<HTMLDivElement>(null);
 
@@ -627,19 +569,22 @@ export default function FloatingCardWindow(props: {
 	const isArtifactWritable = isEditable(artifact);
 	const [localTitle, setLocalTitle] = useState(title);
 
-	// Sync local title only when the artifact identity changes (different artifact selected),
-	// not on every context save — syncing on [title] would reset the field mid-typing
-	// whenever the PATCH response arrives and updates the store.
-	// eslint-disable-next-line react-hooks/exhaustive-deps
-	useEffect(() => { setLocalTitle(title); }, [artifactId]);
+	const titleFieldRef = useRef<HTMLTextAreaElement>(null);
+
+	// The header is the artifact's one title. A title stored from anywhere else (an API
+	// write, another window) shows here unless the field is being typed in.
+	useEffect(() => {
+		if (document.activeElement !== titleFieldRef.current) setLocalTitle(title);
+	}, [title, artifactId]);
 
 	const { isSaving: isTitleSaving } = useDebouncedSave(localTitle, {
 		delay: 1000,
-		enabled: isArtifactWritable,
+		enabled: isArtifactWritable && localTitle.trim() !== title,
 		onSave: async () => {
 			if (!artifact) return;
 			const ctx = safeParseArtifactContext(artifact.context);
-			const savedTitle = titleOrFallback(localTitle, artifact.content, ctx.title || ctx.filename || '');
+			// A blank title is sent blank: Mantle derives one from the content.
+			const savedTitle = localTitle.trim();
 			if (!(await updateArtifact({
 				id: String(artifact.id),
 				context: stringifyArtifactContext({ ...ctx, title: savedTitle }),
@@ -647,7 +592,7 @@ export default function FloatingCardWindow(props: {
 			const linkedWorkspaceId =
 				(ctx.workspace_id as string | undefined) ||
 				(ctx.workspaceId as string | undefined);
-			if (linkedWorkspaceId) {
+			if (linkedWorkspaceId && savedTitle) {
 				await updateWorkspace({ id: linkedWorkspaceId, name: savedTitle });
 			}
 		},
@@ -676,7 +621,7 @@ export default function FloatingCardWindow(props: {
 
 		if (payload && Array.isArray(payload.ids)) {
 			return {
-				ids: payload.ids.map(String).filter(Boolean),
+				ids: keyList(payload.ids),
 				sourceType: typeof payload.sourceType === 'string' ? payload.sourceType : undefined,
 				sourceWorkspaceId:
 					typeof payload.workspaceId === 'string'
@@ -689,7 +634,7 @@ export default function FloatingCardWindow(props: {
 
 		const textRaw = dt.getData('text/plain');
 		if (textRaw) {
-			return { ids: textRaw.split(',').map((value) => value.trim()).filter(Boolean), sourceType: undefined, sourceWorkspaceId: undefined };
+			return { ids: splitList(textRaw), sourceType: undefined, sourceWorkspaceId: undefined };
 		}
 
 		return { ids: [] as string[], sourceType: undefined, sourceWorkspaceId: undefined };
@@ -713,6 +658,9 @@ export default function FloatingCardWindow(props: {
 		const h = Math.min(initialRect?.h ?? 520, Math.max(320, vh - 200));
 		const cx = (vw - w) / 2;
 		const cy = (vh - h) / 2;
+		// Opened from another window: beside it, so the opener stays in view.
+		const beside = !initialRect && openedFrom ? besideRect(openedFrom, w, h, vw, vh) : null;
+		if (beside) return { ...beside, w, h };
 		const cascade = windowIndex * 30;
 		const cascadedX = cx + cascade;
 		const cascadedY = cy + cascade;
@@ -721,6 +669,13 @@ export default function FloatingCardWindow(props: {
 		const y = Math.max(16, Math.min(initialRect?.y ?? (inBounds ? cascadedY : cy), vh - h - 16));
 		return { x, y, w, h };
 	});
+
+	// An artifact opened from this window opens beside it.
+	const rectRef = useRef(rect);
+	rectRef.current = rect;
+	const openFromHere = useCallback((opened: Artifact, options?: OpenArtifactOptions) => {
+		onOpenArtifact?.(opened, { ...options, from: rectRef.current });
+	}, [onOpenArtifact]);
 
 	const dragRef = useRef<{ dragging: boolean; dx: number; dy: number; shiftHeld: boolean }>(
 		{ dragging: false, dx: 0, dy: 0, shiftHeld: false }
@@ -883,7 +838,7 @@ export default function FloatingCardWindow(props: {
 							html={mcpAppHtml}
 							resourceServer={contentType?.resourceServer ?? undefined}
 							onOpenCollection={onOpenCollection}
-							onOpenArtifact={onOpenArtifact}
+							onOpenArtifact={openFromHere}
 							onPickerRequest={handlePickerRequest}
 						/>
 						<BindingPicker
@@ -904,7 +859,7 @@ export default function FloatingCardWindow(props: {
 				<CollectionArtifactViewer
 					artifact={artifact}
 					mode={contentType?.defaultMode || 'grid'}
-					onOpenArtifact={onOpenArtifact}
+					onOpenArtifact={openFromHere}
 				/>
 			);
 		}
@@ -927,7 +882,7 @@ export default function FloatingCardWindow(props: {
 						mode={contentType?.defaultMode || 'floating'}
 						state={isArchived ? 'view' : viewState}
 						onOpenCollection={onOpenCollection}
-						onOpenArtifact={onOpenArtifact}
+						onOpenArtifact={openFromHere}
 					/>
 				</Suspense>
 			);
@@ -976,17 +931,19 @@ export default function FloatingCardWindow(props: {
 						<Pencil className="w-3.5 h-3.5" />
 					</span>
 					{isArtifactWritable ? (
-						<input
-							type="text"
+						<textarea
+							ref={titleFieldRef}
+							rows={1}
 							value={localTitle}
-							onChange={(e) => setLocalTitle(e.target.value)}
+							onChange={(e) => setLocalTitle(e.target.value.replace(/\s*\n\s*/g, ' '))}
+							onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
 							onPointerDown={(e) => e.stopPropagation()}
-							className="w-full text-sm font-medium text-gray-800 bg-gray-50/70 border-0 border-b border-gray-200 focus:border-gray-400 focus:outline-none truncate transition-colors hover:border-gray-300 rounded-sm px-1 py-0.5"
+							className="w-full resize-none [field-sizing:content] break-words text-sm font-medium text-gray-800 bg-gray-50/70 border-0 border-b border-gray-200 focus:border-gray-400 focus:outline-none transition-colors hover:border-gray-300 rounded-sm px-1 py-0.5"
 							placeholder="Untitled"
-							aria-label="Card title"
+							aria-label="Artifact title"
 						/>
 					) : (
-						<div className="text-sm font-medium text-gray-800 truncate">{localTitle}</div>
+						<div className="text-sm font-medium text-gray-800 break-words">{localTitle}</div>
 					)}
 					{isTitleSaving && <span className="text-[10px] text-blue-400 flex-shrink-0">•</span>}
 					{dragRef.current.shiftHeld && dragRef.current.dragging && (
@@ -1074,7 +1031,7 @@ export default function FloatingCardWindow(props: {
 								e.stopPropagation();
 								togglePanel('children');
 							}}
-							title={`Children${artifact.child_count ? ` (${artifact.child_count})` : ''}`}
+							title="Children"
 						>
 							<Layers />
 						</IconButton>
@@ -1157,7 +1114,7 @@ export default function FloatingCardWindow(props: {
 				) : activePanel === 'history' && artifact ? (
 					<HistoryPanel artifact={artifact} />
 				) : activePanel === 'children' && artifact ? (
-					<ChildrenPanel artifactId={String(artifact.id)} onOpenArtifact={onOpenArtifact} />
+					<ChildrenPanel artifactId={String(artifact.id)} onOpenArtifact={openFromHere} />
 				) : (
 					renderContentViewer()
 				)}

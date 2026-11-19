@@ -14,22 +14,29 @@ import { useAddToWorkspace } from "@/hooks/useAddToWorkspace";
 import type { SearchResponse } from "../../api/types/search";
 import type { Artifact } from "../../context/workspace/workspace.types";
 import FloatingCardWindow from "../windows/FloatingCardWindow";
+import type { OpenArtifactOptions, WindowRect } from '@/utils/windowPlacement';
 import { getContentType } from "@/registry/content-types";
-import { resolveSearchHitsToArtifacts } from "../../utils/resolveSearchHits";
 import { onLinkedArtifact } from "../../utils/linkedArtifact";
+import { useNarrowViewport } from "@/hooks/useNarrowViewport";
+import { useShortcuts } from "@/context/shortcuts/useShortcuts";
+import { present, toEnd, without } from '@/display-state/lists';
 
 function MainLayout() {
   const [activeSource, setActiveSource] = useState<ActiveSource>(null);
+  // Below 640 px one panel shows at a time; the top bar switches between them.
+  const narrow = useNarrowViewport();
+  const [phonePanel, setPhonePanel] = useState<'left' | 'right'>('right');
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [searchSortMode, setSearchSortMode] = useState<'relevance' | 'recency'>('relevance');
   const [clearSearchTrigger, setClearSearchTrigger] = useState(0);
   // Resolved search result artifacts to display in SearchPanel
   const [resolvedSearchArtifacts, setResolvedSearchArtifacts] = useState<Artifact[]>([]);
-  const [isResolvingSearch, setIsResolvingSearch] = useState(false);
 
   // Floating windows (opened artifacts)
   const [openArtifactWindowIds, setOpenArtifactWindowIds] = useState<string[]>([]);
   const [artifactWindowEditIds, setArtifactWindowEditIds] = useState<string[]>([]);
+  // The window each artifact window was opened from, where it was then; the new one opens beside it.
+  const [artifactWindowOpeners, setArtifactWindowOpeners] = useState<Record<string, WindowRect>>({});
 
   // Settings modal state, driven from HeaderBar. There is no 'llm-keys' section: the platform
   // runs model-free, so there is nothing for an LLM Keys settings panel to hold.
@@ -87,12 +94,14 @@ function MainLayout() {
     setOpenArtifactWindowIds([]);
   }, [activeWorkspaceId, unselectAllArtifacts]);
 
-  const openOrFocusArtifactWindow = useCallback((artifactId: string, options?: { startInEditMode?: boolean }) => {
+  const openOrFocusArtifactWindow = useCallback((artifactId: string, options?: OpenArtifactOptions) => {
     const id = `artifact:${artifactId}`;
+    const from = options?.from;
     setOpenArtifactWindowIds((prev) => {
       if (prev.includes(id)) {
-        return [...prev.filter((x) => x !== id), id];
+        return toEnd(prev, id);
       }
+      if (from) setArtifactWindowOpeners((openers) => ({ ...openers, [id]: from }));
       return [...prev, id];
     });
     if (options?.startInEditMode) {
@@ -103,19 +112,44 @@ function MainLayout() {
   // Closing a window only closes it. A created card is kept, typed into or not (John, 2026-10-31):
   // an empty new card closed at once was discarded, and read as a card that disappeared.
   const closeArtifactWindow = useCallback((windowId: string) => {
-    setOpenArtifactWindowIds((prev) => prev.filter((id) => id !== windowId));
-    setArtifactWindowEditIds((prev) => prev.filter((id) => id !== windowId));
+    setOpenArtifactWindowIds((prev) => without(prev, windowId));
+    setArtifactWindowEditIds((prev) => without(prev, windowId));
+    setArtifactWindowOpeners((prev) => {
+      if (!(windowId in prev)) return prev;
+      const next = { ...prev };
+      delete next[windowId];
+      return next;
+    });
   }, []);
 
   const focusArtifactWindow = useCallback((windowId: string) => {
     setOpenArtifactWindowIds((prev) => {
       if (!prev.includes(windowId)) return prev;
-      return [...prev.filter((id) => id !== windowId), windowId];
+      return toEnd(prev, windowId);
     });
   }, []);
 
+  // Escape closes the window on top. An open menu or dialog takes Escape first (it marks the key
+  // handled), and a field being typed in keeps it.
+  const { registerShortcut } = useShortcuts();
+  const topWindowId = openArtifactWindowIds[openArtifactWindowIds.length - 1];
+  useEffect(() => {
+    if (!topWindowId) return;
+    return registerShortcut({
+      id: 'windows:close-top',
+      label: 'Close the top window',
+      group: 'windows',
+      groupTitle: 'Windows',
+      combos: ['Escape'],
+      handler: (event) => {
+        event.preventDefault();
+        closeArtifactWindow(topWindowId);
+      },
+    });
+  }, [topWindowId, registerShortcut, closeArtifactWindow]);
+
   const handleOpenArtifact = useCallback(
-    (artifact: Artifact, options?: { startInEditMode?: boolean }) => {
+    (artifact: Artifact, options?: OpenArtifactOptions) => {
       const contentType = getContentType(artifact);
       const artifactId = artifact.id ? String(artifact.id) : null;
 
@@ -146,37 +180,23 @@ function MainLayout() {
   }), [keepOpenedArtifact, openOrFocusArtifactWindow]);
 
   const openWindows = useMemo(() => {
-    return openArtifactWindowIds
-      .map((id) => ({
-        id,
-        artifactId: id.startsWith('artifact:') ? id.slice('artifact:'.length) : id,
-      }))
-      .filter((w) => Boolean(w.artifactId));
+    return present(openArtifactWindowIds.map((id) => {
+      const artifactId = id.startsWith('artifact:') ? id.slice('artifact:'.length) : id;
+      return artifactId && { id, artifactId };
+    }));
   }, [openArtifactWindowIds]);
 
   const handleOpenCollectionFromContainer = (collectionId: string) => {
     setActiveSource({ type: 'collection', id: collectionId });
     setSelectedArtifactId(null);
     unselectAllArtifacts();
+    setPhonePanel('right');
   };
 
   // ── Search ──────────────────────────────────────────────────────────────────
 
-  const handleSearchResults = useCallback(async (results: SearchResponse) => {
-    if (!results.hits || results.hits.length === 0) {
-      setResolvedSearchArtifacts([]);
-      return;
-    }
-    setIsResolvingSearch(true);
-    try {
-      const artifacts = await resolveSearchHitsToArtifacts(results.hits);
-      setResolvedSearchArtifacts(artifacts);
-    } catch (err) {
-      console.error('[MainLayout] Failed to resolve search hits:', err);
-      setResolvedSearchArtifacts([]);
-    } finally {
-      setIsResolvingSearch(false);
-    }
+  const handleSearchResults = useCallback((results: SearchResponse) => {
+    setResolvedSearchArtifacts(results.artifacts ?? []);
   }, []);
 
   const handleSearchClear = useCallback(() => {
@@ -199,31 +219,18 @@ function MainLayout() {
     return () => window.removeEventListener(ARTIFACT_CHANGED_EVENT, onChange);
   }, []);
 
-  // A result that leaves the active workspace's list (removed, trashed) leaves the results. Only one
-  // that was in the list: an archived result never is. 2026-10-29, a tester: restoring one of two
-  // archived results took both off the list, because the restore refreshed the workspace's list and
-  // the other, still archived, was not in it.
-  const listedIdsRef = useRef<{ workspace: string | null; ids: Set<string> }>({ workspace: null, ids: new Set() });
+  // When the active workspace's list changes, the open search asks again, so its results are
+  // Mantle's answer for what the workspace holds now.
+  const [refreshSearchTrigger, setRefreshSearchTrigger] = useState(0);
+  const listedWorkspaceRef = useRef<string | null>(null);
   useEffect(() => {
-    const ids = new Set(
-      artifacts
-        .flatMap((artifact) => [artifact.id, artifact.root_id])
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .map(String),
-    );
-    const before = listedIdsRef.current;
-    listedIdsRef.current = { workspace: activeWorkspaceId ?? null, ids };
-    if (!activeWorkspaceId || before.workspace !== activeWorkspaceId) return;
-    const left = new Set([...before.ids].filter((id) => !ids.has(id)));
-    if (!left.size) return;
-
-    setResolvedSearchArtifacts((prev) => prev.filter((artifact) =>
-      artifact.collection_id !== activeWorkspaceId
-      || ![artifact.id, artifact.root_id].some((id) => id && left.has(String(id)))));
+    const before = listedWorkspaceRef.current;
+    listedWorkspaceRef.current = activeWorkspaceId ?? null;
+    if (activeWorkspaceId && before === activeWorkspaceId) setRefreshSearchTrigger((n) => n + 1);
   }, [activeWorkspaceId, artifacts]);
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-screen w-full min-w-0 overflow-x-hidden">
       {addToWorkspacePicker}
       {/* Command Palette (Cmd+K / Ctrl+K) */}
       <CommandPalette
@@ -233,6 +240,7 @@ function MainLayout() {
           setClearSearchTrigger((prev) => prev + 1);
           setSelectedArtifactId(null);
           unselectAllArtifacts();
+          setPhonePanel('right');
         }}
         onCollectionSelect={(collectionId) => {
           setActiveSource({ type: 'collection', id: collectionId });
@@ -240,6 +248,7 @@ function MainLayout() {
           setClearSearchTrigger((prev) => prev + 1);
           setSelectedArtifactId(null);
           unselectAllArtifacts();
+          setPhonePanel('right');
         }}
         onMcpServerSelect={(serverId) => {
           setActiveSource({ type: 'mcp-server', id: serverId });
@@ -247,6 +256,7 @@ function MainLayout() {
           setClearSearchTrigger((prev) => prev + 1);
           setSelectedArtifactId(null);
           unselectAllArtifacts();
+          setPhonePanel('right');
         }}
       />
 
@@ -262,6 +272,8 @@ function MainLayout() {
           setSettingsScopedCollectionId(undefined);
         }}
         onArtifactCreated={handleOpenArtifact}
+        narrowPanel={narrow ? phonePanel : undefined}
+        onNarrowPanelChange={setPhonePanel}
       />
 
       {/* Two-Panel Layout */}
@@ -270,10 +282,10 @@ function MainLayout() {
           leftPanel={
             <SearchPanel
               artifacts={resolvedSearchArtifacts}
-              isLoading={isResolvingSearch}
               onResults={handleSearchResults}
               onClear={handleSearchClear}
               clearTrigger={clearSearchTrigger}
+              refreshTrigger={refreshSearchTrigger}
               onAddToWorkspace={handleAddToWorkspace}
               onOpenArtifact={handleOpenArtifact}
               onCollectionSelect={handleOpenCollectionFromContainer}
@@ -294,6 +306,7 @@ function MainLayout() {
           }
           onPanelWidthsChange={handlePanelWidthsChange}
           onResizingChange={setIsPanelResizing}
+          singlePanel={narrow ? phonePanel : undefined}
         />
 
         {/* Floating artifact windows, in a layer of their own under every overlay (z-50: Settings,
@@ -307,6 +320,7 @@ function MainLayout() {
             zIndex={50 + idx}
             windowIndex={idx}
             initialViewState={artifactWindowEditIds.includes(w.id) ? 'edit' : undefined}
+            openedFrom={artifactWindowOpeners[w.id]}
             onFocus={() => focusArtifactWindow(w.id)}
             onSnapToGrid={(x, y) => {
               console.log('Snap to grid at', x, y);

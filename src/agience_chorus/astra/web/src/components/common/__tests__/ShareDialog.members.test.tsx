@@ -9,8 +9,15 @@ vi.mock('@/api/api', () => ({ post: (...a: unknown[]) => postMock(...a) }));
 const listGrantsMock = vi.fn();
 const deleteGrantMock = vi.fn();
 const createGrantMock = vi.fn();
-vi.mock('@/api/collections', () => ({
+const { ROLES } = vi.hoisted(() => ({ ROLES: [
+  { name: 'viewer', actions: ['read'] }, { name: 'contributor', actions: ['create', 'read'] },
+  { name: 'admin', actions: ['create', 'read', 'update', 'delete', 'evict', 'invoke', 'add', 'share', 'admin'] },
+] }));
+vi.mock('@/api/collections', async (orig) => ({
+  ...(await orig<typeof import('@/api/collections')>()),
+  listRoles: async () => ROLES,
   listGrants: (...a: unknown[]) => listGrantsMock(...a),
+  markMembers: async (_id: string, gs: never[]) => (await import('./memberMarks')).marked(gs),
   deleteGrant: (...a: unknown[]) => deleteGrantMock(...a),
   createGrant: (...a: unknown[]) => createGrantMock(...a),
 }));
@@ -19,6 +26,7 @@ vi.mock('@/api/collections', () => ({
 const resendAtOriginMock = vi.fn();
 vi.mock('@/api/authority', async (orig) => ({
   AuthorityRefused: ((await orig()) as { AuthorityRefused: unknown }).AuthorityRefused,
+  actionsOf: ((await orig()) as { actionsOf: unknown }).actionsOf,
   describeParent: ((await orig()) as { describeParent: unknown }).describeParent,
   describeItem: ((await orig()) as { describeItem: unknown }).describeItem,
   describeGrantee: ((await orig()) as { describeGrantee: unknown }).describeGrantee,
@@ -86,11 +94,13 @@ describe('ShareDialog — who has access, and whether an invite went', () => {
                                         target_entity: 'cy@example.invalid' });
     renderDialog();
     fireEvent.change(screen.getByPlaceholderText('name@example.com'), { target: { value: 'cy@example.invalid' } });
+    await waitFor(() => expect(screen.getByText('Send invite').closest('button')?.disabled).toBe(false));
     fireEvent.click(screen.getByText('Send invite'));
     fireEvent.click(await screen.findByText('Confirm and send'));
     await waitFor(() => expect(screen.getByTestId('invite-sent')).toBeTruthy());
     expect(createGrantMock).toHaveBeenCalledWith('ws-1', expect.objectContaining({
-      grantee_type: 'invite', target_entity: 'cy@example.invalid', target_entity_type: 'email' }));
+      grantee_type: 'invite', target_entity: 'cy@example.invalid', target_entity_type: 'email',
+      actions: ['read'] }));
     expect(screen.getByTestId('invite-sent').textContent).toContain('cy@example.invalid');
     expect(screen.queryByLabelText('Invite link')).toBeNull();
     expect(postMock).not.toHaveBeenCalled();

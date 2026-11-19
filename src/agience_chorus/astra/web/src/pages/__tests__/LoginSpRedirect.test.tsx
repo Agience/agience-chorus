@@ -9,7 +9,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 import Login from '../Login';
-import { isAllowedSpRedirect, KNOWN_SP_ORIGINS } from '../../auth/spRedirect';
+import { isAllowedSpRedirect } from '../../auth/spRedirect';
 
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({ login: vi.fn(), setAuthData: vi.fn(), isAuthenticated: true }),
@@ -63,8 +63,8 @@ describe('Login silent SSO hand-off', () => {
     expect(logSpy).not.toHaveBeenCalledWith(HANDOFF_LOG);
   });
 
-  it('hands the token back to a known SP origin', async () => {
-    renderLogin('https://my.agience.ai/');
+  it("hands the token back to this app's own origin", async () => {
+    renderLogin(`${window.location.origin}/`);
     await waitFor(() => expect(logSpy).toHaveBeenCalledWith(HANDOFF_LOG));
     expect(screen.queryByText('HOME')).toBeNull();
   });
@@ -73,17 +73,22 @@ describe('Login silent SSO hand-off', () => {
     (window as { __AGIENCE_CONFIG__?: unknown }).__AGIENCE_CONFIG__ = {
       idpUri: 'https://origin.agience.ai',
     };
-    renderLogin('https://my.agience.ai/');
+    renderLogin(`${window.location.origin}/`);
     expect(await screen.findByText('HOME')).toBeInTheDocument();
     expect(logSpy).not.toHaveBeenCalledWith(HANDOFF_LOG);
   });
 });
 
 describe('isAllowedSpRedirect', () => {
-  it('accepts every known SP origin, with or without a path', () => {
-    for (const origin of KNOWN_SP_ORIGINS) {
-      expect(isAllowedSpRedirect(`${origin}/`)).toBe(true);
-      expect(isAllowedSpRedirect(`${origin}/app?x=1`)).toBe(true);
+  it("accepts this app's own origin and Origin's, with or without a path", () => {
+    (window as { __AGIENCE_CONFIG__?: unknown }).__AGIENCE_CONFIG__ = { originUri: 'https://origin.test' };
+    try {
+      for (const origin of [window.location.origin, 'https://origin.test']) {
+        expect(isAllowedSpRedirect(`${origin}/`)).toBe(true);
+        expect(isAllowedSpRedirect(`${origin}/app?x=1`)).toBe(true);
+      }
+    } finally {
+      delete (window as { __AGIENCE_CONFIG__?: unknown }).__AGIENCE_CONFIG__;
     }
   });
 

@@ -6,6 +6,7 @@
  * service provider (silent SSO), and, on a service-provider deployment, goes to the IdP's page.
  */
 
+import { clearToken, readToken, saveToken } from '@/display-state/session'
 import React, { useEffect, useState, useCallback } from 'react'
 import { FcGoogle } from 'react-icons/fc'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
@@ -15,8 +16,9 @@ import { originSignInUrl } from '../auth/originSignIn'
 import AuthLayout from '../components/layout/AuthLayout'
 import { postLoginRedirectTarget, rememberSpLogin } from '../auth/postLoginRedirect'
 import { getRuntimeConfig } from '../config/runtime'
-import { issueSpState } from '../auth/spState'
+import { issueSpState } from '@/display-state/spState'
 import { isAllowedSpRedirect, tokenForSp } from '../auth/spRedirect'
+import { since } from '@/display-state/lists';
 
 type AuthProviderInfo = {
   name: string
@@ -72,7 +74,7 @@ const Login: React.FC = () => {
     } catch {
       attempts = []
     }
-    attempts = attempts.filter((t) => now - t < 30_000)
+    attempts = since(attempts, now - 30_000 + 1)
     if (attempts.length >= 3) {
       console.warn('[Login] SP redirect loop detected — stopping')
       setSpBlocked(true)
@@ -139,7 +141,7 @@ const Login: React.FC = () => {
       // serve mantle + my + lumen. (setAuthData isn't used: we navigate away
       // immediately, so its validation/state work would be torn down mid-flight.)
       try {
-        localStorage.setItem('access_token', token)
+        saveToken(token)
       } catch {
         // Private mode / storage disabled — the SP still gets its token below.
       }
@@ -164,7 +166,7 @@ const Login: React.FC = () => {
     if (!isAuthenticated) return
     sessionStorage.removeItem(SP_ATTEMPTS_KEY) // a real session ends any bounce loop
     if (returnsTokenToSp) {
-      const existing = localStorage.getItem('access_token')
+      const existing = readToken()
       if (existing) {
         console.log('[Login] existing Origin session — returning token to the SP')
         finishLogin(existing)
@@ -207,7 +209,7 @@ const Login: React.FC = () => {
             type="button"
             onClick={() => {
               sessionStorage.removeItem(SP_ATTEMPTS_KEY)
-              localStorage.removeItem('access_token')
+              clearToken()
               setSpBlocked(false)
             }}
             className="w-full rounded-md bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700"

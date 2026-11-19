@@ -9,8 +9,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // error even though the dialog handles it.
 let listGrantsImpl: () => Promise<unknown[]> = async () => [];
 let listGrantsCalls = 0;
-vi.mock('@/api/collections', () => ({
+const { ROLES } = vi.hoisted(() => ({ ROLES: [
+  { name: 'viewer', actions: ['read'] }, { name: 'contributor', actions: ['create', 'read'] },
+  { name: 'admin', actions: ['create', 'read', 'update', 'delete', 'evict', 'invoke', 'add', 'share', 'admin'] },
+] }));
+vi.mock('@/api/collections', async (orig) => ({
+  ...(await orig<typeof import('@/api/collections')>()),
+  listRoles: async () => ROLES,
   listGrants: () => { listGrantsCalls += 1; return listGrantsImpl(); },
+  markMembers: async (_id: string, gs: never[]) => (await import('./memberMarks')).marked(gs),
   deleteGrant: vi.fn(),
   createGrant: vi.fn(),
 }));

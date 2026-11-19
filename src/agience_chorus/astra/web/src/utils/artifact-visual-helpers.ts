@@ -1,4 +1,4 @@
-// Artifact visual helpers: icon, color, and processing-state helpers for artifacts.
+// Artifact visual helpers: icon, color, and state-badge helpers for artifacts.
 // Icon and color lookups defer to the unified content type registry
 // (registry/content-types.ts); the values here are the fallback used
 // when a type isn't found there.
@@ -6,27 +6,6 @@ import { FiFile } from 'react-icons/fi';
 import type { IconType } from 'react-icons';
 import type { Artifact } from '@/context/workspace/workspace.types';
 import { getContentType, getContentTypeById } from '@/registry/content-types';
-
-type ArtifactContextDict = Record<string, unknown>;
-type ArtifactProcessing = {
-  status?: string;
-  asset_status?: string;
-  content_status?: string;
-  index_status?: string;
-};
-
-const PROCESSING_LOCKED_ACTIONS = new Set(['archive', 'remove', 'restore']);
-
-function parseArtifactContext(artifact: Artifact): ArtifactContextDict {
-  try {
-    const parsed = typeof artifact.context === 'string' ? JSON.parse(artifact.context) : artifact.context;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as ArtifactContextDict
-      : {};
-  } catch {
-    return {};
-  }
-}
 
 // Artifact type detection from content_type
 export function getArtifactType(artifact: Artifact): string {
@@ -44,40 +23,6 @@ export function getArtifactIcon(artifactType: string): IconType {
 export function getArtifactColor(artifactType: string): string {
   // Prefer the unified registry.
   return getContentTypeById(artifactType)?.color ?? '#9ca3af';
-}
-
-export function getArtifactProcessing(artifact: Artifact): ArtifactProcessing | null {
-  const context = parseArtifactContext(artifact);
-  const processing = context.processing;
-  if (!processing || typeof processing !== 'object' || Array.isArray(processing)) {
-    return null;
-  }
-  return processing as ArtifactProcessing;
-}
-
-export function isArtifactProcessingPending(artifact: Artifact): boolean {
-  const processing = getArtifactProcessing(artifact);
-  if (!processing) return false;
-
-  const status = processing.status || '';
-  const assetStatus = processing.asset_status || '';
-  const contentStatus = processing.content_status || '';
-
-  if (status === 'failed' || assetStatus === 'failed') {
-    return false;
-  }
-
-  return (
-    status === 'pending_upload' ||
-    status === 'pending_handler' ||
-    assetStatus === 'uploading' ||
-    assetStatus === 'pending_upload' ||
-    contentStatus === 'pending_handler'
-  );
-}
-
-export function isArtifactActionBlocked(artifact: Artifact, actionId: string): boolean {
-  return PROCESSING_LOCKED_ACTIONS.has(actionId) && isArtifactProcessingPending(artifact);
 }
 
 // Check if state badge should be shown. Only archived artifacts carry one.

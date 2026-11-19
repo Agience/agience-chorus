@@ -1,0 +1,50 @@
+{
+  "content_type": "application/vnd.agience.approval-level+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Approval level — a level that requests are filed at, with what it allows and who decides it. Each workspace makes its own levels, with any names. An initializer names its level in the starting fields of the approvals it makes.",
+  "ui": {
+    "label": "Approval level",
+    "icon": "layers",
+    "color": "#475569",
+    "badge_class": "bg-slate-100 text-slate-800",
+    "tile_class": "",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view",
+      "edit"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "resource_uri": "ui://astra/vnd.agience.record.html",
+    "resource_server": "astra",
+    "record": {
+      "titlePath": "title",
+      "fields": [
+        {
+          "path": "description",
+          "label": "Description",
+          "editable": true
+        }
+      ]
+    }
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "mutable": true
+    },
+    "description": {
+      "type": "string",
+      "description": "What the level allows and who decides it.",
+      "mutable": true
+    }
+  }
+}

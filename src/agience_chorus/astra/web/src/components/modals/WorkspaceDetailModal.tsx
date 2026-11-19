@@ -55,7 +55,7 @@ export default function WorkspaceDetailModal({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {mode === 'create'
-              ? 'Name it so you can tell it from your other workspaces.'
+              ? 'Name it so you can tell it from your other workspaces, or leave it blank for a numbered name.'
               : 'Update workspace details.'}
           </DialogDescription>
         </DialogHeader>
@@ -71,7 +71,7 @@ export default function WorkspaceDetailModal({
               autoFocus
               onFocus={(e) => e.currentTarget.select()}
               className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-              required
+              required={mode === 'edit'}
             />
           </div>
           <div className="space-y-2">
@@ -94,7 +94,7 @@ export default function WorkspaceDetailModal({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!name.trim()}>
+            <Button type="submit" disabled={mode === 'edit' && !name.trim()}>
               {mode === 'create' ? 'Create' : 'Save'}
             </Button>
           </DialogFooter>

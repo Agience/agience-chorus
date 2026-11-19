@@ -761,6 +761,16 @@ _CANON_OPS = [
 ]
 
 
+#: the capabilities each operator needs to run, by operator id.
+_NEEDS = {
+    "op.canon.light": ["store.read", "store.write"],
+    "op.knowledge.cite": ["store.read"],
+    "op.canon.source": ["fs.read"],
+    "op.canon.condense": ["fs.read", "store.write"],
+    "op.canon.browse": ["store.read"],
+}
+
+
 def register_canon_operators(store, *, author: str = "sage-canon") -> int:
     """Register sage's canon capabilities — the cited read and the organon/tekton write path."""
     from crystal import evolution
@@ -768,6 +778,7 @@ def register_canon_operators(store, *, author: str = "sage-canon") -> int:
     for name, offer in _CANON_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
             "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
-            "context": offer, "content": f"sage canon operator {name}: {offer}",
+            "context": offer, "offer": offer, "needs": list(_NEEDS[name]),
+            "content": f"sage canon operator {name}: {offer}",
             "created_by": author}))
     return len(_CANON_OPS)

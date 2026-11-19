@@ -11,7 +11,7 @@ describe('HelpDialog', () => {
   it('opens on five getting-started steps, with a feedback link', () => {
     render(<HelpDialog isOpen onClose={() => {}} />);
     expect(GET_STARTED_STEPS.map((s) => s.title)).toEqual([
-      'Open a workspace', 'Add a card', 'Group cards in a collection', 'Build a workflow', 'Share it']);
+      'Open a workspace', 'Add an artifact', 'Group artifacts in a collection', 'Build a workflow', 'Share it']);
     for (const s of GET_STARTED_STEPS) expect(screen.getByText(new RegExp(s.title))).toBeTruthy();
     const link = screen.getByRole('link', { name: 'Send feedback' });
     expect(link.getAttribute('href')).toBe(FEEDBACK_HREF);

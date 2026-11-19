@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agience-chorus"
-version = "0.5.2"
+version = "0.5.3"
 description = "Agience Chorus — the tekton standard library: operators by domain, and the host that serves them."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -65,7 +65,7 @@ dependencies = [
 # claim that it may be used.
 [project.optional-dependencies]
 astra = ["pypdf>=5.0", "numpy>=1.24", "datasets>=2.14"]
-lumen = ["numpy>=1.24", "sympy>=1.12"]
+lumen = ["numpy>=1.24", "sympy>=1.12", "websockets>=12"]
 sage = ["sympy>=1.12"]
 ophan = ["stripe>=9.0"]
 # aria, iris and seraph add nothing to the base. Declared anyway, and empty, so `[aria]` resolves

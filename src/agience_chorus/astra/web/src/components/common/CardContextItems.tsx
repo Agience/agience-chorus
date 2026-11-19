@@ -24,6 +24,7 @@ import {
   FiFolder as CollectionIcon,
   FiExternalLink as TabIcon,
   FiCopy as CopyIcon,
+  FiLink as LinkIcon,
 } from 'react-icons/fi';
 import { copyId } from '@/utils/copyId';
 import {
@@ -32,15 +33,15 @@ import {
 } from '../ui/context-menu';
 import type { Artifact } from '../../context/workspace/workspace.types';
 import type { ContentTypeDefinition } from '@/registry/content-types';
-import { isArtifactActionBlocked } from '@/utils/artifact-visual-helpers';
-import { canDeleteArtifact } from '@/utils/artifact-permissions';
-import { normalizeArtifactState } from '@/utils/artifactState';
+import { useLockedActions } from '@/context/view/useLockedActions';
+import { allows } from '@/utils/artifact-permissions';
 import { useCurrentUserId } from '@/hooks/useCurrentUserId';
 import { WorkspacesContext } from '@/context/workspaces/WorkspacesContext';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
 import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 
 import { useShare } from '@/context/share/useShare';
+import { useLinks } from '@/context/links/useLinks';
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -55,6 +56,7 @@ export type CardActionId =
   | 'add-to-workspace'
   | 'assign-collections'
   | 'share'
+  | 'links'
   | 'copy-id';
 
 export interface CardContextItemsProps {
@@ -99,14 +101,23 @@ const DEFAULT_ACTIONS: DefaultAction[] = [
   { id: 'assign-collections', label: 'Assign to collections…', icon: CollectionIcon, states: [] },
   // FR-030: any artifact is shared from here, by its own id. Taken in this component, not by hosts.
   { id: 'share',   label: 'Share…',          icon: ShareIcon,     states: ['live'] },
+  // Any artifact's named links are made and removed here. Taken in this component, not by hosts.
+  { id: 'links',   label: 'Links…',          icon: LinkIcon,      states: ['live'] },
   // Every artifact's id can be copied, to name it to someone or to a tool (BUG-075). Taken here.
   { id: 'copy-id', label: 'Copy ID',         icon: CopyIcon,      states: [] },
   { id: 'archive', label: 'Archive',         icon: ArchiveIcon,   states: ['live'], separator: 'before' },
   { id: 'restore', label: 'Restore',         icon: RestoreIcon,   states: ['archived'] },
   { id: 'remove',  label: 'Remove from workspace', icon: RemoveIcon, states: ['live'] },
   { id: 'delete',  label: 'Delete',          icon: TrashIcon,     states: [], destructive: true,
-    when: (artifact, userId, deleteEnabled) => deleteEnabled && canDeleteArtifact(artifact, userId) },
+    when: (artifact, _userId, deleteEnabled) => deleteEnabled && allows(artifact, 'delete') },
 ];
+
+// The action Mantle must allow the caller on the artifact (its `allowed_actions`) before a menu
+// action is offered: sharing it needs Share, and changing its links or its state needs Update.
+const NEEDS: Partial<Record<string, string>> = {
+  share: 'share', links: 'update', archive: 'update', restore: 'update',
+};
+const permitted = (artifact: Artifact, id: string) => !NEEDS[id] || allows(artifact, NEEDS[id]!);
 
 const SEARCH_RESULT_ACTIONS: DefaultAction[] = [
   { id: 'open',            label: 'Open',                 icon: OpenIcon,     states: [] },
@@ -133,15 +144,18 @@ export function CardContextItems({
   removeLabel,
   deleteEnabled = false,
 }: CardContextItemsProps) {
-  const state = normalizeArtifactState(artifact.state);
+  const state = artifact.state;
   const userId = useCurrentUserId();
   // Opening a tab is the workspaces' own act, not a host's, so it is taken here when offered.
   const tabs = useContext(WorkspacesContext);
   const canOpenTab = Boolean(tabs?.workspaces.some((w) => w.id === String(artifact.id)));
   const share = useShare();
+  const links = useLinks();
+  const locked = useLockedActions(artifact);
   const act = (actionId: CardActionId | string) => {
     if (actionId === 'open-tab' && tabs) tabs.openWorkspaceTab(String(artifact.id));
     else if (actionId === 'share' && share) share.openShare(String(artifact.id));
+    else if (actionId === 'links' && links) links.openLinks(String(artifact.id));
     else if (actionId === 'copy-id') void copyId(String(artifact.id));
     else onAction(actionId, artifact);
   };
@@ -154,10 +168,10 @@ export function CardContextItems({
     // ── Type-driven path ─────────────────────────────────────────────────────
     const applicable = typeActions.filter((a) => {
       // A declared Delete is gated the same way as the default one.
-      if (a.id === 'delete' && !(deleteEnabled && canDeleteArtifact(artifact, userId))) return false;
-      if ((!a.states || a.states.length === 0) && !isArtifactActionBlocked(artifact, a.id)) return true;
-      // Declared states may use the legacy names; they compare as the state they now mean.
-      return (a.states?.some((s) => normalizeArtifactState(s) === state) ?? false) && !isArtifactActionBlocked(artifact, a.id);
+      if (a.id === 'delete' && !(deleteEnabled && allows(artifact, 'delete'))) return false;
+      if (!permitted(artifact, a.id)) return false;
+      if (locked.includes(a.id)) return false;
+      return !a.states || a.states.length === 0 || a.states.includes(state);
     });
 
     return (
@@ -185,10 +199,16 @@ export function CardContextItems({
           </ContextMenuItem>
         )}
         {/* Share is every artifact's, whatever its type declares (FR-030). */}
-        {share && state === 'live' && !applicable.some((a) => a.id === 'share') && (
+        {share && state === 'live' && permitted(artifact, 'share') && !applicable.some((a) => a.id === 'share') && (
           <ContextMenuItem key="share" onClick={(e) => { e.stopPropagation(); act('share'); }}>
             <ShareIcon className="mr-2 h-4 w-4" />
             Share…
+          </ContextMenuItem>
+        )}
+        {links && state === 'live' && permitted(artifact, 'links') && !applicable.some((a) => a.id === 'links') && (
+          <ContextMenuItem key="links" onClick={(e) => { e.stopPropagation(); act('links'); }}>
+            <LinkIcon className="mr-2 h-4 w-4" />
+            Links…
           </ContextMenuItem>
         )}
       </>
@@ -200,9 +220,11 @@ export function CardContextItems({
 
   const applicable = pool.filter((a) => {
     if (a.id === 'share' && !share) return false;
+    if (a.id === 'links' && !links) return false;
     if (a.when && !a.when(artifact, userId, deleteEnabled, canOpenTab)) return false;
-    if ((!a.states || a.states.length === 0) && !isArtifactActionBlocked(artifact, a.id)) return true;
-    return a.states.includes(state) && !isArtifactActionBlocked(artifact, a.id);
+    if (!permitted(artifact, a.id)) return false;
+    if (locked.includes(a.id)) return false;
+    return !a.states || a.states.length === 0 || a.states.includes(state);
   });
 
   const items: React.ReactNode[] = [];

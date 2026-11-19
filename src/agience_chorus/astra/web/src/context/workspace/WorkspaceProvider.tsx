@@ -9,24 +9,24 @@ import {
   updateWorkspaceArtifact,
   removeWorkspaceArtifact,
   deleteWorkspaceArtifact,
-  orderWorkspaceArtifacts,
+  moveWorkspaceArtifacts,
   subscribeWorkspaceEvents,
 } from '../../api/workspaces';
 import { WorkspaceContext } from './WorkspaceContext';
 import { ConfirmContext } from '@/context/dialog/ConfirmContext';
+import { showIssued, takeIssued } from './issuedToken';
 import { Artifact } from './workspace.types';
 import { useWorkspaces } from '../workspaces/WorkspacesContext';
 import { toast } from 'sonner';
 import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
-import { midKey, afterKey } from '../../utils/fractional-index';
 import { extractInformation } from '../../api/agent';
 import { errorDetail, refusedWriteDetail } from '../../utils/errorDetail';
 import { announceRemoval } from '../../utils/removal';
 import { addArtifactToCollection } from '../../api/collections';
 import { trashArtifact, untrashArtifact } from '../../api/artifacts';
-import { normalizeArtifactState } from '../../utils/artifactState';
 import { COLLECTION_CONTENT_TYPE, WORKSPACE_CONTENT_TYPE } from '../../utils/content-type';
 import { OPEN_TRASH_EVENT, TRASH_RETENTION_DAYS, announceArtifactChange } from '../../constants/strings';
+import { keyList, keyedIn, keyedNotIn, moveGroup, toggle, unique, without, withoutKey } from '@/display-state/lists';
 
 type UpdateArtifactPayload = {
   state?: Artifact['state'];
@@ -35,49 +35,6 @@ type UpdateArtifactPayload = {
 };
 
 type ListWorkspaceArtifactsResult = { items: Artifact[]; order_version?: number };
-
-function compareByOrderKeyStable(a: Artifact, b: Artifact) {
-  const ka = (a.order_key || '');
-  const kb = (b.order_key || '');
-  const primary = ka.localeCompare(kb);
-  if (primary !== 0) return primary;
-
-  const ta = new Date(a.created_time || 0).getTime();
-  const tb = new Date(b.created_time || 0).getTime();
-  if (ta !== tb) return ta - tb;
-
-  return String(a.id || '').localeCompare(String(b.id || ''));
-}
-
-function expandToFullWorkspaceOrder(allArtifacts: Artifact[], orderedIdsIn: string[]): string[] {
-  const full = [...allArtifacts]
-    .sort(compareByOrderKeyStable)
-    .map(c => String(c.id))
-    .filter(Boolean);
-
-  const fullSet = new Set(full);
-  const orderedIds = orderedIdsIn.map(String).filter(id => fullSet.has(id));
-
-  // If already full coverage, nothing to expand.
-  if (orderedIds.length === full.length) return orderedIds;
-
-  // Permute only the provided IDs within the existing "visible" slots.
-  // This keeps all non-mentioned artifacts exactly where they are, and avoids
-  // sending a partial list to the backend (which can lead to confusing results).
-  const visibleSet = new Set(orderedIds);
-  const it = orderedIds[Symbol.iterator]();
-  const next = full.map((id) => {
-    if (!visibleSet.has(id)) return id;
-    const n = it.next();
-    return n.done ? id : String(n.value);
-  });
-
-  // If any orderedIds weren't consumed (shouldn't happen), append them.
-  const remaining = Array.from(it);
-  if (remaining.length) return [...next, ...remaining.map(String)];
-  return next;
-}
-
 
 /** A card's name for a message: its title, else its filename, else "Untitled". */
 function artifactTitle(a: Artifact | undefined): string {
@@ -174,7 +131,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         // its place. 2026-10-29, a tester: a card restored with the Inbox open appeared only
         // after a refresh.
         const held = artifactsRef.current.some(c => String(c.id) === String(artifact.id));
-        if (!held && normalizeArtifactState(artifact.state) === 'live') {
+        if (!held && artifact.state === 'live') {
           void refreshArtifacts(workspaceId);
           return;
         }
@@ -187,8 +144,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         );
       },
       onArtifactDeleted: (artifactId) => {
-        setArtifacts(prev => prev.filter(c => String(c.id) !== String(artifactId)));
-        setSelectedArtifactIds(prev => prev.filter(id => id !== String(artifactId)));
+        setArtifacts(prev => withoutKey(prev, c => c.id, artifactId));
+        setSelectedArtifactIds(prev => without(prev, String(artifactId)));
       },
       onWorkspaceRefreshed: () => {
         refreshArtifacts(workspaceId);
@@ -207,8 +164,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         // Don't send collection_ids - let server default to [user_id]
       };
       try {
-        const created = await addArtifactToWorkspace(activeWorkspace.id, payload);
-        setArtifacts(prev => withArtifact(prev, created as Artifact));
+        const { record: created, issued } = takeIssued(await addArtifactToWorkspace(activeWorkspace.id, payload) as Artifact);
+        await showIssued(dialog, issued);
+        setArtifacts(prev => withArtifact(prev, created));
       } catch (err) {
         // Said, with the server's reason, as `createArtifact` says it (BUG-061, 2026-11-10: a
         // refused create left nothing on screen, its 503 only in the console).
@@ -218,7 +176,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [activeWorkspace?.id]
+    [activeWorkspace?.id, dialog]
   );
 
   // Add a pre-created artifact to local state (e.g., from upload initiation)
@@ -245,7 +203,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setOpenedArtifacts(prev => {
       const kept = prev.find(c => String(c.id) === String(artifact.id));
       const newer = kept && String(kept.modified_time ?? '') > String(artifact.modified_time ?? '') ? kept : artifact;
-      return [...prev.filter(c => String(c.id) !== String(artifact.id)), newer];
+      return [...withoutKey(prev, c => c.id, artifact.id), newer];
     });
   }, []);
 
@@ -260,34 +218,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     async (partial: Partial<Artifact>, insertIndex?: number): Promise<Artifact | null> => {
       if (!activeWorkspace?.id) return null;
       
-      // Compute order_key client-side for instant positioning
-      let order_key: string;
-      if (typeof insertIndex === 'number') {
-        const before = insertIndex > 0 ? artifacts[insertIndex - 1] : null;
-        const after = insertIndex < artifacts.length ? artifacts[insertIndex] : null;
-        order_key = midKey(before?.order_key || null, after?.order_key || null);
-      } else {
-        // Append to end
-        const lastArtifact = artifacts[artifacts.length - 1];
-        order_key = afterKey(lastArtifact?.order_key || null);
-      }
-
+      // Mantle computes the order key: just before the member at insertIndex, or at the end.
+      const beforeId = typeof insertIndex === 'number' ? artifacts[insertIndex]?.id : undefined;
       const payload: {
         content: string;
         context: string;
-        order_key: string;
+        before_id?: string;
         content_type?: string;
       } = {
         content: partial.content ?? '',
         context: stringifyArtifactContext(partial.context ?? { content_type: 'text/plain', preview_text: '' }),
-        order_key, // Client-computed fractional index
+        ...(beforeId ? { before_id: String(beforeId) } : {}),
       };
       if (partial.content_type) {
         payload.content_type = partial.content_type;
       }
       
       try {
-        const created = await addArtifactToWorkspace(activeWorkspace.id, payload) as Artifact;
+        // A token the create issued is shown once and kept out of everything below.
+        const { record: created, issued } = takeIssued(
+          await addArtifactToWorkspace(activeWorkspace.id, payload) as Artifact,
+        );
+        await showIssued(dialog, issued);
 
         // At its position, unless its "created" event already put it in the store.
         setArtifacts(prev => withArtifact(prev, created, insertIndex));
@@ -306,7 +258,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         return null;
       }
     },
-    [activeWorkspace?.id, artifacts]
+    [activeWorkspace?.id, artifacts, dialog]
   );
 
   const updateArtifact = useCallback(
@@ -340,11 +292,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (typeof patchIn.content !== 'undefined') payload.content = patchIn.content;
 
       try {
-        const updated = await updateWorkspaceArtifact(
+        // An update that issues a Key's token answers it once: shown, then kept out of the store.
+        const { record: updated, issued } = takeIssued(await updateWorkspaceArtifact(
           activeWorkspace.id,
           String(patchIn.id),
           payload
-        );
+        ));
+        await showIssued(dialog, issued);
         const confirmed = (prev: Artifact[]) =>
           prev.map(c => (String(c.id) === String(patchIn.id)
             ? { ...c, ...updated } as Artifact
@@ -382,13 +336,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         return false;
       }
     },
-    [activeWorkspace?.id, artifacts, openedArtifacts, displayedArtifacts, refreshArtifacts]
+    [activeWorkspace?.id, artifacts, openedArtifacts, displayedArtifacts, refreshArtifacts, dialog]
   );
 
 
   const dropLocally = useCallback((id: string) => {
-    setArtifacts(prev => prev.filter(c => String(c.id) !== String(id) && String(c.root_id) !== String(id)));
-    setSelectedArtifactIds(prev => prev.filter(cid => cid !== String(id)));
+    setArtifacts(prev => withoutKey(withoutKey(prev, c => c.id, id), c => c.root_id, id));
+    setSelectedArtifactIds(prev => without(prev, String(id)));
   }, []);
 
   // What a move to Trash says, from any entry point: what moved, Undo, and View Trash. 2026-10-23,
@@ -438,8 +392,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           relink: () => addArtifactToCollection(workspaceId, String(id)),
           after: () => { void refreshArtifacts(workspaceId); },
         });
-        setArtifacts(prev => prev.filter(c => String(c.id) !== String(id) && String(c.root_id) !== String(id)));
-        setSelectedArtifactIds(prev => prev.filter(cid => cid !== String(id)));
+        setArtifacts(prev => withoutKey(withoutKey(prev, c => c.id, id), c => c.root_id, id));
+        setSelectedArtifactIds(prev => without(prev, String(id)));
       } catch (err) {
         // Made here and shown elsewhere too: Mantle keeps it here (its content is keyed to this
         // workspace) and says so, and the person chooses. 2026-11-15, the Tester: the 409 was not
@@ -488,158 +442,59 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   );
 
 
-  const orderArtifacts = useCallback(
-    async (orderedIds: string[]) => {
-      if (!activeWorkspace?.id) return;
+  const moveArtifacts = useCallback(
+    async (ids: string[], beforeId: string | null) => {
+      if (!activeWorkspace?.id || ids.length === 0) return;
 
-      // Ensure we always persist a full-workspace ordering.
-      // Some UIs can call this with only the currently-visible IDs (e.g., filtered/search).
-      const orderedIdsFull = expandToFullWorkspaceOrder(artifacts, orderedIds);
-
-      // Optimistic update: reorder the artifacts array immediately
+      // Shown at once; Mantle places them and answers the order's new version.
       setArtifacts(prev => {
-        const applyIds = expandToFullWorkspaceOrder(prev, orderedIdsFull);
-        const byId = new Map(prev.map(c => [String(c.id), c]));
-        const nextUnkeyed: Artifact[] = [];
-        for (const id of applyIds) {
-          const c = byId.get(String(id));
-          if (c) nextUnkeyed.push(c);
-        }
-        // Include any artifacts not in orderedIds at the end
-        for (const c of prev) {
-          if (!applyIds.includes(String(c.id))) nextUnkeyed.push(c);
-        }
-
-        // Browser "manual" sorting uses order_key. The backend /order endpoint returns
-        // only {version}, not updated keys, so order_key is updated locally to keep the
-        // UI responsive and deterministic.
-        let prevKey: string | null = null;
-        const next = nextUnkeyed.map((c) => {
-          const nextKey = afterKey(prevKey);
-          prevKey = nextKey;
-          return { ...c, order_key: nextKey };
-        });
-
-        return next;
+        const idOf = (c: Artifact) => String(c.id);
+        const stay = keyedNotIn(prev, idOf, ids);
+        const at = beforeId ? stay.findIndex(c => idOf(c) === beforeId) : -1;
+        return moveGroup(prev, keyedIn(prev, idOf, ids), at === -1 ? stay.length : at);
       });
 
-      // Use bulk /order endpoint - server computes new order_keys
       try {
-        const res = await orderWorkspaceArtifacts(
-          activeWorkspace.id,
-          orderedIdsFull,
-          orderVersion ?? undefined
-        );
+        const res = await moveWorkspaceArtifacts(activeWorkspace.id, ids, beforeId, orderVersion ?? undefined);
         if (typeof res?.version === 'number') setOrderVersion(res.version);
       } catch (err: unknown) {
         console.error('[ORDER] Error:', err);
-        // On error, refetch to recover correct state
         const fresh = await listWorkspaceArtifacts(activeWorkspace.id) as unknown as ListWorkspaceArtifactsResult;
         setArtifacts(fresh.items);
         if (typeof fresh.order_version === 'number') setOrderVersion(fresh.order_version);
         toast.error('Could not save order');
       }
     },
-    [activeWorkspace?.id, orderVersion, artifacts]
+    [activeWorkspace?.id, orderVersion]
   );
 
   const importArtifactsByRootIds = useCallback(
     async (rootIdsIn: string[], insertIndex: number) => {
       if (!activeWorkspace?.id) return;
 
-      const rootIds = rootIdsIn.map(String).map(v => v.trim()).filter(Boolean);
+      const rootIds = keyList(rootIdsIn);
       if (rootIds.length === 0) return;
 
       const workspaceId = activeWorkspace.id;
 
-      // Import sequentially to preserve user drag order and avoid noisy parallel errors
+      // Each lands just before the member at insertIndex; Mantle computes the order key.
+      // Sequential, so the dropped order holds.
+      const beforeId = artifacts[insertIndex]?.id;
       for (const rootId of rootIds) {
         try {
-          await importCollectionArtifactToWorkspace(workspaceId, rootId);
+          await importCollectionArtifactToWorkspace(workspaceId, rootId, beforeId ? String(beforeId) : undefined);
         } catch {
           // Ignore: not readable / already exists / etc
         }
       }
 
-      // Fetch authoritative artifacts list + version, then compute the new ordering
-      let fresh: ListWorkspaceArtifactsResult;
       try {
-        const res = await listWorkspaceArtifacts(workspaceId);
-        fresh = res as unknown as ListWorkspaceArtifactsResult;
+        await refreshArtifacts(workspaceId);
       } catch (err) {
         console.error('Failed to refresh artifacts after import', err);
-        return;
-      }
-
-      const normalized = fresh.items ?? [];
-      if (typeof fresh.order_version === 'number') setOrderVersion(fresh.order_version);
-
-      // Determine which workspace artifact IDs correspond to the dropped root IDs
-      const idsToInsert = rootIds
-        .map((rid) => normalized.find((c) => String(c.root_id || '') === rid)?.id)
-        .filter((v): v is NonNullable<typeof v> => v != null)
-        .map(String)
-        .filter(Boolean);
-
-      // If nothing new was inserted, just sync to fresh state
-      if (idsToInsert.length === 0) {
-        setArtifacts(normalized);
-        return;
-      }
-
-      const sorted = [...normalized].sort(compareByOrderKeyStable);
-      const currentOrder = sorted.map((c) => String(c.id)).filter(Boolean);
-      const remaining = currentOrder.filter((id) => !idsToInsert.includes(id));
-
-      const clampedIndex = Math.max(0, Math.min(insertIndex, remaining.length));
-      const nextOrder = [
-        ...remaining.slice(0, clampedIndex),
-        ...idsToInsert,
-        ...remaining.slice(clampedIndex),
-      ];
-
-      // Optimistically update local ordering + order_key for responsive UI
-      const byId = new Map(sorted.map((c) => [String(c.id), c] as const));
-      let prevKey: string | null = null;
-      const nextArtifacts: Artifact[] = [];
-
-      for (const id of nextOrder) {
-        const artifact = byId.get(String(id));
-        if (!artifact) continue;
-        const nextKey = afterKey(prevKey);
-        prevKey = nextKey;
-        nextArtifacts.push({ ...artifact, order_key: nextKey });
-      }
-
-      // Include any artifacts not covered (shouldn't happen) at the end
-      for (const artifact of sorted) {
-        const id = String(artifact.id);
-        if (!id || nextOrder.includes(id)) continue;
-        const nextKey = afterKey(prevKey);
-        prevKey = nextKey;
-        nextArtifacts.push({ ...artifact, order_key: nextKey });
-      }
-
-      setArtifacts(nextArtifacts);
-
-      // Persist ordering server-side
-      try {
-        const res = await orderWorkspaceArtifacts(
-          workspaceId,
-          nextOrder,
-          typeof fresh.order_version === 'number' ? fresh.order_version : orderVersion ?? undefined
-        );
-        if (typeof res?.version === 'number') setOrderVersion(res.version);
-      } catch (err) {
-        console.error('Failed to save order after import', err);
-        try {
-          await refreshArtifacts(workspaceId);
-        } catch {
-          // ignore
-        }
       }
     },
-    [activeWorkspace?.id, orderVersion, refreshArtifacts]
+    [activeWorkspace?.id, artifacts, refreshArtifacts]
   );
 
   // selection
@@ -678,12 +533,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           if (start === -1 || end === -1) return prev;
           const [lo, hi] = start < end ? [start, end] : [end, start];
           const range = ids.slice(lo, hi + 1);
-          return Array.from(new Set([...prev, ...range]));
+          return unique([...prev, ...range]);
         }
 
         if (isMeta) {
           setAnchorId(id);
-          return prev.includes(id) ? prev.filter(cid => cid !== id) : [...prev, id];
+          return toggle(prev, id);
         }
 
         setAnchorId(id);
@@ -745,7 +600,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const artifactIds = selectedIds.filter((id) => id !== sourceId);
+      const artifactIds = without(selectedIds, sourceId);
       await extractInformationFromArtifact(sourceId, artifactIds);
     },
     [activeWorkspace?.id, selectedArtifactIds, anchorId, extractInformationFromArtifact]
@@ -769,7 +624,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       deleteArtifact,
       announceTrashed,
       discardArtifact,
-      orderArtifacts,
+      moveArtifacts,
       importArtifactsByRootIds,
       refreshArtifacts,
       selectArtifact,
@@ -796,7 +651,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       deleteArtifact,
       announceTrashed,
       discardArtifact,
-      orderArtifacts,
+      moveArtifacts,
       importArtifactsByRootIds,
       refreshArtifacts,
       selectArtifact,

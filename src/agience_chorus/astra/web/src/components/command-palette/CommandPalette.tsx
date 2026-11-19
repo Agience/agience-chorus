@@ -8,7 +8,7 @@
  * Features:
  * - Keyboard shortcut (⌘K / Ctrl+K)
  * - Fuzzy search with cmdk
- * - Recent items (localStorage, max 5)
+ * - Recent items (the person's recents, kept by Crystal)
  * - Keyboard navigation (↑↓ arrows, Enter)
  * - 5 groups: Recent, Workspaces, Collections, MCP Servers, Quick Actions
  * 
@@ -38,8 +38,12 @@ import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { CollectionResponse } from '../../api/types';
 import { listCollections } from '../../api/collections';
+import CollectionPlace from '@/components/common/CollectionPlace';
 import { useShortcuts } from '@/context/shortcuts/useShortcuts';
 import { workspaceLabels } from '@/utils/workspaceLabels';
+import { listRecents, visitRecent, type RecentArtifact } from '../../api/recents';
+import { COLLECTION_CONTENT_TYPE, WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
+import { artifactTitle } from '@/utils/artifactContext';
 
 interface CommandPaletteProps {
   /** Callback when a workspace is selected */
@@ -50,15 +54,10 @@ interface CommandPaletteProps {
   onMcpServerSelect?: (serverId: string) => void;
 }
 
-interface RecentItem {
-  type: 'workspace' | 'collection' | 'mcp-server';
-  id: string;
-  name: string;
-  timestamp: number;
-}
-
-const RECENT_ITEMS_KEY = 'agience-recent-items';
-const MAX_RECENT_ITEMS = 5;
+const RECENT_ICONS: Record<string, typeof NotebookPen> = {
+  [WORKSPACE_CONTENT_TYPE]: NotebookPen,
+  [COLLECTION_CONTENT_TYPE]: FolderOpen,
+};
 
 export default function CommandPalette({
   onWorkspaceSelect,
@@ -67,7 +66,7 @@ export default function CommandPalette({
 }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [collections, setCollections] = useState<CollectionResponse[]>([]);
-  const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
+  const [recentItems, setRecentItems] = useState<RecentArtifact[]>([]);
   const { workspaces, openWorkspaceTab } = useWorkspaces();
   // Same-name workspaces are told apart by the day they were made (BUG-001).
   const labels = useMemo(() => workspaceLabels(workspaces), [workspaces]);
@@ -86,33 +85,14 @@ export default function CommandPalette({
       .catch(console.error);
   }, []);
 
-  // Load recent items from localStorage
+  // The person's recents, as Crystal keeps them.
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(RECENT_ITEMS_KEY);
-      if (stored) {
-        setRecentItems(JSON.parse(stored));
-      }
-    } catch (error) {
-      console.error('Failed to load recent items:', error);
-    }
-  }, []);
+    if (!open) return;
+    listRecents().then(setRecentItems).catch(console.error);
+  }, [open]);
 
-  // Save recent item
-  const addRecentItem = useCallback((type: RecentItem['type'], id: string, name: string) => {
-    setRecentItems((prev) => {
-      // Remove if already exists
-      const filtered = prev.filter(item => !(item.type === type && item.id === id));
-      // Add to front
-      const updated = [{ type, id, name, timestamp: Date.now() }, ...filtered].slice(0, MAX_RECENT_ITEMS);
-      // Save to localStorage
-      try {
-        localStorage.setItem(RECENT_ITEMS_KEY, JSON.stringify(updated));
-      } catch (error) {
-        console.error('Failed to save recent items:', error);
-      }
-      return updated;
-    });
+  const addRecentItem = useCallback((id: string) => {
+    visitRecent(id).then(setRecentItems).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -136,8 +116,8 @@ export default function CommandPalette({
   }, [registerShortcut]);
 
   // Handle workspace selection
-  const handleWorkspaceSelect = useCallback((workspaceId: string, workspaceName: string) => {
-    addRecentItem('workspace', workspaceId, workspaceName);
+  const handleWorkspaceSelect = useCallback((workspaceId: string) => {
+    addRecentItem(workspaceId);
     // Opened as a tab: a workspace not yet docked would otherwise be selected and dropped again.
     openWorkspaceTab(workspaceId);
     onWorkspaceSelect?.(workspaceId);
@@ -145,18 +125,17 @@ export default function CommandPalette({
   }, [openWorkspaceTab, onWorkspaceSelect, addRecentItem]);
 
   // Handle collection selection
-  const handleCollectionSelect = useCallback((collectionId: string, collectionName: string) => {
-    addRecentItem('collection', collectionId, collectionName);
+  const handleCollectionSelect = useCallback((collectionId: string) => {
+    addRecentItem(collectionId);
     onCollectionSelect?.(collectionId);
     setOpen(false);
   }, [onCollectionSelect, addRecentItem]);
 
   // Handle MCP server selection
-  const handleMcpServerSelect = useCallback((serverId: string, serverName: string) => {
-    addRecentItem('mcp-server', serverId, serverName);
+  const handleMcpServerSelect = useCallback((serverId: string) => {
     onMcpServerSelect?.(serverId);
     setOpen(false);
-  }, [onMcpServerSelect, addRecentItem]);
+  }, [onMcpServerSelect]);
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
@@ -169,29 +148,20 @@ export default function CommandPalette({
           <>
             <CommandGroup heading="Recent">
               {recentItems.map((item) => {
-                const Icon = item.type === 'workspace' 
-                  ? NotebookPen 
-                  : item.type === 'collection' 
-                  ? FolderOpen 
-                  : McpIcon;
-                
+                const Icon = RECENT_ICONS[item.content_type ?? ''] ?? FolderOpen;
+                const name = item.name || artifactTitle(item) || item.id;
                 return (
                   <CommandItem
-                    key={`recent-${item.type}-${item.id}`}
-                    value={`recent-${item.type}-${item.name}`}
+                    key={`recent-${item.id}`}
+                    value={`recent-${name}-${item.id}`}
                     onSelect={() => {
-                      if (item.type === 'workspace') handleWorkspaceSelect(item.id, item.name);
-                      else if (item.type === 'collection') handleCollectionSelect(item.id, item.name);
-                      else handleMcpServerSelect(item.id, item.name);
+                      if (item.content_type === WORKSPACE_CONTENT_TYPE) handleWorkspaceSelect(item.id);
+                      else handleCollectionSelect(item.id);
                     }}
                     className="cursor-pointer"
                   >
-                    {item.type === 'mcp-server' ? (
-                      <McpIcon size={16} className="mr-2 text-gray-500" />
-                    ) : (
-                      <Icon className="mr-2 h-4 w-4 text-gray-500" />
-                    )}
-                    <span className="font-medium text-sm truncate">{item.name}</span>
+                    <Icon className="mr-2 h-4 w-4 text-gray-500" />
+                    <span className="font-medium text-sm truncate">{name}</span>
                   </CommandItem>
                 );
               })}
@@ -207,13 +177,13 @@ export default function CommandPalette({
               {workspaces.map((workspace) => (
                 <CommandItem
                   key={workspace.id}
-                  value={`workspace-${workspace.name || 'Untitled workspace'}-${workspace.id}`}
-                  onSelect={() => handleWorkspaceSelect(workspace.id, workspace.name || 'Untitled workspace')}
+                  value={`workspace-${workspace.name}-${workspace.id}`}
+                  onSelect={() => handleWorkspaceSelect(workspace.id)}
                   className="cursor-pointer"
                 >
                   <NotebookPen className="mr-2 h-4 w-4 text-gray-500" />
                   <div className="flex flex-col flex-1 min-w-0">
-                    <span className="font-medium text-sm truncate">{labels.get(workspace.id) ?? (workspace.name || 'Untitled workspace')}</span>
+                    <span className="font-medium text-sm truncate">{labels.get(workspace.id) ?? workspace.name}</span>
                     {workspace.description && (
                       <span className="text-xs text-gray-500 truncate">
                         {workspace.description}
@@ -234,13 +204,14 @@ export default function CommandPalette({
               {collections.map((collection) => (
                 <CommandItem
                   key={collection.id}
-                  value={`collection-${collection.name || 'Untitled collection'}-${collection.id}`}
-                  onSelect={() => handleCollectionSelect(collection.id, collection.name || 'Untitled collection')}
+                  value={`collection-${collection.name}-${collection.id}`}
+                  onSelect={() => handleCollectionSelect(collection.id)}
                   className="cursor-pointer"
                 >
                   <FolderOpen className="mr-2 h-4 w-4 text-gray-500" />
                   <div className="flex flex-col flex-1 min-w-0">
-                    <span className="font-medium text-sm truncate">{collection.name || 'Untitled collection'}</span>
+                    <span className="font-medium text-sm truncate">{collection.name}</span>
+                    <CollectionPlace collection={collection} className="text-xs text-gray-600 truncate" />
                     {collection.description && (
                       <span className="text-xs text-gray-500 truncate">
                         {collection.description}
@@ -261,7 +232,7 @@ export default function CommandPalette({
               <CommandItem
                 key={server.id}
                 value={`mcp-${server.name}`}
-                onSelect={() => handleMcpServerSelect(server.id, server.name)}
+                onSelect={() => handleMcpServerSelect(server.id)}
                 className="cursor-pointer"
               >
                 <McpIcon size={16} className="mr-2 text-gray-500" />
@@ -296,7 +267,7 @@ export default function CommandPalette({
             className="cursor-pointer"
           >
             <Search className="mr-2 h-4 w-4 text-gray-500" />
-            <span className="text-sm">Search cards...</span>
+            <span className="text-sm">Search artifacts…</span>
           </CommandItem>
           <CommandItem
             value="create-workspace"

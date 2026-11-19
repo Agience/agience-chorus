@@ -8,6 +8,7 @@ const untrashArtifactMock = vi.fn();
 const deleteArtifactMock = vi.fn();
 const refreshArtifactsMock = vi.fn();
 const confirmMock = vi.fn();
+const restoreWorkspaceMock = vi.fn();
 
 vi.mock('@/api/artifacts', () => ({
   listTrash: (...args: unknown[]) => listTrashMock(...args),
@@ -20,7 +21,7 @@ vi.mock('@/hooks/useWorkspace', () => ({
 }));
 
 vi.mock('@/hooks/useWorkspaces', () => ({
-  useWorkspaces: () => ({ activeWorkspaceId: 'ws-1' }),
+  useWorkspaces: () => ({ activeWorkspaceId: 'ws-1', restoreWorkspace: restoreWorkspaceMock }),
 }));
 
 vi.mock('@/context/dialog/useConfirm', () => ({
@@ -74,6 +75,18 @@ describe('TrashDialog', () => {
     await waitFor(() => expect(untrashArtifactMock).toHaveBeenCalledWith('a-1'));
     await waitFor(() => expect(screen.queryByText('Lantern notes')).not.toBeInTheDocument());
     expect(refreshArtifactsMock).toHaveBeenCalledWith('ws-1');
+  });
+
+  it('a workspace restored from Trash returns to the workspace list', async () => {
+    const ws = { ...ITEM, id: 'w-9', content_type: 'application/vnd.agience.workspace+json' };
+    listTrashMock.mockResolvedValueOnce([ws]);
+    restoreWorkspaceMock.mockResolvedValueOnce(undefined);
+    const user = userEvent.setup();
+    render(<TrashDialog isOpen onClose={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: 'Restore' }));
+
+    await waitFor(() => expect(restoreWorkspaceMock).toHaveBeenCalledWith('w-9'));
+    expect(untrashArtifactMock).not.toHaveBeenCalled();
   });
 
   // 2026-10-23, a tester: an archived artifact restored from Trash came back live.

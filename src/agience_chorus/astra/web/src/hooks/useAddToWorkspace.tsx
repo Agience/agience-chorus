@@ -24,7 +24,7 @@ export function useAddToWorkspace(): { addToWorkspace: (artifact: Artifact) => v
     setAdding(null);
     if (!artifact) return;
     const target = workspaces.find((w) => String(w.id) === String(targetId));
-    const label = target ? workspaceLabel(target, workspaces) : 'the workspace';
+    const label = target ? workspaceLabel(target) : 'the workspace';
     try {
       const linked = await importCollectionArtifactToWorkspace(targetId, String(artifact.root_id ?? artifact.id));
       if (String(targetId) === String(activeWorkspace?.id)) addExistingArtifact(linked as unknown as Artifact);

@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchChoices, inFoundOrder } from '@/hooks/useSearchChoices';
+import { COLLECTION_CONTENT_TYPE } from '@/utils/content-type';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { FolderOpen, Search } from 'lucide-react';
-import { listCollections, listVisibleOfType } from '../../api/collections';
+import { listCollections, listVisibleOfTypes } from '../../api/collections';
 import toast from 'react-hot-toast';
 
 interface BindingPickerProps {
@@ -20,15 +22,6 @@ interface BindingPickerProps {
 
 interface Choice { id: string; name: string }
 
-// A listed artifact's name: a collection's `name`, otherwise the title in its context.
-function nameOf(a: Record<string, unknown>): string {
-  if (typeof a.name === 'string' && a.name) return a.name;
-  let ctx = a.context as unknown;
-  if (typeof ctx === 'string') { try { ctx = JSON.parse(ctx); } catch { ctx = {}; } }
-  const title = ctx && typeof ctx === 'object' ? (ctx as Record<string, unknown>).title : undefined;
-  return typeof title === 'string' && title ? title : String(a.id ?? '');
-}
-
 export function BindingPicker({ open, onClose, onSelect, label, contentTypes, action }: BindingPickerProps) {
   const [collections, setCollections] = useState<Choice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,17 +39,10 @@ export function BindingPicker({ open, onClose, onSelect, label, contentTypes, ac
   const loadCollections = async () => {
     try {
       setLoading(true);
-      const lists = contentTypes && contentTypes.length
-        ? await Promise.all(contentTypes.map((ct) => listVisibleOfType(ct)))
-        : [await listCollections(action || 'read')];
-      const seen = new Set<string>();
-      const data: Choice[] = [];
-      for (const a of lists.flat() as unknown as Record<string, unknown>[]) {
-        const id = String(a.id ?? '');
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
-        data.push({ id, name: nameOf(a) });
-      }
+      const listed = contentTypes && contentTypes.length
+        ? await listVisibleOfTypes(contentTypes, action || 'read')
+        : await listCollections(action || 'read');
+      const data: Choice[] = listed.map((a) => ({ id: String(a.id ?? ''), name: a.name ?? '' }));
       setCollections(data);
     } catch (error) {
       console.error('Failed to load collections:', error);
@@ -66,13 +52,8 @@ export function BindingPicker({ open, onClose, onSelect, label, contentTypes, ac
     }
   };
 
-  const filtered = useMemo(
-    () =>
-      collections.filter((c) =>
-        (c.name ?? '').toLowerCase().includes(searchQuery.toLowerCase()),
-      ),
-    [collections, searchQuery],
-  );
+  const found = useSearchChoices(searchQuery, contentTypes?.length ? contentTypes : [COLLECTION_CONTENT_TYPE]);
+  const filtered = useMemo(() => inFoundOrder(collections, found, (c) => c.id), [collections, found]);
 
   const handleSelect = (c: Choice) => {
     onSelect(c.id, c.name);

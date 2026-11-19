@@ -24,7 +24,24 @@ def test_what_the_request_asks_for_cannot_change_after_it_is_filed():
     schema = _type("release-request")["context_schema"]
     for path in ("level", "kind", "action", "action_digest", "part"):
         assert schema[path]["mutable"] is False, path
-    assert schema["level"]["values"] == ["Costed", "Outward", "Governance"]
+    # The level is the id of an approval-level artifact; the type names no level.
+    assert schema["level"]["type"] == "string" and "values" not in schema["level"]
+
+
+def test_the_approval_carries_its_level_shown_and_not_editable():
+    t = _type("approval")
+    level = t["context_schema"]["level"]
+    assert level["type"] == "string" and level["mutable"] is False and "values" not in level
+    record = {f["path"]: f for f in t["ui"]["record"]["fields"]}
+    assert record["level"]["editable"] is False
+
+
+def test_a_level_is_plain_data_each_workspace_makes():
+    t = _type("approval-level")
+    assert t["content_type"] == "application/vnd.agience.approval-level+json"
+    assert "on_create" not in t and "fields" not in t
+    assert t["ui"]["creatable"] is True
+    assert set(t["context_schema"]) == {"title", "description"}
 
 
 def test_the_approval_s_decider_and_time_are_stamped_from_the_update_that_sets_its_state():
@@ -40,6 +57,6 @@ def test_the_approval_s_decider_and_time_are_stamped_from_the_update_that_sets_i
 
 
 def test_neither_type_holds_a_secret():
-    for name in ("release-request", "approval"):
+    for name in ("release-request", "approval", "approval-level"):
         schema = _type(name)["context_schema"]
         assert not any(v.get("secret") for v in schema.values()), name

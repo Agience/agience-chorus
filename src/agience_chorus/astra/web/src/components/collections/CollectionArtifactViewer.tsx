@@ -4,23 +4,22 @@ import { toast } from 'sonner';
 
 import CardGrid from '@/components/common/CardGrid';
 import CardList from '@/components/common/CardList';
-import { addArtifactToCollection, listCollectionArtifacts, removeArtifactFromCollection, setArtifactCollections, subscribeCollectionEvents } from '@/api/collections';
+import { addArtifactToCollection, changeMemberships, listCollectionArtifacts, subscribeCollectionEvents, type MembershipItem } from '@/api/collections';
 import { CollectionPicker } from '@/components/modals/CollectionPicker';
 import { AGIENCE_DRAG_CONTENT_TYPE, getDroppedArtifactIds } from '@/dnd/agienceDrag';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import type { Artifact } from '@/context/workspace/workspace.types';
-import { getStableArtifactId } from '@/utils/artifact-identifiers';
 import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import { useConfirm } from '@/context/dialog/useConfirm';
-import { ARTIFACT_CHANGED_EVENT, BUTTON_LABELS, CARD_CONFIRM, changeOf } from '@/constants/strings';
+import { ARTIFACT_CHANGED_EVENT, BUTTON_LABELS, CARD_CONFIRM, MEMBERSHIP_CHANGED_EVENT, changeOf, containerOf } from '@/constants/strings';
 import { addArtifactToWorkspace } from '@/api/workspaces';
 import CardTypePickerDialog from '@/components/browser/CardTypePickerDialog';
 import { getContentTypeById } from '@/registry/content-types';
-import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
+import { artifactTitle, safeParseArtifactContext } from '@/utils/artifactContext';
 import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 import { errorDetail } from '@/utils/errorDetail';
-import { artifactTitle, nextUntitledTitle } from '@/utils/untitled';
 import { announceRemoval } from '@/utils/removal';
+import { keyList, withoutKey } from '@/display-state/lists';
 
 type CollectionViewMode = 'grid' | 'list';
 
@@ -47,8 +46,8 @@ function parseDragPayload(dt: DataTransfer) {
 
   if (payload && Array.isArray(payload.ids)) {
     return {
-      ids: payload.ids.map(String).filter(Boolean),
-      versionIds: Array.isArray(payload.versionIds) ? payload.versionIds.map(String).filter(Boolean) : [],
+      ids: keyList(payload.ids),
+      versionIds: keyList(payload.versionIds),
       sourceType: typeof payload.sourceType === 'string' ? payload.sourceType : undefined,
       sourceWorkspaceId:
         typeof payload.workspaceId === 'string'
@@ -74,7 +73,7 @@ export default function CollectionArtifactViewer({
 }: {
   artifact: Artifact;
   mode?: string;
-  onOpenArtifact?: (artifact: Artifact) => void;
+  onOpenArtifact?: (artifact: Artifact, options?: { startInEditMode?: boolean }) => void;
 }) {
   const { artifacts: workspaceArtifacts, deleteArtifact, patchArtifactLocally } = useWorkspace();
   const dangerConfirm = useConfirm();
@@ -95,6 +94,17 @@ export default function CollectionArtifactViewer({
   // The card whose collections the context menu's "Assign to collections…" is changing (BUG-020:
   // the item did nothing in a collection window, where no handler was passed).
   const [assignFor, setAssignFor] = useState<Artifact | null>(null);
+  // The containers holding the artifact being assigned, as Mantle reads them; the picker opens on it.
+  const [assignHeld, setAssignHeld] = useState<string[] | null>(null);
+  useEffect(() => {
+    setAssignHeld(null);
+    if (!assignFor) return;
+    let live = true;
+    changeMemberships([String(assignFor.id)])
+      .then(m => { if (live) setAssignHeld(m.all); })
+      .catch(() => { if (live) setAssignHeld([]); });
+    return () => { live = false; };
+  }, [assignFor]);
 
   const [memberItems, setMemberItems] = useState<Artifact[]>([]);
   const memberItemsRef = useRef<Artifact[]>(memberItems);
@@ -135,7 +145,7 @@ export default function CollectionArtifactViewer({
     const aKey = String(artifact.root_id ?? artifact.id);
     const listed = (c: Artifact) => String(c.root_id ?? c.id) === aKey || String(c.id) === String(artifact.id);
     if (artifact.state === 'archived') {
-      setMemberItems(prev => prev.filter(c => !listed(c)));
+      setMemberItems(prev => withoutKey(prev, listed, true));
       return;
     }
     if (!memberItemsRef.current.some(listed)) {
@@ -159,9 +169,7 @@ export default function CollectionArtifactViewer({
       },
       onArtifactUpdated: (artifact) => { applyChange(artifact as Artifact); },
       onArtifactDeleted: (artifactId) => {
-        setMemberItems(prev =>
-          prev.filter(c => String(c.root_id ?? c.id) !== String(artifactId))
-        );
+        setMemberItems(prev => withoutKey(prev, c => c.root_id ?? c.id, artifactId));
       },
       onCollectionRefreshed: () => {
         void reloadArtifacts();
@@ -184,35 +192,26 @@ export default function CollectionArtifactViewer({
     return () => window.removeEventListener(ARTIFACT_CHANGED_EVENT, onChange);
   }, [applyChange]);
 
-  const pendingWorkspaceItems = useMemo(() => {
-    if (!collectionId) return [] as Artifact[];
+  // A membership saved anywhere in the app that names this container: Mantle lists the members again.
+  useEffect(() => {
+    if (!collectionId) return;
+    const onMembership = (e: Event) => { if (containerOf(e) === collectionId) void reloadArtifacts(); };
+    window.addEventListener(MEMBERSHIP_CHANGED_EVENT, onMembership);
+    return () => window.removeEventListener(MEMBERSHIP_CHANGED_EVENT, onMembership);
+  }, [collectionId, reloadArtifacts]);
 
-    return workspaceArtifacts.filter((candidate) => {
-      // An archived card stays in the workspace store until its next refresh; it is not a member
-      // anyone lists, so it is not shown here either.
-      if (candidate.state === 'archived') return false;
-      const memberIds = Array.isArray(candidate.committed_collection_ids)
-        ? candidate.committed_collection_ids.map(String)
-        : [];
+  // The members are what Mantle lists for this container.
+  const items = memberItems;
 
-      return memberIds.includes(collectionId);
-    });
-  }, [collectionId, workspaceArtifacts]);
-
-  const items = useMemo(() => {
-    const byId = new Map<string, Artifact>();
-
-    const addItem = (candidate: Artifact) => {
-      const key = String(candidate.root_id ?? getStableArtifactId(candidate) ?? '');
-      if (!key) return;
-      if (!byId.has(key)) byId.set(key, candidate);
-    };
-
-    memberItems.forEach(addItem);
-    pendingWorkspaceItems.forEach(addItem);
-
-    return Array.from(byId.values());
-  }, [memberItems, pendingWorkspaceItems]);
+  // Show where Mantle says an artifact is held, on the workspace store's copy and in this list.
+  const patchMemberships = useCallback((now: MembershipItem) => {
+    const held = { committed_collection_ids: now.committed_collection_ids, container_ids: now.container_ids,
+      containers: now.containers };
+    for (const card of workspaceArtifacts) {
+      if (String(card.root_id ?? card.id ?? '') === now.root_id) patchArtifactLocally({ id: card.id, ...held });
+    }
+    setMemberItems(prev => prev.map(c => (String(c.root_id ?? c.id ?? '') === now.root_id ? { ...c, ...held } : c)));
+  }, [patchArtifactLocally, workspaceArtifacts]);
 
   // `mode === 'delete'` destroys the artifact (DELETE /artifacts/{id}) after a confirmation;
   // otherwise it is unlinked from this collection.
@@ -233,52 +232,46 @@ export default function CollectionArtifactViewer({
       if (!(await deleteArtifact(String(item.id ?? rootId)))) return;
     } else {
       try {
-        announceRemoval(await removeArtifactFromCollection(collectionId, rootId), {
+        const answer = await changeMemberships([rootId], { remove: [collectionId] });
+        if (answer.failed.length) throw new Error(answer.failed[0].detail);
+        const [now] = answer.items;
+        announceRemoval({ id: now?.id ?? rootId, removed: true, container_id: collectionId,
+          archived: answer.archived.length > 0 }, {
           from: `this ${noun}`,
           relink: () => addArtifactToCollection(collectionId, rootId),
           after: () => { void reloadArtifacts(); },
         });
+        // The workspace store's copy shows what Mantle now says holds it.
+        if (now) patchMemberships(now);
       } catch (err) {
         toast.error(`Could not remove the artifact from this ${noun}`, {
           description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
         });
         return;
       }
-      // The workspace store's copy still lists this container among its memberships, and this view
-      // adds every store card that does; drop the membership there too, or the card comes back.
-      // 2026-10-13, a tester: Remove answered 200 `removed: true` and the card stayed.
-      for (const card of workspaceArtifacts) {
-        if (String(card.root_id ?? card.id ?? '') !== rootId || !Array.isArray(card.committed_collection_ids)) continue;
-        patchArtifactLocally({
-          id: card.id,
-          committed_collection_ids: card.committed_collection_ids.filter((c) => String(c) !== collectionId),
-        });
-      }
     }
-    setMemberItems((prev) => prev.filter((candidate) => String(candidate.root_id ?? candidate.id ?? '') !== rootId));
-  }, [collectionId, dangerConfirm, deleteArtifact, noun, patchArtifactLocally, reloadArtifacts, workspaceArtifacts]);
+    setMemberItems((prev) => withoutKey(prev, (candidate) => candidate.root_id ?? candidate.id ?? '', rootId));
+  }, [collectionId, dangerConfirm, deleteArtifact, noun, patchMemberships, reloadArtifacts]);
 
-  // Create a card in this container: the picker the browser's "New card" uses, with the new
+  // Create an artifact in this container: the picker the browser's "New artifact" uses, with the new
   // artifact homed here rather than in the active workspace.
   const handleCreate = useCallback(async (contentType: string) => {
     setPickerOpen(false);
     if (!collectionId) return;
     const type = getContentTypeById(contentType);
-    const title = nextUntitledTitle(`Untitled ${type?.label || 'Artifact'}`, items.map(artifactTitle));
     try {
       const created = await addArtifactToWorkspace(collectionId, {
         content: '',
         content_type: contentType,
-        context: stringifyArtifactContext({ title }),
       }) as Artifact;
       await reloadArtifacts();
-      onOpenArtifact?.(created);
+      onOpenArtifact?.(created, type?.states.includes('edit') ? { startInEditMode: true } : undefined);
     } catch (err) {
       toast.error('Could not create the artifact', {
         description: errorDetail(err, err instanceof Error ? err.message : 'Unknown error'),
       });
     }
-  }, [collectionId, items, onOpenArtifact, reloadArtifacts]);
+  }, [collectionId, onOpenArtifact, reloadArtifacts]);
 
   const applyDroppedArtifacts = useCallback(async (
     ids: string[],
@@ -286,11 +279,8 @@ export default function CollectionArtifactViewer({
   ) => {
     if (!collectionId || !ids.length) return;
 
-    const versionIds = Array.isArray(payload?.versionIds)
-      ? payload.versionIds.map(String).filter(Boolean)
-      : [];
-    const idsToAdd = (versionIds.length > 0 ? versionIds : ids)
-      .filter((draggedId) => String(draggedId) !== String(collectionId));
+    const versionIds = keyList(payload?.versionIds);
+    const idsToAdd = withoutKey(versionIds.length > 0 ? versionIds : ids, (draggedId) => draggedId, collectionId);
 
     for (const draggedId of idsToAdd) {
       await addArtifactToCollection(collectionId, draggedId);
@@ -347,17 +337,15 @@ export default function CollectionArtifactViewer({
   const assignCollections = useCallback(async (ids: string[]) => {
     const card = assignFor;
     if (!card) return;
-    let now: string[];
     try {
-      now = await setArtifactCollections(card, ids);
+      const { items: [now], failed } = await changeMemberships([String(card.id)], { held: ids });
+      if (failed.length) toast.error('Could not change every collection', { description: failed[0].detail });
+      if (now) patchMemberships(now);
     } catch (err) {
-      now = (err as { partial?: string[] }).partial ?? (card.committed_collection_ids ?? []).map(String);
       toast.error('Could not change every collection', { description: errorDetail(err, 'Some changes were not saved') });
     }
-    const id = String(card.id);
-    setMemberItems(prev => prev.map(c => (String(c.id) === id ? { ...c, committed_collection_ids: now } : c)));
     setAssignFor(null);
-  }, [assignFor]);
+  }, [assignFor, patchMemberships]);
 
   return (
     <div
@@ -375,10 +363,10 @@ export default function CollectionArtifactViewer({
             type="button"
             onClick={() => setPickerOpen(true)}
             className="inline-flex h-7 items-center gap-1 rounded bg-purple-600 px-2 text-xs font-medium text-white hover:bg-purple-700"
-            title={`New card in this ${noun}`}
+            title={`New artifact in this ${noun}`}
           >
             <Plus className="h-3.5 w-3.5" />
-            New card
+            New artifact
           </button>
         </div>
         <div className="inline-flex items-center rounded-md border border-gray-300 bg-white p-0.5 shadow-sm">
@@ -446,12 +434,12 @@ export default function CollectionArtifactViewer({
       </div>
 
       <CardTypePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} onSelect={handleCreate} />
-      {assignFor !== null && (
+      {assignFor !== null && assignHeld !== null && (
       <CollectionPicker
         open
         onClose={() => setAssignFor(null)}
         onSelect={(ids) => { void assignCollections(ids); }}
-        selectedCollectionIds={(assignFor?.committed_collection_ids ?? []).map(String)}
+        selectedCollectionIds={assignHeld}
         multiple={true}
         title="Assign to Collections"
       />

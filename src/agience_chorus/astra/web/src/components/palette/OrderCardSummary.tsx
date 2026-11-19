@@ -1,5 +1,6 @@
 import type { Artifact } from '../../context/workspace/workspace.types';
 import { getTransformFromArtifact } from '../../context/palette/orderSpec';
+import { present } from '@/display-state/lists';
 
 function labelForRunType(runType?: string): string {
   switch (runType) {
@@ -34,7 +35,7 @@ export default function TransformCardSummary({
 
   const spec = parsed.spec;
   const panelData = spec.panelData;
-  const detailRows = [
+  const detailRows = present([
     parsed.run?.type ? { label: 'Runner', value: labelForRunType(parsed.run.type) } : null,
     parsed.run?.type === 'mcp-tool' && parsed.run?.tool
       ? { label: 'Tool', value: `${parsed.run.server || 'agience-core'}:${parsed.run.tool}` }
@@ -48,7 +49,7 @@ export default function TransformCardSummary({
     parsed.run?.type === 'host-script' && parsed.run?.host_policy
       ? { label: 'Host Policy', value: parsed.run.host_policy }
       : null,
-  ].filter(Boolean) as Array<{ label: string; value: string }>;
+  ]);
 
   const stats = [
     { label: 'Input', value: `${panelData.input.artifacts.length} artifacts` },

@@ -7,6 +7,7 @@ import { useWorkspace } from '../../../hooks/useWorkspace';
 import { AGIENCE_DRAG_CONTENT_TYPE, getAgienceDragPayload, getDroppedArtifactIds, isAgienceDrag, setAgienceDragData } from '../../../dnd/agienceDrag';
 import { usePalette } from '../../../hooks/usePalette';
 import { PROMPTS_CONTENT_TYPE } from '@/utils/content-type';
+import { keySet, keyedNotIn, present, withoutKey } from '@/display-state/lists';
 
 export default function ResourcesPanel() {
   const { state, updatePanelData } = usePalette();
@@ -50,7 +51,7 @@ export default function ResourcesPanel() {
   }, [workspaceId]);
 
   const selectedKeySet = useMemo(() => {
-    return new Set(panelState.resources.map((r) => `${r.server}::${r.uri}`));
+    return keySet(panelState.resources.map((r) => `${r.server}::${r.uri}`));
   }, [panelState.resources]);
 
   const toggleResource = useCallback(
@@ -63,7 +64,7 @@ export default function ResourcesPanel() {
         const existing = prev.resources;
         const exists = existing.some((r) => `${r.server}::${r.uri}` === key);
         const updated = exists
-          ? existing.filter((r) => `${r.server}::${r.uri}` !== key)
+          ? withoutKey(existing, (r) => `${r.server}::${r.uri}`, key)
           : [
               ...existing,
               {
@@ -147,11 +148,9 @@ export default function ResourcesPanel() {
       const ids = getDroppedArtifactIds(e.dataTransfer);
       if (ids.length) {
         updatePanelData('resources', (prev) => {
-          const existingIds = new Set((prev.artifacts ?? []).map((c) => String(c.id)));
-          const toAdd = ids
-            .map((id) => workspaceArtifacts.find((c) => String(c.id) === String(id)))
-            .filter((c): c is Artifact => !!c)
-            .filter((c) => !existingIds.has(String(c.id)));
+          const toAdd = keyedNotIn(
+            present(ids.map((id) => workspaceArtifacts.find((c) => String(c.id) === String(id)))),
+            (c) => c.id, (prev.artifacts ?? []).map((c) => c.id));
           if (!toAdd.length) return prev;
           return { ...prev, artifacts: [...(prev.artifacts ?? []), ...toAdd] };
         });
@@ -203,7 +202,7 @@ export default function ResourcesPanel() {
             onRemove={(artifact) => {
               updatePanelData('resources', (prev) => ({
                 ...prev,
-                artifacts: (prev.artifacts ?? []).filter((c) => String(c.id) !== String(artifact.id)),
+                artifacts: withoutKey(prev.artifacts ?? [], (c) => c.id, artifact.id),
               }));
             }}
           />

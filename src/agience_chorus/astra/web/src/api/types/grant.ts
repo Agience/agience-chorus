@@ -17,6 +17,8 @@ export interface GrantCreate {
   can_add?: boolean;
   can_share?: boolean;
   can_admin?: boolean;
+  /** The actions granted, as a role Mantle answers names them. */
+  actions?: string[];
   // Invite targeting (optional)
   target_entity?: string;
   target_entity_type?: string;

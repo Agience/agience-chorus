@@ -20,7 +20,10 @@ import { useConfirm } from '@/context/dialog/useConfirm';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { errorDetail } from '@/utils/errorDetail';
-import { artifactTitle } from '@/utils/untitled';
+import { artifactTitle } from '@/utils/artifactContext';
+import { formatDay } from '@/utils/dates';
+import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
+import { withoutKey } from '@/display-state/lists';
 
 type TrashDialogProps = {
   isOpen: boolean;
@@ -28,11 +31,7 @@ type TrashDialogProps = {
 };
 
 function shortDate(stamp?: string): string {
-  if (!stamp) return '';
-  const when = new Date(stamp);
-  return Number.isNaN(when.getTime()) ? '' : when.toLocaleDateString(undefined, {
-    year: 'numeric', month: 'short', day: 'numeric',
-  });
+  return formatDay(stamp);
 }
 
 function titleOf(item: ArtifactResponse): string {
@@ -49,7 +48,7 @@ function TrashContents({ onClose }: { onClose: () => void }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const confirm = useConfirm();
   const { refreshArtifacts } = useWorkspace();
-  const { activeWorkspaceId } = useWorkspaces();
+  const { activeWorkspaceId, restoreWorkspace } = useWorkspaces();
 
   const load = useCallback(async () => {
     try {
@@ -66,13 +65,16 @@ function TrashContents({ onClose }: { onClose: () => void }) {
     void load();
   }, [load]);
 
-  const drop = (id: string) => setItems(prev => (prev ?? []).filter(i => String(i.id) !== id));
+  const drop = (id: string) => setItems(prev => withoutKey(prev ?? [], i => i.id, id));
 
   const restore = async (item: ArtifactResponse) => {
     const id = String(item.id);
     setBusyId(id);
     try {
-      const restored = await untrashArtifact(id);
+      // A workspace comes back into the workspace list; anything else, into its container.
+      const restored = item.content_type === WORKSPACE_CONTENT_TYPE
+        ? (await restoreWorkspace(id), undefined)
+        : await untrashArtifact(id);
       drop(id);
       // It returns to the state it had, so one archived before its delete comes back archived.
       toast(restored?.state === 'archived'

@@ -85,11 +85,11 @@ describe('CardGrid', () => {
       expect(screen.getByTestId('artifact-artifact-3')).toBeInTheDocument();
     });
 
-    it('renders artifacts in order_key sorted order', () => {
+    it('renders artifacts in the order Mantle gave them', () => {
       const artifacts = [
-        mockArtifact({ id: 'artifact-3', title: 'Third', order_key: 'zzz' }),
-        mockArtifact({ id: 'artifact-1', title: 'First', order_key: 'aaa' }),
-        mockArtifact({ id: 'artifact-2', title: 'Second', order_key: 'mmm' })
+        mockArtifact({ id: 'artifact-1', title: 'First', order_key: 'zzz' }),
+        mockArtifact({ id: 'artifact-2', title: 'Second', order_key: 'aaa' }),
+        mockArtifact({ id: 'artifact-3', title: 'Third', order_key: 'mmm' })
       ];
       
       const { container } = renderWithWorkspace(<CardGrid artifacts={artifacts} />);

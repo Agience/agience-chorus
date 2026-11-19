@@ -21,6 +21,11 @@ interface TwoPanelLayoutProps {
   onPanelWidthsChange?: (widths: { left: number; right: number }) => void;
   /** Callback when resize dragging state changes (useful for coordinating header divider). */
   onResizingChange?: (isResizing: boolean) => void;
+  /**
+   * On a narrow viewport only one panel is shown, full width: this one. Absent, both panels show
+   * side by side at any width.
+   */
+  singlePanel?: 'left' | 'right';
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -30,6 +35,7 @@ export function TwoPanelLayout({
   rightPanel,
   onPanelWidthsChange,
   onResizingChange,
+  singlePanel,
 }: TwoPanelLayoutProps) {
   const { preferences, updatePreferences, isLoading } = usePreferences();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -136,6 +142,23 @@ export function TwoPanelLayout({
     },
     [persistDebounced, onPanelWidthsChange],
   );
+
+  // One panel, full width: both stay mounted so search and the workspace keep their state as the
+  // person switches between them; the hidden one is out of the layout and the accessibility tree.
+  if (singlePanel) {
+    return (
+      <TooltipProvider>
+        <div ref={containerRef} className="flex h-full w-full min-w-0 overflow-hidden" data-layout="single">
+          <div id="left-panel" className="h-full w-full min-w-0 overflow-hidden" hidden={singlePanel !== 'left'}>
+            {leftPanel}
+          </div>
+          <div id="right-panel" className="h-full w-full min-w-0 overflow-hidden" hidden={singlePanel !== 'right'}>
+            {rightPanel}
+          </div>
+        </div>
+      </TooltipProvider>
+    );
+  }
 
   return (
     <TooltipProvider>

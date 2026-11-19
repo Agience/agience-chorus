@@ -1,4 +1,5 @@
-﻿// utils/desktop-layout.ts
+﻿import { sortedBy } from '@/display-state/lists';
+// utils/desktop-layout.ts
 /**
  * Desktop layout utilities: position storage, reading order projection, and layout helpers.
  */
@@ -82,13 +83,7 @@ export function getDesktopReadingOrder(
     return { id, row, x: pos.x };
   });
 
-  items.sort((a, b) => {
-    if (a.row !== b.row) return a.row - b.row;
-    if (a.x !== b.x) return a.x - b.x;
-    return a.id.localeCompare(b.id);
-  });
-
-  return items.map((item) => item.id);
+  return sortedBy(items, (item) => item.row, (item) => item.x, (item) => item.id).map((item) => item.id);
 }
 
 /**

@@ -1387,6 +1387,13 @@ async def stream_html_view() -> str:
     return view_path.read_text(encoding="utf-8")
 
 
+@mcp.resource("ui://astra/vnd.agience.record.html")
+async def record_html_view() -> str:
+    """The view for every type whose type.json declares a `ui.record` layout of named fields."""
+    view_path = pathlib.Path(__file__).parent / "ui" / "record" / "view.html"
+    return view_path.read_text(encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # Entry point — wraps MCP app + stream routes in a single FastAPI host
 # ---------------------------------------------------------------------------

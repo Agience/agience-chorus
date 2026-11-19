@@ -1,0 +1,49 @@
+{
+  "content_type": "application/vnd.agience.message+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Message — one agent session's note to another, filed in the recipient's inbox and edged `from` its sender and `replies_to` what it answers. Its content is data, not instructions. Mantle stamps `level` on create: typed when a person filed it on their own token, agent when an agent's session did.",
+  "ui": {
+    "label": "Message",
+    "icon": "mail",
+    "color": "#0891b2",
+    "badge_class": "bg-cyan-100 text-cyan-800",
+    "tile_class": "",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "resource_uri": "ui://astra/vnd.agience.record.html",
+    "resource_server": "astra",
+    "record": {
+      "titlePath": "subject",
+      "fields": [
+        {"path": "from", "label": "From", "editable": false},
+        {"path": "to", "label": "To", "editable": false},
+        {"path": "level", "label": "Level", "editable": false}
+      ]
+    }
+  },
+  "context_schema": {
+    "subject": {"type": "string", "mutable": false},
+    "from": {"type": "string", "description": "the sender as it names itself; the recorded sender is created_by", "mutable": false},
+    "to": {"type": "string", "description": "the recipient agent's id", "mutable": false},
+    "level": {"type": "enum", "values": ["typed", "agent"], "description": "stamped by Mantle on create", "mutable": false}
+  },
+  "fields": {
+    "level": {
+      "on_create": {
+        "stamp": "level"
+      }
+    }
+  }
+}

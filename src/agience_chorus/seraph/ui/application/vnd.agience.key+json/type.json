@@ -4,7 +4,7 @@
   "inherits": [
     "application/json"
   ],
-  "description": "Agience Key",
+  "description": "Agience Key — a bearer token for MCP clients, agents and integrations. With no agent it is the person's own key; naming an agent makes it that agent's key, acting for the person. It reaches only its collections, does only its actions, and ends at its expiry or when the Key is archived.",
   "ui": {
     "label": "Key",
     "icon": "key",
@@ -22,8 +22,71 @@
     "is_container": false,
     "creatable": true,
     "viewer": "key",
-    "description": "API key — create and manage scoped access keys for MCP clients, agents, and integrations.",
+    "description": "Key — a token for an MCP config, the person's own or an agent's, held to its collections and actions.",
     "resource_uri": "ui://seraph/vnd.agience.key.html",
     "resource_server": "seraph"
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "mutable": true
+    },
+    "agent": {
+      "type": "string",
+      "description": "The agent the key acts as, for the person who created it. Left out, it is the person's own key.",
+      "mutable": false
+    },
+    "collections": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "description": "The ids of the collections the key reaches.",
+      "mutable": false
+    },
+    "collection_titles": {
+      "type": "object",
+      "description": "The titles of the collections, as they were when the key was issued.",
+      "mutable": true
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "description": "What the key may do in its collections.",
+      "mutable": false
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the key ends.",
+      "mutable": false
+    },
+    "token_hash": {
+      "type": "string",
+      "description": "The SHA-256 of the token; the token is shown once, when it is issued.",
+      "mutable": false
+    },
+    "hint": {
+      "type": "string",
+      "description": "The token's last four characters.",
+      "mutable": false
+    }
+  },
+  "fields": {
+    "token_hash": {
+      "on_create": {
+        "stamp": "token",
+        "prefix": "agk_",
+        "hint": "hint",
+        "acts": "agent",
+        "reach": "collections",
+        "actions": "actions",
+        "ends": "expires_at"
+      }
+    }
   }
 }

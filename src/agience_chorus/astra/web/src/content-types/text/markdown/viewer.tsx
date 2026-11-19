@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Markdown } from 'tiptap-markdown';
+import { PlainMarkdownText } from './plainText';
 import {
   Bold, Italic, Strikethrough, Code, Code2,
   Heading1, Heading2, Heading3,
@@ -13,7 +14,6 @@ import { useWorkspace } from '@/hooks/useWorkspace';
 import { useDebouncedSave } from '@/hooks/useDebouncedSave';
 import { useArtifactContent } from '@/hooks/useArtifactContent';
 import { ContentRenderer } from '@/components/preview/ContentRenderer';
-import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
 import type { Artifact } from '@/context/workspace/workspace.types';
 import type { ViewMode, ViewState } from '@/registry/content-types';
 
@@ -70,16 +70,8 @@ export default function MarkdownCardViewer({ artifact, state = 'view' }: Props) 
 
   const isEditing = state === 'edit' && !isReadOnly;
 
-  const ctx = useMemo(
-    () => safeParseArtifactContext(artifact.context),
-    [artifact.context],
-  );
-
   // Local state for debounced saves
   const [localContent, setLocalContent] = useState(resolvedContent);
-  const [localTitle, setLocalTitle] = useState(
-    (ctx.title as string | undefined) || (ctx.filename as string | undefined) || '',
-  );
 
   // Prevent editor reset while user is actively typing
   const lastSyncedRef = useRef<string>(resolvedContent);
@@ -89,7 +81,8 @@ export default function MarkdownCardViewer({ artifact, state = 'view' }: Props) 
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ text: false }),
+      PlainMarkdownText,
       Placeholder.configure({ placeholder: 'Start writing…' }),
       Markdown.configure({
         html: false,
@@ -156,30 +149,6 @@ export default function MarkdownCardViewer({ artifact, state = 'view' }: Props) 
       enabled: !isReadOnly && localContent !== resolvedContent,
     },
   );
-
-  // ── Autosave title ─────────────────────────────────────────────────────
-
-  const originalTitle =
-    (ctx.title as string | undefined) || (ctx.filename as string | undefined) || '';
-
-  const saveTitle = useCallback(
-    async (val: string) => {
-      if (!artifact || isReadOnly) return;
-      const updated = { ...ctx, title: val };
-      return updateArtifact({
-        id: String(artifact.id),
-        context: stringifyArtifactContext(updated),
-      });
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [artifact, isReadOnly, updateArtifact],
-  );
-
-  const { saveFailed: titleFailed } = useDebouncedSave(localTitle, {
-    delay: 1500,
-    onSave: saveTitle,
-    enabled: !isReadOnly && localTitle !== originalTitle,
-  });
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -300,32 +269,15 @@ export default function MarkdownCardViewer({ artifact, state = 'view' }: Props) 
             {isContentSaving && (
               <span className="text-xs text-gray-400">Saving…</span>
             )}
-            {!isContentSaving && (contentFailed || titleFailed) && (
+            {!isContentSaving && contentFailed && (
               <span className="text-xs text-red-600" role="status">Not saved</span>
             )}
-            {!isContentSaving && !contentFailed && !titleFailed && contentSaved && (
+            {!isContentSaving && !contentFailed && contentSaved && (
               <span className="text-xs text-gray-300">Saved</span>
             )}
           </div>
         </div>
       )}
-
-      {/* ── Title ──────────────────────────────────────────────────────── */}
-      <div className="px-5 pt-4 pb-1 flex-shrink-0">
-        {!isEditing ? (
-          <h2 className="text-xl font-semibold text-gray-900 leading-snug">
-            {localTitle || 'Untitled'}
-          </h2>
-        ) : (
-          <input
-            type="text"
-            value={localTitle}
-            onChange={(e) => setLocalTitle(e.target.value)}
-            placeholder="Title…"
-            className="w-full text-xl font-semibold text-gray-900 placeholder-gray-300 bg-transparent border-none outline-none leading-snug"
-          />
-        )}
-      </div>
 
       {/* ── WYSIWYG body ───────────────────────────────────────────────── */}
       {isEditing ? (

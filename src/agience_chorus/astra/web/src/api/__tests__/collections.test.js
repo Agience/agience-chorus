@@ -46,19 +46,30 @@ describe('api/collections', () => {
     expect(res).toEqual([{ id: 'c1', name: 'Collection' }]);
   });
 
+  it('listCollections lays the marks Crystal declares over the listing by id', async () => {
+    getList.mockResolvedValueOnce([{ id: 'c1', name: 'Notes' }, { id: 'c2', name: 'Notes' }]);
+    get.mockResolvedValueOnce({ marks: { c1: { name_shared: true, place_yours: true }, c2: { name_shared: true } } });
+    const res = await listCollections();
+    expect(get).toHaveBeenCalledWith('/marks?content_type=application%2Fvnd.agience.collection%2Bjson');
+    expect(res).toEqual([{ id: 'c1', name: 'Notes', name_shared: true, place_yours: true },
+      { id: 'c2', name: 'Notes', name_shared: true }]);
+  });
+
   it('listCollections("create") requests only assignable collections via &action=create', async () => {
     getList.mockResolvedValueOnce([{ id: 'c1', name: 'Mine' }]);
     await listCollections('create');
     expect(getList).toHaveBeenCalledWith('/artifacts/visible?content_type=application%2Fvnd.agience.collection%2Bjson&action=create');
   });
 
-  it('createCollection calls POST /artifacts with collection content_type', async () => {
-    post.mockResolvedValueOnce({ id: 'c-new', name: 'New', description: 'D' });
-    const res = await createCollection({ name: 'New', description: 'D' });
-    expect(post).toHaveBeenCalledWith('/artifacts', {
+  it('createCollection has Crystal name it, then makes it at /artifacts', async () => {
+    const body = {
       name: 'New', description: 'D', content_type: 'application/vnd.agience.collection+json',
       context: JSON.stringify({ content_type: 'application/vnd.agience.collection+json', title: 'New' }),
-    });
+    };
+    post.mockResolvedValueOnce(body).mockResolvedValueOnce({ id: 'c-new', name: 'New', description: 'D' });
+    const res = await createCollection({ name: 'New', description: 'D' });
+    expect(post).toHaveBeenNthCalledWith(1, '/types/name', body);
+    expect(post).toHaveBeenNthCalledWith(2, '/artifacts', body);
     expect(res.id).toBe('c-new');
   });
 
@@ -87,8 +98,8 @@ describe('api/collections', () => {
 
   // 2026-10-23, a tester: a collection made as a card has a title and no name, and the picker
   // showed it blank.
-  it('a listed collection is named by its title', async () => {
-    getList.mockResolvedValueOnce([{ id: 'c2', context: { title: 'REG-COL' } }]);
+  it('a listed collection keeps the name Mantle answers', async () => {
+    getList.mockResolvedValueOnce([{ id: 'c2', name: 'REG-COL', context: { title: 'REG-COL' } }]);
     const [c] = await listCollections('create');
     expect(c.name).toBe('REG-COL');
   });

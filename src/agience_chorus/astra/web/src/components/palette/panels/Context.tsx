@@ -3,6 +3,7 @@ import { usePalette } from '../../../hooks/usePalette';
 import { useWorkspace } from '../../../hooks/useWorkspace';
 import CardGrid from '../../common/CardGrid';
 import { getDroppedArtifactIds } from '../../../dnd/agienceDrag';
+import { withoutKey } from '@/display-state/lists';
 
 export default function ContextPanel() {
   const { state, updatePanelData } = usePalette();
@@ -42,7 +43,7 @@ export default function ContextPanel() {
     (id: string) => {
       updatePanelData('context', (prev) => {
         const existing = prev.artifacts;
-        return { ...prev, artifacts: existing.filter((c) => String(c.id) !== id) };
+        return { ...prev, artifacts: withoutKey(existing, (c) => c.id, id) };
       });
     },
     [updatePanelData]

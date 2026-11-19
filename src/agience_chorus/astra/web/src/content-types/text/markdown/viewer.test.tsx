@@ -41,10 +41,11 @@ vi.mock('@tiptap/react', () => ({
     return fakeEditor;
   },
   EditorContent: () => <div data-testid="editor-content">editor-content</div>,
+  Node: { create: (spec: object) => spec },
 }));
 
 vi.mock('@tiptap/starter-kit', () => ({
-  default: {},
+  default: { configure: () => ({}) },
 }));
 
 vi.mock('@tiptap/extension-placeholder', () => ({
@@ -113,7 +114,6 @@ describe('MarkdownCardViewer', () => {
 
     expect(screen.getByTestId('rendered-markdown')).toHaveTextContent('text/markdown:# Title');
     expect(screen.queryByTestId('editor-content')).not.toBeInTheDocument();
-    expect(screen.queryByPlaceholderText('Title…')).not.toBeInTheDocument();
   });
 
   it('renders the integrated editor in edit mode', () => {
@@ -130,7 +130,8 @@ describe('MarkdownCardViewer', () => {
     );
 
     expect(screen.getByTestId('editor-content')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Title…')).toBeInTheDocument();
+    // The window header holds the artifact's one title; the editor has none of its own.
+    expect(screen.queryByPlaceholderText('Title…')).not.toBeInTheDocument();
     expect(screen.queryByTestId('rendered-markdown')).not.toBeInTheDocument();
   });
 });

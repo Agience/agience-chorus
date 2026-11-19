@@ -53,12 +53,21 @@ _CORPUS_OPS = [
 ]
 
 
+#: the capabilities each operator needs to run, by operator id.
+_NEEDS = {
+    "op.corpus.audit": ["store.read"],
+    "op.corpus.near_duplicates": ["store.read"],
+    "op.corpus.dedup": ["store.read", "store.write"],
+}
+
+
 def register_corpus_operators(store, *, author: str = "ember-local") -> int:
     from crystal import evolution
     for name, offer in _CORPUS_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
             "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
-            "context": offer, "content": f"corpus operator {name}: {offer}",
+            "context": offer, "offer": offer, "needs": list(_NEEDS[name]),
+            "content": f"corpus operator {name}: {offer}",
             "created_by": author}))
     return len(_CORPUS_OPS)
 

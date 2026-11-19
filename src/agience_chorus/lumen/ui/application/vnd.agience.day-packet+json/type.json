@@ -1,0 +1,156 @@
+{
+  "content_type": "application/vnd.agience.day-packet+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "Day packet — one a day, filed in Reports by the agent that assembles it, for its person's daily sitting. Four parts, always in this order: yesterday's outcomes, each naming its source; the decisions needed, each with two to four choices, the recommended one first, and a default; tomorrow's plan, each item at its level and naming the request that approves it; and the risks, each with what will be done if it happens. It approves nothing: each approval stays on its own request, decided by whoever holds update on it.",
+  "ui": {
+    "label": "Day packet",
+    "icon": "calendar-check",
+    "color": "#0f766e",
+    "badge_class": "bg-teal-100 text-teal-800",
+    "tile_class": "",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "resource_uri": "ui://astra/vnd.agience.record.html",
+    "resource_server": "astra",
+    "record": {
+      "titlePath": "title",
+      "fields": [
+        {
+          "path": "date",
+          "label": "Day",
+          "editable": false
+        }
+      ]
+    }
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "description": "Day packet, <date>.",
+      "mutable": true
+    },
+    "date": {
+      "type": "string",
+      "description": "The day it covers, as 2026-11-17.",
+      "mutable": false
+    },
+    "outcomes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "line": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "The id of the artifact it is read from: a Pipeline artifact, a Backlog item or a release record."
+          }
+        },
+        "required": [
+          "line",
+          "source"
+        ]
+      },
+      "default": [],
+      "description": "Yesterday's outcomes: what shipped, what failed, what changed in the plan, each naming its source.",
+      "mutable": true
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "maxItems": 4,
+            "description": "The recommended choice first."
+          },
+          "default": {
+            "type": "string",
+            "description": "One of the choices: taken when the decision is not answered by its level's time."
+          },
+          "source": {
+            "type": "string",
+            "description": "The id of the artifact that asks it."
+          }
+        },
+        "required": [
+          "question",
+          "choices",
+          "default"
+        ]
+      },
+      "default": [],
+      "description": "The decisions needed, each asked once.",
+      "mutable": true
+    },
+    "plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "line": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string",
+            "description": "The id of the approval-level artifact the item is approved at."
+          },
+          "request": {
+            "type": "string",
+            "description": "The id of the request that approves it, when it needs one."
+          }
+        },
+        "required": [
+          "line",
+          "level"
+        ]
+      },
+      "default": [],
+      "description": "Tomorrow's plan: what each agent will do, each item at its level and naming its request.",
+      "mutable": true
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "risk": {
+            "type": "string"
+          },
+          "response": {
+            "type": "string",
+            "description": "What will be done if it happens."
+          }
+        },
+        "required": [
+          "risk",
+          "response"
+        ]
+      },
+      "default": [],
+      "description": "What could go wrong tomorrow, and what will be done if it does.",
+      "mutable": true
+    }
+  }
+}

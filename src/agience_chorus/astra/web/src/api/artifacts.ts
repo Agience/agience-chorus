@@ -17,13 +17,24 @@ import type { InvokeResponse } from './types/invoke';
 // Artifact CRUD
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Make a new artifact from `body`: Crystal names it as its type declares when its writer named
+ * it nowhere (it writes nothing), and Mantle makes it in the person's own session. */
+export async function namedCreate<T = ArtifactResponse>(body: Record<string, unknown>): Promise<T> {
+  return post<T>('/artifacts', await post<Record<string, unknown>>('/types/name', body));
+}
+
 /** Create an artifact within a container (workspace or collection). */
 export function createArtifact(
   containerId: string,
   context: string,
   content?: string,
 ): Promise<ArtifactResponse> {
-  return post(`/artifacts`, { container_id: containerId, context, content });
+  return namedCreate({ container_id: containerId, context, content });
+}
+
+/** The context keys Mantle owns. A client never writes them; an editor shows them read-only. */
+export function getStoreKeys(): Promise<{ keys: string[] }> {
+  return get(`/artifacts/store-keys`);
 }
 
 /** Get a single artifact by ID. */
@@ -32,11 +43,11 @@ export function getArtifact(artifactId: string): Promise<ArtifactResponse> {
 }
 
 /** Update an artifact (partial patch). */
-export function updateArtifact(
+export function updateArtifact<T = ArtifactResponse>(
   artifactId: string,
-  updates: Record<string, unknown>,
-): Promise<ArtifactResponse> {
-  return patch(`/artifacts/${artifactId}`, updates);
+  updates: object,
+): Promise<T> {
+  return patch<T>(`/artifacts/${artifactId}`, updates);
 }
 
 /** Delete an artifact for good. Delete as a person means it is {@link trashArtifact}. */
@@ -78,7 +89,7 @@ export function addItemToContainer(
   context: string,
   content?: string,
 ): Promise<ArtifactResponse> {
-  return post(`/artifacts`, { container_id: containerId, context, content });
+  return namedCreate({ container_id: containerId, context, content });
 }
 
 /**
@@ -114,6 +125,38 @@ export async function listLinks(artifactId: string): Promise<Record<string, stri
     if (rel && id && !(rel in out)) out[rel] = id;
   }
   return out;
+}
+
+/** A link's name as Mantle accepts it: letters, digits and `_ . : -`, up to 64 characters. */
+export const RELATIONSHIP_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
+
+/** One link at an artifact: the artifact at its other end, with the link's name and direction. */
+export type ArtifactLink = ArtifactResponse & { relationship: string; direction: 'in' | 'out' };
+
+/** The named links at an artifact: `out` those it holds, `in` those that point at it. */
+export function listArtifactLinks(
+  artifactId: string,
+  direction: 'in' | 'out' | 'both' = 'both',
+): Promise<ArtifactLink[]> {
+  return getList<ArtifactLink>(`/artifacts/${encodeURIComponent(artifactId)}/links`,
+    { params: { direction, limit: 1000 } });
+}
+
+/** Link `targetId` from `artifactId` under the name `relationship` (`initialized_by`, say). */
+export function linkArtifact(
+  artifactId: string,
+  targetId: string,
+  relationship: string,
+): Promise<ArtifactResponse> {
+  return post(`/artifacts`, { container_id: artifactId, source_artifact_id: targetId, relationship });
+}
+
+/** Remove the artifact's links named `relationship`, and those under that name. */
+export function removeArtifactLinks(
+  artifactId: string,
+  relationship: string,
+): Promise<{ id: string; relationship: string; removed: number }> {
+  return del(`/artifacts/${encodeURIComponent(artifactId)}/links/${encodeURIComponent(relationship)}`);
 }
 
 export function invokeArtifact(

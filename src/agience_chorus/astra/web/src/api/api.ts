@@ -1,7 +1,6 @@
 ﻿// api/api.ts
 import axios from 'axios';
 import { getRuntimeConfig } from '../config/runtime';
-import { isArtifactEndpoint, normalizeArtifactStates } from '../utils/artifactState';
 import { crystalAudience, narrowedFor } from '../auth/narrowed';
 import { mantleTokenFor } from '../auth/mantleToken';
 
@@ -67,8 +66,9 @@ function isOriginAuthPath(url: string): boolean {
 // what they own through `POST /register` (see `crystal/type_registry.py`), and `/types/all` is the
 // bulk read of exactly that cache. Mantle carries a `types_service` of its own whose runtime
 // registry nothing populates, so a call routed there answers `{types: []}` for every node.
+// `/marks` too: how artifacts listed under one name are told apart is declared by their type.
 function isCrystalTypePath(url: string): boolean {
-  return url === '/types/all' || url.startsWith('/types/');
+  return url === '/types/all' || url.startsWith('/types/') || url.startsWith('/marks?');
 }
 
 // The personas are reached by name through Crystal, which holds the only name -> endpoint map
@@ -82,9 +82,10 @@ function isCrystalOpPath(url: string): boolean {
   // (`POST /artifacts/{id}/op/{name}`). Mantle does not mount the op surface,
   // so these calls go to Crystal (:8085); Crystal forwards the caller's token
   // and Mantle/personas enforce keyed access. Raw CRUD, search and events
-  // stay on Mantle. `/create`, `/resolve/*`, `/embed` are Crystal-only too,
-  // but facet does not call them.
-  return /\/artifacts\/[^/]+\/op\//.test(url);
+  // stay on Mantle. `/create` (a type's own create, such as the person's
+  // recents), `/crystals/*` (a crystal's junction check), `/resolve/*` and `/embed` are
+  // Crystal-only too.
+  return url === '/create' || url.startsWith('/crystals/') || /\/artifacts\/[^/]+\/op\//.test(url);
 }
 
 // Route each call to its owning plane: Origin (auth/identity), Crystal (op
@@ -154,13 +155,9 @@ function refuseHtml<T extends JsonResponse>(response: T): T {
 }
 
 // On 401, clear token and redirect to login
-// Legacy artifact states (`committed`, `draft`) become `live` here, once, for Mantle's artifact
-// endpoints only (see `isArtifactEndpoint`). Every other response, `/op/` payloads included, is
-// passed through untouched.
 api.interceptors.response.use(
   response => {
     refuseHtml(response);
-    if (isArtifactEndpoint(response.config?.url)) normalizeArtifactStates(response.data);
     return response;
   },
   error => {

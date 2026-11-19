@@ -21,12 +21,14 @@ import {
 import ServerIcon from '../icons/ServerIcon';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { useWorkspace } from '../../context/workspace/WorkspaceContext';
-import { useAuth } from '../../hooks/useAuth';
 import { Workspace } from '../../context/workspace/workspace.types';
+import { allows } from '@/utils/artifact-permissions';
 import type { ActiveSource } from '../../types/workspace';
 import CollectionDetailModal from '../modals/CollectionDetailModal';
 import WorkspaceDetailModal from '../modals/WorkspaceDetailModal';
 import { workspaceLabels } from '@/utils/workspaceLabels';
+import { getContentType } from '@/registry/content-types';
+import { COLLECTION_CONTENT_TYPE } from '@/utils/content-type';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import CardGrid from '../common/CardGrid';
@@ -56,6 +58,7 @@ import { cn } from '@/lib/utils';
 import { usePreferences } from '../../hooks/usePreferences';
 import AdvancedSearch from '../browser/AdvancedSearch';
 import type { SearchResponse } from '../../api/types/search';
+import { keyList, keySet, onlyIn, sameKeys, splitList, toggleInSet, withKey, without } from '@/display-state/lists';
 
 // No LLM Keys settings section: this app has no model configuration surface.
 type SettingsSection = 'profile';
@@ -93,6 +96,12 @@ export interface ResourcesDrawerState {
   collectionIcon?: string;
 }
 
+/** The group a resource is listed under by type: its type's own label, as the type declares it. */
+function typeGroup(contentType: string | undefined, isCollection: boolean): string {
+  const ct = contentType ?? (isCollection ? COLLECTION_CONTENT_TYPE : '');
+  return getContentType({ content_type: ct } as Artifact).label;
+}
+
 export default function SidebarEnhanced({ 
   activeSource, 
   onActiveSourceChange,
@@ -118,9 +127,7 @@ export default function SidebarEnhanced({
   const { preferences, updatePreferences } = usePreferences();
   const [expandedSections, setExpandedSections] = useState<Set<SectionType>>(() => {
     const savedExpanded = preferences.sidebarSections?.expanded || ['workspaces', 'resources', 'tools'];
-    return new Set(savedExpanded.filter((s): s is SectionType => 
-      s === 'workspaces' || s === 'resources' || s === 'tools'
-    ));
+    return keySet(onlyIn(savedExpanded, ['workspaces', 'resources', 'tools']) as SectionType[]);
   });
   
   const [mcpServerInfos, setMcpServerInfos] = useState<Record<string, MCPServerInfo>>({});
@@ -147,7 +154,6 @@ export default function SidebarEnhanced({
     if (!serverInfo?.tools) return [];
 
     const artifacts: Artifact[] = [];
-    let index = 0;
 
     for (const tool of serverInfo.tools) {
       const toolName = tool.name?.trim();
@@ -169,9 +175,7 @@ export default function SidebarEnhanced({
           icon,
         }),
         state: 'live' as const,
-        order_key: String(index).padStart(10, '0'),
       });
-      index += 1;
     }
 
     return artifacts;
@@ -240,7 +244,6 @@ export default function SidebarEnhanced({
     });
   }, [resourcesViewMode, preferences, updatePreferences]);
   
-  const { user } = useAuth() ?? {};
   const {
     workspaces,
     activeWorkspace,
@@ -281,9 +284,7 @@ export default function SidebarEnhanced({
   useEffect(() => {
     const nextExpanded = Array.from(expandedSections);
     const currentExpanded = preferences.sidebarSections?.expanded || [];
-    const normCurrent = [...currentExpanded].slice().sort().join('|');
-    const normNext = [...nextExpanded].slice().sort().join('|');
-    if (normCurrent === normNext) return;
+    if (sameKeys<string>(currentExpanded, nextExpanded)) return;
 
     updatePreferences({
       sidebarSections: {
@@ -294,27 +295,8 @@ export default function SidebarEnhanced({
   }, [expandedSections, updatePreferences, preferences.sidebarSections]);
 
   const toggleSection = useCallback((section: SectionType) => {
-    setExpandedSections(prev => {
-      const next = new Set(prev);
-      if (next.has(section)) {
-        next.delete(section);
-      } else {
-        next.add(section);
-      }
-      return next;
-    });
+    setExpandedSections(prev => toggleInSet(prev, section));
   }, []);
-
-  // Sort workspaces: oldest first (primary/inbox workspace), then by order_key
-  const sortedWorkspaces = useCallback(() => {
-    if (!user) return workspaces;
-    return [...workspaces].sort((a, b) => {
-      // Oldest workspace (created first = primary/inbox) sorts to the top
-      const timeDiff = (a.created_time || '').localeCompare(b.created_time || '');
-      if (timeDiff !== 0) return timeDiff;
-      return (a.order_key || 'U').localeCompare(b.order_key || 'U');
-    });
-  }, [workspaces, user]);
 
   // Same-name workspaces are told apart by the day they were made (BUG-001).
   const labels = useMemo(() => workspaceLabels(workspaces), [workspaces]);
@@ -354,7 +336,7 @@ export default function SidebarEnhanced({
 
   const handleShowWorkspace = useCallback((wsId: string) => {
     const hidden = preferences.sidebarSections?.hiddenWorkspaces || [];
-    const updated = hidden.filter(id => id !== wsId);
+    const updated = without(hidden, wsId);
     updatePreferences({
       sidebarSections: {
         ...preferences.sidebarSections,
@@ -521,7 +503,7 @@ export default function SidebarEnhanced({
   function renderWorkspacesContent() {
     return (
       <div>
-        {sortedWorkspaces().map((ws) => (
+        {workspaces.map((ws) => (
           <div
             key={ws.id}
             className={cn(
@@ -537,9 +519,14 @@ export default function SidebarEnhanced({
             }}
           >
             <Proportions size={16} className="mr-2 flex-shrink-0" />
-            <div className="truncate text-sm flex-1">
+            <a href={workspaceHref(ws.id)} className="truncate text-sm flex-1 text-inherit no-underline"
+               onClick={(e) => openInPlace(e, () => {
+                 setActiveWorkspaceId(ws.id);
+                 onActiveSourceChange({ type: 'workspace', id: ws.id });
+                 setDrawerSection(null);
+               })}>
               {labels.get(ws.id) ?? ws.name}
-            </div>
+            </a>
             <DropdownMenu open={openDropdownId === `ws-${ws.id}`} onOpenChange={(open) => setOpenDropdownId(open ? `ws-${ws.id}` : null)}>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                 <Button
@@ -565,7 +552,7 @@ export default function SidebarEnhanced({
                   <EyeOff className="mr-2 h-4 w-4" />
                   Hide
                 </DropdownMenuItem>
-                {ws.id !== ws.created_by && (
+                {allows(ws, 'delete') && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem 
@@ -636,26 +623,9 @@ export default function SidebarEnhanced({
               );
             }
 
-            const getContentTypeCategory = (contentType?: string, kind?: string): string => {
-              if (!contentType) {
-                if (kind === 'collection' || kind === 'agience.collection') return 'Collections';
-                return 'Other';
-              }
-
-              if (contentType.startsWith('text/')) return 'Documents';
-              if (contentType.startsWith('image/')) return 'Images';
-              if (contentType.startsWith('video/')) return 'Videos';
-              if (contentType.startsWith('audio/')) return 'Audio';
-              if (contentType.includes('pdf')) return 'Documents';
-              if (contentType.includes('document') || contentType.includes('word')) return 'Documents';
-              if (contentType.includes('spreadsheet') || contentType.includes('excel')) return 'Spreadsheets';
-              if (contentType.includes('presentation') || contentType.includes('powerpoint')) return 'Presentations';
-
-              return 'Other';
-            };
 
             if (resourcesViewMode === 'by-collection') {
-              const collections = allResources.filter(r => r.isCollection);
+              const collections = withKey(allResources, r => r.isCollection, true);
               if (collections.length === 0) {
                 return (
                   <div className="px-2 h-7 text-sm text-muted-foreground flex items-center">
@@ -698,7 +668,7 @@ export default function SidebarEnhanced({
             if (resourcesViewMode === 'by-type') {
               const grouped = new Map<string, typeof allResources>();
               allResources.forEach(resource => {
-                const category = getContentTypeCategory(resource.contentType, resource.kind);
+                const category = typeGroup(resource.contentType, resource.isCollection);
                 if (!grouped.has(category)) grouped.set(category, []);
                 grouped.get(category)!.push(resource);
               });
@@ -887,7 +857,7 @@ export default function SidebarEnhanced({
         {expandedSections.has('workspaces') && (
           <div className="pb-1">
             <div className="ml-5 border-l border-border">
-            {sortedWorkspaces().map((ws) => {
+            {workspaces.map((ws) => {
               const isHidden = preferences.sidebarSections?.hiddenWorkspaces?.includes(ws.id) ?? false;
               const showAll = preferences.sidebarSections?.showAllWorkspaces ?? false;
               if (isHidden && !showAll) return null;
@@ -897,6 +867,7 @@ export default function SidebarEnhanced({
                 key={ws.id}
                 icon={Proportions}
                 label={labels.get(ws.id) ?? ws.name}
+                href={workspaceHref(ws.id)}
                 active={activeSource?.type === 'workspace' && activeSource.id === ws.id}
                 onClick={() => {
                   setActiveWorkspaceId(ws.id);
@@ -905,7 +876,7 @@ export default function SidebarEnhanced({
                 onRename={() => openEditWorkspace(ws)}
                 onHide={() => isHidden ? handleShowWorkspace(ws.id) : handleHideWorkspace(ws.id)}
                 onDeleteClick={() => setDeleteConfirmItem({ type: 'workspace', id: ws.id, name: ws.name })}
-                canDelete={ws.id !== ws.created_by}
+                canDelete={allows(ws, 'delete')}
                 canModify={true}
                 itemType="workspace"
                 isHidden={isHidden}
@@ -992,28 +963,10 @@ export default function SidebarEnhanced({
                   );
                 }
 
-                // Helper function to categorize contentType
-                const getContentTypeCategory = (contentType?: string, kind?: string): string => {
-                  if (!contentType) {
-                    if (kind === 'collection' || kind === 'agience.collection') return 'Collections';
-                    return 'Other';
-                  }
-
-                  if (contentType.startsWith('text/')) return 'Documents';
-                  if (contentType.startsWith('image/')) return 'Images';
-                  if (contentType.startsWith('video/')) return 'Videos';
-                  if (contentType.startsWith('audio/')) return 'Audio';
-                  if (contentType.includes('pdf')) return 'Documents';
-                  if (contentType.includes('document') || contentType.includes('word')) return 'Documents';
-                  if (contentType.includes('spreadsheet') || contentType.includes('excel')) return 'Spreadsheets';
-                  if (contentType.includes('presentation') || contentType.includes('powerpoint')) return 'Presentations';
-
-                  return 'Other';
-                };
 
                 // by-collection (default): Show only collections
                 if (resourcesViewMode === 'by-collection') {
-                  const collections = allResources.filter(r => r.isCollection);
+                  const collections = withKey(allResources, r => r.isCollection, true);
                   
                   if (collections.length === 0) {
                     return (
@@ -1062,7 +1015,7 @@ export default function SidebarEnhanced({
                   // Group by contentType category
                   const grouped = new Map<string, typeof allResources>();
                   allResources.forEach(resource => {
-                    const category = getContentTypeCategory(resource.contentType, resource.kind);
+                    const category = typeGroup(resource.contentType, resource.isCollection);
                     if (!grouped.has(category)) {
                       grouped.set(category, []);
                     }
@@ -1475,6 +1428,20 @@ function SectionHeader({ title, expanded, onToggle, onNew, onShowAll, id, openDr
   );
 }
 
+/** The address a workspace opens at. */
+function workspaceHref(id: string): string {
+  return `/${encodeURIComponent(id)}`;
+}
+
+/** A plain click on a link opens it here, without a page load; a modified or middle click is left
+ *  to the browser (a new tab or window). */
+function openInPlace(e: React.MouseEvent, open: () => void): void {
+  e.stopPropagation();
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  open();
+}
+
 // Sidebar Item Component
 interface SidebarItemProps {
   icon: React.ComponentType<{ size?: number; className?: string }>;
@@ -1491,6 +1458,8 @@ interface SidebarItemProps {
   itemType: 'workspace' | 'collection' | 'mcp-server';
   onShare?: () => void;  // For collections
   itemId?: string; // Workspace or collection ID for drop operations
+  /** Where the item lives: the main area is then a link to it, opened in place on a plain click. */
+  href?: string;
   onArtifactDrop?: (artifactId: string, sourceWorkspaceId?: string) => void;
 }
 
@@ -1508,6 +1477,7 @@ function SidebarItem({
   canModify = true,
   itemType,
   onShare,
+  href,
   onArtifactDrop,
 }: SidebarItemProps) {
   const [isDropTarget, setIsDropTarget] = useState(false);
@@ -1522,12 +1492,8 @@ function SidebarItem({
           workspaceId?: unknown;
           sourceWorkspaceId?: unknown;
         };
-        const ids = Array.isArray(parsed.ids)
-          ? parsed.ids.map(String).filter(Boolean)
-          : [];
-        const rootIds = Array.isArray(parsed.rootIds)
-          ? parsed.rootIds.map(String).filter(Boolean)
-          : [];
+        const ids = keyList(parsed.ids);
+        const rootIds = keyList(parsed.rootIds);
 
         if (ids.length > 0 || rootIds.length > 0) {
           return {
@@ -1548,7 +1514,7 @@ function SidebarItem({
     const rawText = dt.getData('text/plain');
     if (rawText) {
       return {
-        ids: rawText.split(',').map((value) => value.trim()).filter(Boolean),
+        ids: splitList(rawText),
         rootIds: undefined,
         sourceWorkspaceId: undefined,
       };
@@ -1598,10 +1564,18 @@ function SidebarItem({
         }}
       >
         {/* Main clickable area for item */}
-        <div className="flex items-center gap-2 flex-1 min-w-0" onClick={onClick}>
-          <Icon size={16} className="text-foreground/70 flex-shrink-0" />
-          <span className="text-sm truncate flex-1">{label}</span>
-        </div>
+        {href ? (
+          <a href={href} className="flex items-center gap-2 flex-1 min-w-0 text-inherit no-underline"
+             onClick={(e) => openInPlace(e, onClick)}>
+            <Icon size={16} className="text-foreground/70 flex-shrink-0" />
+            <span className="text-sm truncate flex-1">{label}</span>
+          </a>
+        ) : (
+          <div className="flex items-center gap-2 flex-1 min-w-0" onClick={onClick}>
+            <Icon size={16} className="text-foreground/70 flex-shrink-0" />
+            <span className="text-sm truncate flex-1">{label}</span>
+          </div>
+        )}
         {/* Three dots menu visible on hover */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

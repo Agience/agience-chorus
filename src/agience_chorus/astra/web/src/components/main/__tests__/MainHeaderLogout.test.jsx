@@ -24,8 +24,9 @@ import HeaderBar from '../MainHeader';
 describe('MainHeader — Logout', () => {
   it('signs out through the auth provider', () => {
     render(<MemoryRouter><HeaderBar activeSource={null} /></MemoryRouter>);
-    fireEvent.click(screen.getByTitle('User Menu'));
-    fireEvent.click(screen.getByText('Logout'));
+    // The menu is a Radix dropdown: it opens from the keyboard (or a pointer press), not a click.
+    fireEvent.keyDown(screen.getByTitle('User Menu'), { key: 'Enter' });
+    fireEvent.click(screen.getByText('Log out'));
     expect(logout).toHaveBeenCalledTimes(1);
   });
 });

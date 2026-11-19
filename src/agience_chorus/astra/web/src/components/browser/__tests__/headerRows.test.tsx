@@ -7,7 +7,7 @@ import FilterChips from '../FilterChips';
 import { SearchPanel } from '../../search/SearchPanel';
 
 const setActiveWorkspaceIdMock = vi.fn();
-let mockWorkspaces: Array<{ id: string; name: string; created_time?: string }> = [{ id: 'ws-1', name: 'Inbox' }];
+let mockWorkspaces: Array<{ id: string; name: string; created_time?: string; label_at?: 'day' | 'minute' | 'second' }> = [{ id: 'ws-1', name: 'Inbox' }];
 let mockActiveWorkspace = { id: 'ws-1', name: 'Inbox' };
 
 vi.mock('../../../hooks/useWorkspace', () => ({
@@ -78,9 +78,70 @@ describe('header row layout locks', () => {
     );
 
     expect(screen.getByText('Find a workspace and dock it here.')).toBeDefined();
+    // A tab bar with nothing docked holds no tabs, so it carries no tablist role.
+    expect(screen.queryByRole('tablist')).toBeNull();
 
     mockWorkspaces = [{ id: 'ws-1', name: 'Inbox' }];
     mockActiveWorkspace = { id: 'ws-1', name: 'Inbox' };
+  });
+
+  it('a workspace tab shrinks with an ellipsis and keeps its full name in the title', () => {
+    render(
+      <BrowserHeader
+        activeSource={{ type: 'workspace', id: 'ws-1' }}
+        onToggleFilters={() => {}}
+        filtersOpen={false}
+        hasActiveFilter={false}
+        activeFilter="all"
+        viewMode="grid"
+        onViewModeChange={() => {}}
+      />,
+    );
+    const tab = screen.getByRole('tab', { name: 'Inbox' });
+    expect(tab.className).toContain('truncate');
+    expect(tab.getAttribute('title')).toMatch(/^Inbox/);
+    expect(tab.parentElement?.className).not.toContain('flex-shrink-0');
+  });
+
+  it('a workspace tab carries its workspace id, whatever name it shows', () => {
+    mockWorkspaces = [{ id: 'ws-1', name: 'Inbox' }, { id: 'ws-2', name: '' }];
+    render(
+      <BrowserHeader
+        activeSource={{ type: 'workspace', id: 'ws-1' }}
+        onToggleFilters={() => {}}
+        filtersOpen={false}
+        hasActiveFilter={false}
+        activeFilter="all"
+        viewMode="grid"
+        onViewModeChange={() => {}}
+      />,
+    );
+    const ids = screen.getAllByRole('tab').map((t) => t.getAttribute('data-workspace-id'));
+    expect(ids).toEqual(expect.arrayContaining(['ws-1', 'ws-2']));
+    expect(screen.getByRole('tab', { name: 'Inbox' }).getAttribute('data-workspace-id')).toBe('ws-1');
+    mockWorkspaces = [{ id: 'ws-1', name: 'Inbox' }];
+  });
+
+  it('the tab list keeps its full width so a tab never slides under the buttons beside it', () => {
+    render(
+      <BrowserHeader
+        activeSource={{ type: 'workspace', id: 'ws-1' }}
+        onToggleFilters={() => {}}
+        filtersOpen={false}
+        hasActiveFilter={false}
+        activeFilter="all"
+        viewMode="grid"
+        onViewModeChange={() => {}}
+      />,
+    );
+    const tablist = screen.getByRole('tablist', { name: 'Workspaces' });
+    expect(tablist.className).not.toContain('min-w-0');
+    expect(tablist.parentElement?.className).toContain('w-max');
+  });
+
+  it('the empty search pane reads in sentence case', () => {
+    render(<SearchPanel artifacts={[]} />);
+    expect(screen.getByText('Nothing here yet')).toBeDefined();
   });
 
   it('keeps SearchPanel rows aligned: top row h-14 white, second row h-10 gray', () => {
@@ -128,7 +189,8 @@ describe('header row layout locks', () => {
   it('keeps FilterChips bar at h-10 with gray background', () => {
     const { container } = render(
       <FilterChips
-        artifacts={[]}
+        chips={[]}
+        kinds={[]}
         activeStates={new Set()}
         activeContentTypes={new Set()}
         hiddenContentTypes={new Set()}
@@ -168,11 +230,11 @@ describe('header row layout locks', () => {
     expect(onCreateWorkspace).toHaveBeenCalledTimes(1);
   });
 
-  it('tells two workspaces with the same name apart by the day each was made (BUG-001)', () => {
+  it('tells two workspaces with the same name apart by the day Mantle marks (BUG-001)', () => {
     const before = mockWorkspaces;
     mockWorkspaces = [
-      { id: 'ws-1', name: 'Untitled workspace', created_time: '2026-11-01T10:00:00' },
-      { id: 'ws-2', name: 'Untitled workspace', created_time: '2026-11-03T10:00:00' },
+      { id: 'ws-1', name: 'Untitled workspace', created_time: '2026-11-01T10:00:00', label_at: 'day' },
+      { id: 'ws-2', name: 'Untitled workspace', created_time: '2026-11-03T10:00:00', label_at: 'day' },
     ];
     try {
       render(
@@ -189,7 +251,7 @@ describe('header row layout locks', () => {
       const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
       expect(tabs).toHaveLength(2);
       expect(new Set(tabs).size).toBe(2);
-      for (const tab of tabs) expect(tab).toMatch(/^Untitled workspace · Nov\.? \d+$/);
+      for (const tab of tabs) expect(tab).toMatch(/^Untitled workspace · \d+ Nov$/);
     } finally {
       mockWorkspaces = before;
     }
@@ -215,9 +277,9 @@ describe('header row layout locks', () => {
     const dataTransfer = {
       dropEffect: 'none',
       effectAllowed: 'move',
-      types: ['application/vnd.agience.drag+json'],
+      types: ['application/x-agience-drag+json'],
       getData: (type: string) =>
-        type === 'application/vnd.agience.drag+json'
+        type === 'application/x-agience-drag+json'
           ? JSON.stringify({ kind: 'artifacts', ids: ['workspace-card-1'] })
           : '',
     };
@@ -263,6 +325,40 @@ describe('header row layout locks', () => {
 
     const closeButton = screen.getByLabelText('Close Inbox');
     expect(closeButton).toBeDefined();
+  });
+});
+
+describe('the workspace tab bar', () => {
+  it('holds only tabs, and arrow keys move between them', () => {
+    const before = mockWorkspaces;
+    mockWorkspaces = [{ id: 'ws-1', name: 'Inbox' }, { id: 'ws-2', name: 'Plans' }];
+    mockActiveWorkspace = { id: 'ws-1', name: 'Inbox' };
+    render(
+      <BrowserHeader
+        activeSource={{ type: 'workspace', id: 'ws-1' }}
+        onToggleFilters={() => {}}
+        filtersOpen={false}
+        hasActiveFilter={false}
+        activeFilter="all"
+        viewMode="grid"
+        onViewModeChange={() => {}}
+      />,
+    );
+    const tablist = screen.getByRole('tablist');
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Inbox', 'Plans']);
+    expect(tabs.every((t) => tablist.contains(t))).toBe(true);
+    expect(tablist.contains(screen.getByLabelText('New workspace'))).toBe(false);
+    expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1]);
+
+    tabs[0].focus();
+    fireEvent.keyDown(tabs[0], { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(tabs[1]);
+    fireEvent.keyDown(tabs[1], { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(tabs[0]);
+    fireEvent.keyDown(tabs[0], { key: 'End' });
+    expect(document.activeElement).toBe(tabs[1]);
+    mockWorkspaces = before;
   });
 });
 

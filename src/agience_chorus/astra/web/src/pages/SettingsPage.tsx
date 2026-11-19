@@ -1,7 +1,8 @@
 ﻿/**
  * pages/SettingsPage.tsx
  *
- * Platform admin settings page, gated by the platform:admin role. Manages
+ * Platform admin settings page. Origin decides who may read the settings; a refusal leaves the
+ * page. Manages
  * platform configuration stored in Origin's platform_settings store, and
  * platform-admin status held in Mantle — both under /system/*, see api/platform.
  *
@@ -12,11 +13,10 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useAdmin } from '@/hooks/useAdmin';
-import { useAuth } from '@/hooks/useAuth';
 import {
   listUsers,
   grantPlatformAdmin,
@@ -28,6 +28,7 @@ import {
 } from '@/api/platform';
 import type { PlatformUser } from '@/api/platform';
 import { toast } from 'sonner';
+import { present } from '@/display-state/lists';
 
 // ---------------------------------------------------------------------------
 //  Shared settings form helpers
@@ -39,7 +40,6 @@ type SettingField = {
   type: 'text' | 'password' | 'email' | 'number' | 'toggle'
   placeholder?: string
   help?: string
-  is_secret?: boolean
 }
 
 function SettingsForm({
@@ -53,7 +53,7 @@ function SettingsForm({
   fields: SettingField[]
   values: Record<string, string>
   onChange: (key: string, value: string) => void
-  onSave: () => void
+  onSave: (keys: string[]) => void
   saving: boolean
   testButton?: React.ReactNode
 }) {
@@ -87,7 +87,7 @@ function SettingsForm({
         </div>
       ))}
       <div className="flex items-center gap-3 pt-2">
-        <Button onClick={onSave} disabled={saving} size="sm">
+        <Button onClick={() => onSave(fields.map((f) => f.key))} disabled={saving} size="sm">
           {saving ? 'Saving...' : 'Save changes'}
         </Button>
         {testButton}
@@ -216,15 +216,10 @@ function UsersTab() {
 function AuthenticationTab({ values, onChange, loaded }: SettingsTabProps) {
   const [saving, setSaving] = useState(false);
 
-  const handleSave = async () => {
+  const handleSave = async (keys: string[]) => {
     setSaving(true);
     try {
-      const settings = Object.entries(values)
-        .filter(([k]) => k.startsWith('auth.'))
-        .map(([key, value]) => ({
-          key, value,
-          is_secret: key.includes('secret') || key.includes('password'),
-        }));
+      const settings = present(keys.map((key) => (key in values ? { key, value: values[key] } : null)));
       const result = await updatePlatformSettings(settings);
       toast.success(`${result.updated} settings saved`);
     } catch { toast.error('Failed to save settings'); }
@@ -252,7 +247,7 @@ function AuthenticationTab({ values, onChange, loaded }: SettingsTabProps) {
         <SettingsForm
           fields={[
             { key: 'auth.google.client_id', label: 'Client ID', type: 'text', placeholder: 'your-client-id.apps.googleusercontent.com' },
-            { key: 'auth.google.client_secret', label: 'Client secret', type: 'password', is_secret: true },
+            { key: 'auth.google.client_secret', label: 'Client secret', type: 'password' },
           ]}
           values={values} onChange={onChange} onSave={handleSave} saving={saving}
         />
@@ -265,7 +260,7 @@ function AuthenticationTab({ values, onChange, loaded }: SettingsTabProps) {
           fields={[
             { key: 'auth.microsoft.tenant', label: 'Tenant', type: 'text', placeholder: 'common' },
             { key: 'auth.microsoft.client_id', label: 'Client ID', type: 'text' },
-            { key: 'auth.microsoft.client_secret', label: 'Client secret', type: 'password', is_secret: true },
+            { key: 'auth.microsoft.client_secret', label: 'Client secret', type: 'password' },
           ]}
           values={values} onChange={onChange} onSave={handleSave} saving={saving}
         />
@@ -292,15 +287,10 @@ function AuthenticationTab({ values, onChange, loaded }: SettingsTabProps) {
 function EmailTab({ values, onChange, loaded }: SettingsTabProps) {
   const [saving, setSaving] = useState(false);
 
-  const handleSave = async () => {
+  const handleSave = async (keys: string[]) => {
     setSaving(true);
     try {
-      const settings = Object.entries(values)
-        .filter(([k]) => k.startsWith('email.'))
-        .map(([key, value]) => ({
-          key, value,
-          is_secret: key.includes('password') || key.includes('secret') || key.includes('api_key'),
-        }));
+      const settings = present(keys.map((key) => (key in values ? { key, value: values[key] } : null)));
       const result = await updatePlatformSettings(settings);
       toast.success(`${result.updated} settings saved`);
     } catch { toast.error('Failed to save settings'); }
@@ -337,7 +327,7 @@ function EmailTab({ values, onChange, loaded }: SettingsTabProps) {
             { key: 'email.smtp.host', label: 'Host', type: 'text', placeholder: 'smtp.gmail.com' },
             { key: 'email.smtp.port', label: 'Port', type: 'text', placeholder: '587' },
             { key: 'email.smtp.username', label: 'Username', type: 'text' },
-            { key: 'email.smtp.password', label: 'Password', type: 'password', is_secret: true },
+            { key: 'email.smtp.password', label: 'Password', type: 'password' },
             { key: 'email.from_address', label: 'From address', type: 'email', placeholder: 'noreply@example.com' },
             { key: 'email.from_name', label: 'From name', type: 'text', placeholder: 'Agience' },
           ]}
@@ -348,7 +338,7 @@ function EmailTab({ values, onChange, loaded }: SettingsTabProps) {
       {(provider === 'sendgrid' || provider === 'resend') && (
         <SettingsForm
           fields={[
-            { key: `email.${provider}.api_key`, label: 'API key', type: 'password', is_secret: true },
+            { key: `email.${provider}.api_key`, label: 'API key', type: 'password' },
             { key: 'email.from_address', label: 'From address', type: 'email', placeholder: 'noreply@example.com' },
             { key: 'email.from_name', label: 'From name', type: 'text', placeholder: 'Agience' },
           ]}
@@ -361,7 +351,7 @@ function EmailTab({ values, onChange, loaded }: SettingsTabProps) {
           fields={[
             { key: 'email.ses.region', label: 'Region', type: 'text', placeholder: 'us-east-1' },
             { key: 'email.ses.access_key_id', label: 'Access key ID', type: 'text' },
-            { key: 'email.ses.secret_access_key', label: 'Secret access key', type: 'password', is_secret: true },
+            { key: 'email.ses.secret_access_key', label: 'Secret access key', type: 'password' },
             { key: 'email.from_address', label: 'From address', type: 'email', placeholder: 'noreply@example.com' },
             { key: 'email.from_name', label: 'From name', type: 'text', placeholder: 'Agience' },
           ]}
@@ -387,15 +377,10 @@ function EmailTab({ values, onChange, loaded }: SettingsTabProps) {
 function SearchTab({ values, onChange, loaded }: SettingsTabProps) {
   const [saving, setSaving] = useState(false);
 
-  const handleSave = async () => {
+  const handleSave = async (keys: string[]) => {
     setSaving(true);
     try {
-      const settings = Object.entries(values)
-        .filter(([k]) => k.startsWith('search.'))
-        .map(([key, value]) => ({
-          key, value,
-          is_secret: key.includes('api_key'),
-        }));
+      const settings = present(keys.map((key) => (key in values ? { key, value: values[key] } : null)));
       const result = await updatePlatformSettings(settings);
       toast.success(`${result.updated} settings saved`);
     } catch { toast.error('Failed to save settings'); }
@@ -429,15 +414,10 @@ function SearchTab({ values, onChange, loaded }: SettingsTabProps) {
 function StorageTab({ values, onChange, loaded }: SettingsTabProps) {
   const [saving, setSaving] = useState(false);
 
-  const handleSave = async () => {
+  const handleSave = async (keys: string[]) => {
     setSaving(true);
     try {
-      const settings = Object.entries(values)
-        .filter(([k]) => k.startsWith('storage.'))
-        .map(([key, value]) => ({
-          key, value,
-          is_secret: key.includes('secret') || key.includes('key_id'),
-        }));
+      const settings = present(keys.map((key) => (key in values ? { key, value: values[key] } : null)));
       const result = await updatePlatformSettings(settings);
       toast.success(`${result.updated} settings saved`);
       if (result.restart_required) toast('Some changes require a restart to take effect.', { duration: 5000 });
@@ -455,8 +435,8 @@ function StorageTab({ values, onChange, loaded }: SettingsTabProps) {
         fields={[
           { key: 'storage.content_uri', label: 'Endpoint URL', type: 'text', placeholder: 'http://localhost:9000' },
           { key: 'storage.content_bucket', label: 'Bucket name', type: 'text', placeholder: 'agience-content' },
-          { key: 'storage.aws_access_key_id', label: 'Access key ID', type: 'text', is_secret: true },
-          { key: 'storage.aws_secret_access_key', label: 'Secret access key', type: 'password', is_secret: true },
+          { key: 'storage.aws_access_key_id', label: 'Access key ID', type: 'text' },
+          { key: 'storage.aws_secret_access_key', label: 'Secret access key', type: 'password' },
         ]}
         values={values} onChange={onChange} onSave={handleSave} saving={saving}
       />
@@ -475,12 +455,10 @@ function StorageTab({ values, onChange, loaded }: SettingsTabProps) {
 function BrandingTab({ values, onChange, loaded }: SettingsTabProps) {
   const [saving, setSaving] = useState(false);
 
-  const handleSave = async () => {
+  const handleSave = async (keys: string[]) => {
     setSaving(true);
     try {
-      const settings = Object.entries(values)
-        .filter(([k]) => k.startsWith('branding.'))
-        .map(([key, value]) => ({ key, value }));
+      const settings = present(keys.map((key) => (key in values ? { key, value: values[key] } : null)));
       const result = await updatePlatformSettings(settings);
       toast.success(`${result.updated} settings saved`);
     } catch { toast.error('Failed to save settings'); }
@@ -510,25 +488,14 @@ function BrandingTab({ values, onChange, loaded }: SettingsTabProps) {
 // ---------------------------------------------------------------------------
 
 export default function SettingsPage() {
-  const isAdmin = useAdmin();
-  const { loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   // Shared settings state — loaded once, passed to all settings tabs
   const [values, setValues] = useState<Record<string, string>>({});
   const [loaded, setLoaded] = useState(false);
 
-  // Guard: redirect non-admin users.
-  // Wait for auth to resolve (authLoading=false) before redirecting — the hook
-  // defaults to false before the token is parsed, so acting on it before auth
-  // resolves would incorrectly bounce authenticated users away.
-  useEffect(() => {
-    if (!authLoading && !isAdmin) {
-      navigate('/', { replace: true });
-    }
-  }, [authLoading, isAdmin, navigate]);
-
-  // Load all settings once at page mount
+  // Load all settings once at page mount. Origin answers them to a platform admin only; a
+  // refusal leaves the page.
   useEffect(() => {
     (async () => {
       try {
@@ -540,17 +507,24 @@ export default function SettingsPage() {
           }
         }
         setValues(flat);
-      } catch { /* settings may not exist yet */ }
+      } catch (err) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 401 || status === 403) {
+          navigate('/', { replace: true });
+          return;
+        }
+        /* settings may not exist yet */
+      }
       setLoaded(true);
     })();
-  }, []);
+  }, [navigate]);
 
   const handleChange = useCallback((key: string, value: string) => {
     setValues(v => ({ ...v, [key]: value }));
   }, []);
 
-  // Render nothing while auth is still resolving or after redirect fires
-  if (authLoading || !isAdmin) return null;
+  // Render nothing until Origin has answered.
+  if (!loaded) return null;
 
   return (
     <div className="min-h-screen bg-background">

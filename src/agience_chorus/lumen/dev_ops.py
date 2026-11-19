@@ -401,13 +401,27 @@ def _now_iso() -> str:
 _REGISTERED_AT = _now_iso()
 
 
+#: the capabilities each operator needs to run, by operator id.
+_NEEDS = {
+    "op.dev.read_file": ["fs.read"],
+    "op.dev.list_dir": ["fs.read"],
+    "op.dev.grep": ["fs.read"],
+    "op.dev.git": ["fs.read", "compute.local"],
+    "op.dev.run_tests": ["fs.read", "compute.local"],
+    "op.dev.edit_file": ["fs.read", "fs.write"],
+    "op.dev.verify_change": ["fs.read", "fs.write", "compute.local"],
+    "op.dev.rename_symbol": ["fs.read", "fs.write", "compute.local"],
+}
+
+
 def register_dev_operators(artifact_store, *, author: str = "ember-local") -> int:
     from crystal import evolution
     n = 0
     for o in DEV_OPS:
         evolution.put_operator(artifact_store, {
             "id": o.name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
-            "context": o.offer, "content": f"dev operator {o.name}: {o.offer}"
+            "context": o.offer, "offer": o.offer, "needs": list(_NEEDS[o.name]),
+            "content": f"dev operator {o.name}: {o.offer}"
             + ("  [WRITES]" if o.writes else "  [read-only]"), "created_by": author,
             "collection_id": _SYSTEM_COLLECTION, "created_time": _REGISTERED_AT,
         })

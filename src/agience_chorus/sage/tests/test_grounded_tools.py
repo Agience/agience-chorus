@@ -53,6 +53,12 @@ def delegated():
         _sage_server._auth.request_user_token.reset(tok)
 
 
+@pytest.fixture(autouse=True)
+def no_platform_search(monkeypatch):
+    """No platform Search unless a test names one, so a test's mock sees only its own calls."""
+    monkeypatch.setattr(_sage_server, "_platform_search", {"id": None})
+
+
 class MockResponse:
     def __init__(self, json_data: dict, status_code: int = 200):
         self._json = json_data
@@ -111,6 +117,31 @@ class TestAsk:
         assert "the body" in result["answer"]
 
     @pytest.mark.asyncio
+    async def test_with_no_search_linked_the_platform_search_runs(self, delegated, monkeypatch):
+        monkeypatch.setattr(_sage_server, "_platform_search", {})
+
+        def handler(method, url, **kw):
+            assert url.endswith("/artifacts/platform-operators")
+            return MockResponse({"items": [], "search": "search-platform-id"})
+
+        with patch("httpx.AsyncClient", return_value=_client(handler)), \
+             patch.object(_sage_server._op_retrieve, "retrieve", return_value=[]) as run:
+            await ask(question="q")
+        assert run.call_args.kwargs["search_id"] == "search-platform-id"
+
+    @pytest.mark.asyncio
+    async def test_a_linked_search_runs_and_is_not_evidence(self, delegated):
+        def handler(method, url, **kw):
+            return MockResponse({"id": "s-1", "content_type": "application/vnd.agience.search+json",
+                                 "content": "", "context": {"rank": ["own"]}})
+
+        with patch("httpx.AsyncClient", return_value=_client(handler)), \
+             patch.object(_sage_server._op_retrieve, "retrieve", return_value=[]) as run:
+            result = json.loads(await ask(question="q", artifact_ids=["s-1"]))
+        assert run.call_args.kwargs["search_id"] == "s-1"
+        assert result["answer"] is None and result["citations"] == []
+
+    @pytest.mark.asyncio
     async def test_cited_cards_fetched_under_delegation(self, delegated):
         seen = {}
 
@@ -145,7 +176,8 @@ class TestAsk:
             return MockResponse({"id": "note-1", "content": "the gate note says hello",
                                  "context": {"title": "Gate note"}})
 
-        with patch("httpx.AsyncClient", return_value=_client(handler)),              patch.object(_sage_server._op_retrieve, "retrieve", return_value=[]):
+        with patch("httpx.AsyncClient", return_value=_client(handler)), \
+             patch.object(_sage_server._op_retrieve, "retrieve", return_value=[]):
             result = json.loads(await ask(input="what does it say?", evidence="note-1"))
         assert result["citations"] == ["note-1"] and "says hello" in result["answer"]
 

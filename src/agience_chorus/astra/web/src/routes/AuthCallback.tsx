@@ -1,3 +1,4 @@
+import { clearPkce, pkceState, pkceVerifier, saveToken } from '@/display-state/session';
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -23,8 +24,8 @@ const AuthCallback: React.FC = () => {
     const params = new URLSearchParams(location.search);
     const code = params.get('code');
     const state = params.get('state');
-    const storedState = localStorage.getItem('pkce_state');
-    const codeVerifier = localStorage.getItem('pkce_verifier');
+    const storedState = pkceState();
+    const codeVerifier = pkceVerifier();
 
     if (!code || !state || state !== storedState || !codeVerifier) {
       setError('OAuth2 callback validation failed.');
@@ -37,8 +38,7 @@ const AuthCallback: React.FC = () => {
     if (linkingProvider) {
       // --- Account-linking flow ---
       sessionStorage.removeItem('linking_provider');
-      localStorage.removeItem('pkce_state');
-      localStorage.removeItem('pkce_verifier');
+      clearPkce();
 
       post<Record<string, unknown>>('/auth/me/link-provider', {
         code,
@@ -69,13 +69,12 @@ const AuthCallback: React.FC = () => {
     postForm<{ access_token: string }>(`/auth/token`, body)
       .then(({ access_token }) => {
         // Cleanup PKCE data
-        localStorage.removeItem('pkce_state');
-        localStorage.removeItem('pkce_verifier');
+        clearPkce();
 
         // Persist token and do full page load to cleanly initialize auth state.
         // If there's a pending invite token, send the user to the claim page
         // so it can finish accepting; otherwise go home.
-        localStorage.setItem('access_token', access_token);
+        saveToken(access_token);
         const target = postLoginRedirectTarget();
         console.log('[AuthCallback] token stored, redirecting to', target);
         window.location.href = target;

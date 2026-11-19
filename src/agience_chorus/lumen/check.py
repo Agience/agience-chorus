@@ -182,12 +182,20 @@ def _now_iso() -> str:
 _REGISTERED_AT = _now_iso()
 
 
+#: the capabilities each operator needs to run, by operator id.
+_NEEDS = {
+    "op.check.python": ["compute.local", "fs.read"],
+    "op.check.latex-math": ["compute.local"],
+}
+
+
 def register_check_operators(store, *, author: str = "ember-local") -> int:
     from crystal import evolution
     for name, offer in _CHECK_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
             "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
-            "context": offer, "content": "checker operator %s: %s" % (name, offer),
+            "context": offer, "offer": offer, "needs": list(_NEEDS[name]),
+            "content": "checker operator %s: %s" % (name, offer),
             "created_by": author,
             "collection_id": _SYSTEM_COLLECTION, "created_time": _REGISTERED_AT}))
     return len(_CHECK_OPS)

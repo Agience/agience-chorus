@@ -32,7 +32,7 @@ type InviteDetails = {
  *   link never claims anything by itself.
  */
 /** How long the page waits for Mantle to open a claimed item, and how often it asks. Mantle reads
- *  Origin's feed every 15 s; the wait covers two passes. */
+ *  Origin's feed every 5 s; the wait covers several passes. */
 const ACCESS_WAIT_MS = 40_000;
 const ACCESS_POLL_MS = 1_000;
 

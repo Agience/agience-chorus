@@ -4,6 +4,7 @@ import { useWorkspace } from '../../../hooks/useWorkspace';
 import CardGrid from '../../common/CardGrid';
 import { Artifact } from '../../../context/workspace/workspace.types';
 import { getAgienceDragPayload, getDroppedArtifactIds, isAgienceDrag } from '../../../dnd/agienceDrag';
+import { keyedNotIn, lookUp, notIn, present } from '@/display-state/lists';
 
 export default function InputPanel() {
   const { state, updatePanelData } = usePalette();
@@ -36,10 +37,9 @@ export default function InputPanel() {
       if (!ids.length) return;
 
       updatePanelData('input', (prev) => {
-        const existingIds = new Set(prev.artifacts.map((c) => String(c.id)));
-        const artifactsToAdd = ids
-          .map(id => workspaceArtifacts.find(c => String(c.id) === String(id)))
-          .filter((artifact): artifact is Artifact => !!artifact && !existingIds.has(String(artifact.id)));
+        const artifactsToAdd = keyedNotIn(
+          present(ids.map(id => workspaceArtifacts.find(c => String(c.id) === String(id)))),
+          c => c.id, prev.artifacts.map(c => c.id));
         
         if (artifactsToAdd.length === 0) return prev;
         return { ...prev, artifacts: [...prev.artifacts, ...artifactsToAdd] };
@@ -59,23 +59,21 @@ export default function InputPanel() {
   const handleReorder = useCallback((orderedIds: string[]) => {
     updatePanelData('input', (prev) => {
       const byId = new Map(prev.artifacts.map((c) => [String(c.id), c]));
-      const reordered = orderedIds.map(id => byId.get(id)).filter(Boolean) as Artifact[];
+      const reordered = lookUp(orderedIds, byId);
       return { ...prev, artifacts: reordered };
     });
   }, [updatePanelData]);
 
   // Handle drops on CardGrid: distinguish artifacts already in the panel from ones being added from the workspace.
   const handleArtifactDrop = useCallback((insertIndex: number, draggedIds: string[]) => {
-    const panelIds = new Set(panelState.artifacts.map(c => String(c.id)));
-    const fromWorkspace = draggedIds.filter(id => !panelIds.has(id));
+    const fromWorkspace = notIn(draggedIds, panelState.artifacts.map(c => String(c.id)));
     
     if (fromWorkspace.length > 0) {
       // New artifacts from workspace - insert at position
       updatePanelData('input', (prev) => {
-        const existingIds = new Set(prev.artifacts.map((c) => String(c.id)));
-        const artifactsToAdd = fromWorkspace
-          .map(id => workspaceArtifacts.find(c => String(c.id) === String(id)))
-          .filter((artifact): artifact is Artifact => !!artifact && !existingIds.has(String(artifact.id)));
+        const artifactsToAdd = keyedNotIn(
+          present(fromWorkspace.map(id => workspaceArtifacts.find(c => String(c.id) === String(id)))),
+          c => c.id, prev.artifacts.map(c => c.id));
         
         if (artifactsToAdd.length === 0) {
           return prev;

@@ -205,6 +205,13 @@ _BUNDLING_OPS = [
 ]
 
 
+#: the capabilities each operator needs to run, by operator id.
+_NEEDS = {
+    "op.bundle.observe": ["fs.read"],
+    "op.bundle.condense": ["fs.read", "fs.write"],
+}
+
+
 def register_bundling_operators(store, *, author: str = "seraph-bundling") -> int:
     """Register seraph's bundle-production capabilities."""
     from crystal import evolution
@@ -212,6 +219,7 @@ def register_bundling_operators(store, *, author: str = "seraph-bundling") -> in
     for name, offer in _BUNDLING_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
             "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
-            "context": offer, "content": "seraph bundling operator %s: %s" % (name, offer),
+            "context": offer, "offer": offer, "needs": list(_NEEDS[name]),
+            "content": "seraph bundling operator %s: %s" % (name, offer),
             "created_by": author}))
     return len(_BUNDLING_OPS)

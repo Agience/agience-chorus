@@ -1,0 +1,17 @@
+# The Facet rule allowlist: every site in the Facet that still holds information logic.
+# One line per site: row | build | file | pattern | the site's text.
+# "row N" is the row of audit-2026-11-16/FACET-RULE-AUDIT.md (chorus adda978); "row -" is a site
+# the audit did not list, which the whole-Facet cleanup (build 6) removes.
+# Lines only leave this file, as their sites are fixed; CEILING in the test drops with them.
+row - | build 6 | components/common/CardContextItems.tsx | filter | const applicable = typeActions.filter((a) => {
+row - | build 6 | components/common/CardContextItems.tsx | filter | const applicable = pool.filter((a) => {
+row 34 | build 1 | registry/content-types.ts | filter | return CONTENT_TYPES.filter((t) => t.creatable);
+row 17 | build 1 | utils/content-type.ts | content-type | export const AGENCY_CONTENT_TYPE = 'application/vnd.agience.agency+json';
+row 17 | build 1 | utils/content-type.ts | content-type | export const TRANSFORM_CONTENT_TYPE = 'application/vnd.agience.transform+json';
+row 17 | build 1 | utils/content-type.ts | content-type | export const CHAT_CONTENT_TYPE = 'application/vnd.agience.chat+json';
+row 17 | build 1 | utils/content-type.ts | content-type | export const OPERATOR_CONTENT_TYPE = 'application/vnd.agience.operator+json';
+row 17 | build 1 | utils/content-type.ts | content-type | export const TOOL_CONTENT_TYPE = 'application/vnd.agience.tool+json';
+row 17 | build 1 | utils/content-type.ts | content-type | export const RESOURCES_CONTENT_TYPE = 'application/vnd.agience.resources+json';
+row 17 | build 1 | utils/content-type.ts | content-type | export const PROMPTS_CONTENT_TYPE = 'application/vnd.agience.prompts+json';
+row 17 | build 1 | utils/content-type.ts | content-type | export const WORKSPACE_CONTENT_TYPE = 'application/vnd.agience.workspace+json';
+row 17 | build 1 | utils/content-type.ts | content-type | export const COLLECTION_CONTENT_TYPE = 'application/vnd.agience.collection+json';

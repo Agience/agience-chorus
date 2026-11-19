@@ -1,22 +1,26 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 
 import { WorkspacesProvider } from '../WorkspacesProvider';
 import { useWorkspaces } from '../WorkspacesContext';
 
-const { listWorkspacesMock, createWorkspaceMock, toastErrorMock, prefs } = vi.hoisted(() => ({
+const { listWorkspacesMock, createWorkspaceMock, toastErrorMock, prefs, access } = vi.hoisted(() => ({
   listWorkspacesMock: vi.fn(),
   createWorkspaceMock: vi.fn(),
   toastErrorMock: vi.fn(),
   prefs: { current: {} as Record<string, unknown>, update: (() => {}) as (p: Record<string, unknown>) => void },
+  access: { handlers: new Set<(id: string) => void>() },
 }));
 
 vi.mock('../../../api/workspaces', () => ({
   listWorkspaces: (...args: unknown[]) => listWorkspacesMock(...args),
   createWorkspace: (...args: unknown[]) => createWorkspaceMock(...args),
   updateWorkspace: vi.fn(),
-  deleteWorkspace: vi.fn(),
+  subscribeAccessChanges: (h: (id: string) => void) => {
+    access.handlers.add(h);
+    return () => { access.handlers.delete(h); };
+  },
 }));
 
 const { getArtifactMock } = vi.hoisted(() => ({ getArtifactMock: vi.fn() }));
@@ -60,19 +64,21 @@ function renderProvider() {
 describe('WorkspacesProvider failures', () => {
   beforeEach(() => {
     listWorkspacesMock.mockReset();
+    listWorkspacesMock.mockResolvedValue([]);
     createWorkspaceMock.mockReset();
     toastErrorMock.mockReset();
     rejected.mockReset();
+    access.handlers.clear();
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   it('toasts the server detail when the workspace list fails to load', async () => {
-    listWorkspacesMock.mockRejectedValueOnce(serverRefusal('Not allowed'));
+    listWorkspacesMock.mockRejectedValue(serverRefusal('Not allowed'));
     renderProvider();
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith(
       'Could not load workspaces', { description: 'Not allowed' },
-    ));
-  });
+    ), { timeout: 6000 });
+  }, 10000);
 
   it('toasts the server detail and rethrows when create fails', async () => {
     listWorkspacesMock.mockResolvedValueOnce([]);
@@ -88,17 +94,62 @@ describe('WorkspacesProvider failures', () => {
   });
 
   it('falls back to the error message when the server gave no detail', async () => {
-    listWorkspacesMock.mockRejectedValueOnce(new Error('Network Error'));
+    listWorkspacesMock.mockRejectedValue(new Error('Network Error'));
     renderProvider();
     await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith(
       'Could not load workspaces', { description: 'Network Error' },
-    ));
-  });
+    ), { timeout: 6000 });
+  }, 10000);
+
+  // A list read that fails once (a service slow to answer) left the session with no workspace and
+  // no New controls until a reload. The first read is tried again.
+  it('tries the first list read again when it fails once, and loads the list', async () => {
+    listWorkspacesMock.mockRejectedValueOnce(new Error('timeout of 15000ms exceeded'));
+    listWorkspacesMock.mockResolvedValue([{ id: 'inbox-1', name: 'Inbox' }]);
+    function Count() {
+      const { workspaces } = useWorkspaces();
+      return <div data-testid="count">{workspaces.length}</div>;
+    }
+    render(<MemoryRouter><WorkspacesProvider><Count /></WorkspacesProvider></MemoryRouter>);
+    await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('1'), { timeout: 4000 });
+    expect(listWorkspacesMock).toHaveBeenCalledTimes(2);
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).toBeNull();
+  }, 10000);
+
+  it('keeps the error on screen with Retry after three failed reads, and Retry loads the list', async () => {
+    listWorkspacesMock.mockRejectedValue(new Error('Network Error'));
+    function Count() {
+      const { workspaces } = useWorkspaces();
+      return <div data-testid="count">{workspaces.length}</div>;
+    }
+    render(<MemoryRouter><WorkspacesProvider><Count /></WorkspacesProvider></MemoryRouter>);
+    const alert = await screen.findByRole('alert', {}, { timeout: 6000 });
+    expect(alert).toHaveTextContent('Could not load workspaces: Network Error');
+    expect(listWorkspacesMock).toHaveBeenCalledTimes(3);
+    listWorkspacesMock.mockResolvedValue([{ id: 'inbox-1', name: 'Inbox' }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('1'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  }, 12000);
+
+  it('clears the error when another read loads the list after three failed reads', async () => {
+    listWorkspacesMock.mockRejectedValue(new Error('Network Error'));
+    function Count() { return <div data-testid="count">{useWorkspaces().workspaces.length}</div>; }
+    render(<MemoryRouter><WorkspacesProvider><Count /></WorkspacesProvider></MemoryRouter>);
+    await screen.findByRole('alert', {}, { timeout: 6000 });
+    expect(listWorkspacesMock).toHaveBeenCalledTimes(3);
+    listWorkspacesMock.mockResolvedValue([{ id: 'inbox-1', name: 'Inbox' }]);
+    access.handlers.forEach((h) => h('inbox-1'));
+    await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('1'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  }, 12000);
 });
 
 describe('WorkspacesProvider deep links', () => {
   beforeEach(() => {
     listWorkspacesMock.mockReset();
+    listWorkspacesMock.mockResolvedValue([]);
     toastErrorMock.mockReset();
     prefs.current = {};
     prefs.update = () => {};
@@ -201,6 +252,7 @@ describe('WorkspacesProvider opens a new workspace', () => {
 describe('WorkspacesProvider selection on load', () => {
   beforeEach(() => {
     listWorkspacesMock.mockReset();
+    listWorkspacesMock.mockResolvedValue([]);
     prefs.current = {};
     prefs.update = () => {};
     localStorage.clear();
@@ -214,7 +266,7 @@ describe('WorkspacesProvider selection on load', () => {
   const list = [
     // The id that sorts first is not the Inbox: the order `/artifacts/visible` returns.
     { id: '73459b53-qa', name: 'QA', created_by: 'user-1', created_time: '2026-10-13T00:00:00Z' },
-    { id: 'f7d56caf-inbox', name: 'Inbox', created_by: 'user-1', created_time: '2026-10-01T00:00:00Z' },
+    { id: 'f7d56caf-inbox', name: 'Inbox', created_by: 'user-1', created_time: '2026-10-01T00:00:00Z', inbox: true },
     { id: 'qa-ws', name: 'Other', created_by: 'user-1', created_time: '2026-10-14T00:00:00Z' },
   ];
 
@@ -273,12 +325,47 @@ describe('WorkspacesProvider follows changes saved elsewhere', () => {
   });
 });
 
+// A claimed invitation is applied at Mantle a few seconds after the claim, so a list read at load
+// can miss the workspace it shares. Mantle announces the grant; the list is read again.
+describe('WorkspacesProvider follows grants applied at Mantle', () => {
+  beforeEach(() => { listWorkspacesMock.mockReset(); listWorkspacesMock.mockResolvedValue([]); access.handlers.clear(); });
+
+  it('reads the list again when access to an item changes, and stops on unmount', async () => {
+    listWorkspacesMock
+      .mockResolvedValueOnce([{ id: 'inbox-1', name: 'Inbox' }])
+      .mockResolvedValueOnce([{ id: 'inbox-1', name: 'Inbox' }, { id: 'shared-ws', name: 'S' }]);
+    function Count() { return <div data-testid="count">{useWorkspaces().workspaces.length}</div>; }
+    const view = render(<MemoryRouter><WorkspacesProvider><Count /></WorkspacesProvider></MemoryRouter>);
+    await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('1'));
+    expect(access.handlers.size).toBe(1);
+    access.handlers.forEach((h) => h('shared-ws'));
+    await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('2'));
+    view.unmount();
+    expect(access.handlers.size).toBe(0);
+  });
+
+  it('keeps the newest read when an older one answers last', async () => {
+    let answerFirst: (v: unknown) => void = () => {};
+    listWorkspacesMock
+      .mockReturnValueOnce(new Promise((resolve) => { answerFirst = resolve; }))
+      .mockResolvedValueOnce([{ id: 'inbox-1', name: 'Inbox' }, { id: 'shared-ws', name: 'S' }]);
+    function Count() { return <div data-testid="count">{useWorkspaces().workspaces.length}</div>; }
+    render(<MemoryRouter><WorkspacesProvider><Count /></WorkspacesProvider></MemoryRouter>);
+    await waitFor(() => expect(access.handlers.size).toBe(1));
+    access.handlers.forEach((h) => h('shared-ws'));
+    await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('2'));
+    await act(async () => { answerFirst([{ id: 'inbox-1', name: 'Inbox' }]); });
+    expect(screen.getByTestId('count')).toHaveTextContent('2');
+  });
+});
+
 // 2026-11-08, the local check: a workspace opened by its tab left the route at `/`, so Share in
 // the header refused ("The open page is not this workspace"). Opening a workspace by tab puts its
 // id in the route, which is where the Share dialog takes the shared item from (review 14).
 describe('WorkspacesProvider keeps the route on the open workspace', () => {
   beforeEach(() => {
     listWorkspacesMock.mockReset();
+    listWorkspacesMock.mockResolvedValue([]);
     toastErrorMock.mockReset();
     prefs.current = {};
     prefs.update = () => {};
@@ -330,6 +417,7 @@ describe('WorkspacesProvider keeps the route on the open workspace', () => {
 describe('a link to one artifact', () => {
   beforeEach(() => {
     listWorkspacesMock.mockReset();
+    listWorkspacesMock.mockResolvedValue([]);
     toastErrorMock.mockReset();
     getArtifactMock.mockReset();
     prefs.current = {};

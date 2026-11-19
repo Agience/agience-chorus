@@ -11,7 +11,7 @@ interface EmptyStateProps {
   onClearFilters?: () => void;
   /** Shown as "Create a workspace" in the no-artifacts and no-source states. */
   onCreateWorkspace?: () => void;
-  /** Shown as "New card" in the no-artifacts and no-source states. */
+  /** Shown as "New artifact" in the no-artifacts and no-source states. */
   onCreateCard?: () => void;
   /** The empty workspace is the user's Inbox. */
   isInbox?: boolean;

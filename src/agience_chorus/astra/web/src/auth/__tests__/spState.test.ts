@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { consumeSpState, issueSpState } from '../spState';
+import { consumeSpState, issueSpState } from '@/display-state/spState';
 
 describe('spState', () => {
   beforeEach(() => localStorage.clear());

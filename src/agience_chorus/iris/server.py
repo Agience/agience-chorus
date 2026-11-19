@@ -1312,8 +1312,25 @@ def _server_endpoint(context: dict) -> str:
     annotations=ToolAnnotations(openWorldHint=True),
 )
 async def use_server_tool(server_artifact_id: str, tool: str, arguments: Optional[dict] = None) -> str:
-    return await call_mcp_server(server_artifact_id, "tools/call",
-                                 {"name": tool, "arguments": arguments or {}})
+    """Runs through `op.mcp.call`: the tekton's handler takes the need `{name, arguments}` and calls
+    the server through `call_mcp_server`, so the guarded `tools/call` is the one code path. The
+    answer is `call_mcp_server`'s own."""
+    from agience_chorus.iris.comms.mcp_tekton import mcp_handler
+
+    answers: list = []
+
+    def call_tool(server_id, name, args, *, user_id="organon"):
+        answer = asyncio.run(call_mcp_server(server_id, "tools/call",
+                                             {"name": name, "arguments": args or {}}))
+        answers.append(answer)
+        result = (json.loads(answer) or {}).get("result")
+        return (result or {}).get("content", []) if isinstance(result, dict) else []
+
+    handler = mcp_handler(call_tool, server_id=server_artifact_id)
+    evidence = await asyncio.to_thread(handler, {"name": tool, "arguments": arguments or {}})
+    if answers:
+        return answers[-1]
+    return json.dumps({"error": evidence.get("detail") or "no MCP server named", "status": 400})
 
 
 @mcp.tool(

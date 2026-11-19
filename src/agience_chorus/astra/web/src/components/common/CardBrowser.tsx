@@ -61,8 +61,9 @@ export interface CardBrowserProps {
   onAssignCollections?: (artifact: Artifact) => void;
 
   // ── Order / DnD ───────────────────────────────────────────────────────────
-  /** Called with re-ordered array of artifact IDs after a drag-reorder. */
-  onOrder?: (ids: string[]) => void;
+  /** After a drag-reorder: the new order, and the move that made it (`ids` now sit just before
+   * `beforeId`, or last when it is null). */
+  onOrder?: (ids: string[], moved: { ids: string[]; beforeId: string | null }) => void;
   onFileDrop?: (index: number, files: File[]) => void;
   onArtifactDrop?: (
     index: number,
@@ -165,7 +166,11 @@ export function CardBrowser({
                 if (fromIndex !== -1) {
                   const [moved] = newOrder.splice(fromIndex, 1);
                   newOrder.splice(targetIndex, 0, moved);
-                  onOrder(newOrder.map((c) => String(c.id ?? '')));
+                  const after = newOrder[targetIndex + 1];
+                  onOrder(newOrder.map((c) => String(c.id ?? '')), {
+                    ids: [artifactId],
+                    beforeId: after ? String(after.id ?? '') : null,
+                  });
                 }
               }
             : undefined

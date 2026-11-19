@@ -5,6 +5,32 @@ All notable changes to `agience-chorus` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-11-18
+
+### Added
+- Approval levels are artifacts; requests, approvals and messages carry the level they were made at.
+- Budget and spend types, and a role type for the roles collection.
+- The Inbox reads invites, and accepting one opens the shared item.
+- Timers fire on changes in a container, keep their titles, and show and take their times in local time.
+- Deleting a workspace moves it to the trash, with undo and restore.
+- A key artifact issues its own token and shows it once.
+- The sidebar lists each workspace as a link to it.
+
+### Changed
+- Facet creates, saves, updates, trashes and lists through Crystal, and shows only the actions Mantle allows.
+- Pickers and search choices run the platform search; Sage runs a search artifact.
+- The share dialog and invites show members and roles as Mantle lists them.
+- The phone layout shows one panel with a folded top bar.
+- Dates read day first with 24-hour times; empty states, labels and tabs use sentence case.
+- Visible text says artifact throughout.
+
+### Fixed
+- Workspace lists keep the newest read, retry the first read, and follow access changes.
+- Clearing a search ends it, and late answers are dropped.
+- An empty search says what was searched and where; an empty workflow says why nothing can be added or run.
+- Escape closes the top window, and back closes dialogs.
+- Arrow keys move between tabs, and search popovers open in the top layer.
+
 ## [0.5.2] - 2026-11-16
 
 ### Breaking

@@ -20,6 +20,7 @@ import {
   getSetupStatus,
   type SettingInput,
 } from '../api/setup'
+import { present } from '@/display-state/lists';
 
 // ---------------------------------------------------------------------------
 //  Types
@@ -714,7 +715,7 @@ const SetupWizard: React.FC = () => {
         <div className="flex justify-between py-2 border-b border-gray-100">
           <span className="text-gray-500">Sign-In</span>
           <span className="text-gray-900 font-medium">
-            {[emailAuthEnabled && 'Password', googleClientId && 'Google'].filter(Boolean).join(' + ') || 'None'}
+            {present([emailAuthEnabled && 'Password', googleClientId && 'Google']).join(' + ') || 'None'}
           </span>
         </div>
       </div>

@@ -70,3 +70,9 @@ export function getContextContentType(ctx: ArtifactContext): string | undefined 
   const raw = typeof ctx.content_type === 'string' ? ctx.content_type : undefined;
   return normalizeContentType(raw);
 }
+
+/** An artifact's title as artifacts show it: its context's title, else its filename. */
+export function artifactTitle(artifact: { context?: unknown }): string {
+  const ctx = safeParseArtifactContext(artifact.context);
+  return String(ctx.title || ctx.filename || '').trim();
+}

@@ -3,6 +3,8 @@ import { X, Download } from 'lucide-react';
 import { getArtifactContentUrl } from '../../api/workspaces';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { toast } from 'sonner';
+import { rootContextFields } from '@/registry/content-types';
+import { keyList, keyedIn, keyedNotIn, present, without, withoutKey } from '@/display-state/lists';
 
 export type JSONValue =
   | string
@@ -14,48 +16,6 @@ export type JSONValue =
 
 export type JSONObject = { [key: string]: JSONValue };
 
-const STANDARD = [
-  { key: 'description',  label: 'Description',   kind: 'textarea' as const, maxLength: undefined },
-  { key: 'title',        label: 'Title',         kind: 'title'    as const, maxLength: 140 },
-  { key: 'content_type', label: 'Content Type',  kind: 'text'     as const, maxLength: undefined },
-  { key: 'tags',         label: 'Tags',          kind: 'tags'     as const, maxLength: undefined },
-] as const;
-
-// System-managed fields that should be readonly in the UI
-const READONLY_SYSTEM_FIELDS = new Set([
-  'access',          // Access control: "private" (signed URLs) or "public" (direct access)
-  'content_source',  // Content source: "agience-content", "external-url", etc.
-  'uri',             // Public URI (only for access="public" with external content)
-  'size',            // File size in bytes
-  'mime',            // MIME type
-  'filename',        // Original filename
-  'upload',          // Upload status/progress (transient, removed after completion)
-]);
-
-// Keys the store owns. Mantle ignores them on write (and never stores `caller`), so they are
-// shown in the read-only section and never offered as editable rows.
-const STORE_OWNED_FIELDS = new Set([
-  'minted_by',
-  'minted',
-  'placement',
-  'addressing',
-  'screen',
-  'enriched',
-  'caller',
-  'provenance',
-  'provenance_history',
-  'provenance_evidence',
-  'content_key',
-  'content_cas_ref',
-  'content_sha256',
-  'upload',
-  'processing',
-  'storage',
-]);
-
-function isReadonlyField(key: string): boolean {
-  return READONLY_SYSTEM_FIELDS.has(key) || STORE_OWNED_FIELDS.has(key);
-}
 
 type PrimitiveKind = 'string' | 'number' | 'boolean' | 'null' | 'json';
 
@@ -179,7 +139,7 @@ function StandardField({
   onChange,
   onRemove,
 }: {
-  name: typeof STANDARD[number]['key'];
+  name: string;
   label: string;
   kind: 'textarea' | 'text' | 'title' | 'tags';
   maxLength?: number;
@@ -260,7 +220,7 @@ function TagsInput({
     onChange([...tags, tag]);
     setInput('');
   };
-  const remove = (t: string) => onChange(tags.filter((x) => x !== t));
+  const remove = (t: string) => onChange(without(tags, t));
   return (
     <div>
       <div className="flex flex-wrap gap-2 mb-2">
@@ -296,18 +256,24 @@ export default function KeyValueEditor({
   onChange,
   artifactId,
   filename,
+  storeKeys,
 }: {
   value: JSONObject;
   onChange: (next: JSONObject) => void;
   artifactId?: string;
   filename?: string;
+  /** The context keys Mantle owns (`GET /artifacts/store-keys`): shown read-only, never offered as rows. */
+  storeKeys: readonly string[];
 }) {
+  const isReadonlyField = (key: string) => storeKeys.includes(key);
+  // The fields every artifact has, from the root type: offered with their own editors.
+  const standard = present(rootContextFields().map((field) => (field.editor ? { ...field, editor: field.editor } : null)));
+  const standardKeys = keyList(standard.map((field) => field.key));
   // Keep local state authoritative to avoid wiping empty custom rows
   const [obj, setObj] = useState<JSONObject>(value);
 
   const toCustomRows = (o: JSONObject): CustomRow[] =>
-    Object.entries(o)
-      .filter(([k]) => !STANDARD.some((s) => s.key === k) && !isReadonlyField(k))
+    keyedNotIn(Object.entries(o), ([k]) => k, [...standardKeys, ...storeKeys])
       .map(([k, v]) => {
         const kind = inferKindForExisting(v);
         const vv =
@@ -326,7 +292,7 @@ export default function KeyValueEditor({
     for (const r of nextRows) {
       const k = r.key.trim();
       if (!k) continue; // keep empty-row local only
-      if (isReadonlyField(k)) continue; // a custom row cannot set a system or store-owned key
+      if (isReadonlyField(k)) continue; // a custom row cannot set a store-owned key
       if (r.kind === 'json') {
         const s = String(r.value ?? '').trim();
         if (s) {
@@ -348,10 +314,10 @@ export default function KeyValueEditor({
     }
     const merged: JSONObject = { ...rebuilt };
     // Preserve standard fields
-    for (const { key } of STANDARD) {
+    for (const key of standardKeys) {
       if (key in nextObj) merged[key] = nextObj[key];
     }
-    // Preserve readonly system and store-owned fields as they arrived
+    // Preserve store-owned fields as they arrived
     for (const key of Object.keys(nextObj)) {
       if (isReadonlyField(key)) merged[key] = nextObj[key];
     }
@@ -360,13 +326,13 @@ export default function KeyValueEditor({
   };
 
   // standard helpers
-  const hasStandard = (k: typeof STANDARD[number]['key']) => Object.prototype.hasOwnProperty.call(obj, k);
-  const setStandard = (k: typeof STANDARD[number]['key'], v: JSONValue) => {
+  const hasStandard = (k: string) => Object.prototype.hasOwnProperty.call(obj, k);
+  const setStandard = (k: string, v: JSONValue) => {
     const next = { ...obj, [k]: v };
     setObj(next);
     commit(next);
   };
-  const removeStandard = (k: typeof STANDARD[number]['key']) => {
+  const removeStandard = (k: string) => {
     if (!hasStandard(k)) return;
     const next = { ...obj };
     delete next[k];
@@ -384,7 +350,7 @@ export default function KeyValueEditor({
   };
   const removeCustom = (id: string) => {
     setRows(prev => {
-      const next = prev.filter(r => r.id !== id);
+      const next = withoutKey(prev, r => r.id, id);
       commit(obj, next);
       return next;
     });
@@ -427,10 +393,11 @@ export default function KeyValueEditor({
     });
   };
 
-  const missingStandards = STANDARD.filter(({ key }) => !hasStandard(key));
+  const missingStandards = keyedNotIn(standard, (field) => field.key, Object.keys(obj));
+  const presentStandards = keyedIn(standard, (field) => field.key, Object.keys(obj));
 
   // Extract readonly system fields
-  const systemFields = Object.entries(obj).filter(([k]) => isReadonlyField(k));
+  const systemFields = keyedIn(Object.entries(obj), ([k]) => k, storeKeys);
   
   // Check if this artifact has a downloadable file (has 'content_source' field) and we have artifactId
   const hasFile = artifactId && obj.content_source === 'agience-content';
@@ -466,15 +433,15 @@ export default function KeyValueEditor({
         </div>
       )}
 
-      {STANDARD.filter(({ key }) => hasStandard(key)).length > 0 && (
+      {presentStandards.length > 0 && (
         <div className="space-y-3">
-          {STANDARD.filter(({ key }) => hasStandard(key)).map(({ key, label, kind, maxLength }) => (
+          {presentStandards.map(({ key, label, editor, max_length }) => (
             <StandardField
               key={key}
               name={key}
-              label={label}
-              kind={kind}
-              maxLength={maxLength}
+              label={label ?? key}
+              kind={editor}
+              maxLength={max_length}
               value={obj[key]}
               onChange={(v) => setStandard(key, v)}
               onRemove={() => removeStandard(key)}
@@ -485,21 +452,14 @@ export default function KeyValueEditor({
 
       {missingStandards.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {missingStandards.map(({ key, label }) => (
+          {missingStandards.map(({ key, label, initial }) => (
             <button
               key={key}
               type="button"
               className="px-2 py-1 text-xs border rounded hover:bg-gray-50"
-              onClick={() => {
-                const init =
-                  key === 'description' ? '' :
-                  key === 'title' ? '' :
-                  key === 'content_type' ? 'text/plain' :
-                  key === 'tags' ? [] : '';
-                setStandard(key, init as JSONValue);
-              }}
+              onClick={() => setStandard(key, (initial ?? '') as JSONValue)}
             >
-              Add {label}
+              Add {label ?? key}
             </button>
           ))}
         </div>

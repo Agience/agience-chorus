@@ -1,15 +1,16 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeAll } from 'vitest';
 
 import SidebarEnhanced from '../SidebarEnhanced';
 
 const listWorkspaceMCPServersMock = vi.fn();
+const setActiveWorkspaceIdMock = vi.fn();
 
 vi.mock('../../../hooks/useWorkspaces', () => ({
   useWorkspaces: () => ({
     workspaces: [{ id: 'ws-1', name: 'Workspace One', created_by: 'user-1', order_key: 'A' }],
     activeWorkspace: { id: 'ws-1', name: 'Workspace One', created_by: 'user-1', order_key: 'A' },
-    setActiveWorkspaceId: vi.fn(),
+    setActiveWorkspaceId: setActiveWorkspaceIdMock,
     createWorkspace: vi.fn(),
     updateWorkspace: vi.fn(),
     deleteWorkspace: vi.fn(),
@@ -101,5 +102,28 @@ describe('SidebarEnhanced', () => {
 
     expect(await screen.findByText('agience-core')).toBeInTheDocument();
     expect(await screen.findByText('Team Docs')).toBeInTheDocument();
+  });
+
+  it('lists each workspace as a link to its address, opened in place on a plain click', async () => {
+    listWorkspaceMCPServersMock.mockResolvedValue([]);
+    const onActiveSourceChange = vi.fn();
+    render(
+      <SidebarEnhanced
+        activeSource={{ type: 'workspace', id: 'ws-1' }}
+        onActiveSourceChange={onActiveSourceChange}
+        collapsed={false}
+      />,
+    );
+
+    const link = await screen.findByRole('link', { name: 'Workspace One' });
+    expect(link).toHaveAttribute('href', '/ws-1');
+    const opened = fireEvent.click(link);
+    expect(opened).toBe(false);
+    expect(setActiveWorkspaceIdMock).toHaveBeenCalledWith('ws-1');
+    expect(onActiveSourceChange).toHaveBeenCalledWith({ type: 'workspace', id: 'ws-1' });
+
+    setActiveWorkspaceIdMock.mockClear();
+    expect(fireEvent.click(link, { ctrlKey: true })).toBe(true);
+    expect(setActiveWorkspaceIdMock).not.toHaveBeenCalled();
   });
 });

@@ -12,6 +12,7 @@ import type { TransformMeta } from './PaletteContext';
 import { useStepHandlers, STEP_KEYS } from './useStepHandler';
 import type { TransformSpec } from './order.types';
 import { applyTransformSpec } from './orderSpec';
+import { addToSet, keySet, removeFromSet, without } from '@/display-state/lists';
 
 const initialState: PaletteState = {
   panelData: {
@@ -34,7 +35,7 @@ const initialState: PaletteState = {
 export function PaletteProvider({ children }: PaletteProviderProps) {
   const [state, setState] = useState<PaletteState>(initialState);
   const [nextStep, setNextStep] = useState<PanelKey>(STEP_KEYS[0]);
-  const [breakpoints, setBreakpoints] = useState(new Set<PanelKey>());
+  const [breakpoints, setBreakpoints] = useState(() => keySet<PanelKey>());
   const prevPaused = useRef<string | null>(null);
 
   const [transformMeta, setTransformMeta] = useState<null | TransformMeta>(null);
@@ -161,7 +162,7 @@ export function PaletteProvider({ children }: PaletteProviderProps) {
   const clear = useCallback(() => {
     setState(initialState);
     setNextStep(STEP_KEYS[0]);
-    setBreakpoints(new Set());
+    setBreakpoints(keySet<PanelKey>());
     prevPaused.current = null;
     setTransform(null);
   }, [setTransform]);
@@ -170,7 +171,7 @@ export function PaletteProvider({ children }: PaletteProviderProps) {
     (spec: TransformSpec, meta?: TransformMeta) => {
       setState((prev) => applyTransformSpec(prev, spec));
       setNextStep(STEP_KEYS[0]);
-      setBreakpoints(new Set(spec.breakpoints ?? []));
+      setBreakpoints(keySet<PanelKey>(spec.breakpoints ?? []));
       prevPaused.current = null;
       setPanelStatus(
         Object.fromEntries(STEP_KEYS.map((k) => [k, 'never'])) as Record<PanelKey, PanelStatus>
@@ -185,7 +186,7 @@ export function PaletteProvider({ children }: PaletteProviderProps) {
   }, []);
 
   const hidePanel = useCallback((key: PanelKey) => {
-    setVisiblePanels((prev) => prev.filter((k) => k !== key));
+    setVisiblePanels((prev) => without(prev, key));
   }, []);
 
   const maximizePanel = useCallback((key: PanelKey) => {
@@ -193,19 +194,15 @@ export function PaletteProvider({ children }: PaletteProviderProps) {
   }, []);
 
   const minimizePanel = useCallback((key: PanelKey) => {
-    setMaximizedPanels((prev) => prev.filter((k) => k !== key));
+    setMaximizedPanels((prev) => without(prev, key));
   }, []);
 
   const addPause = useCallback((key: PanelKey) => {
-    setBreakpoints((prev) => new Set(prev).add(key));
+    setBreakpoints((prev) => addToSet(prev, key));
   }, []);
 
   const removePause = useCallback((key: PanelKey) => {
-    setBreakpoints((prev) => {
-      const next = new Set(prev);
-      next.delete(key);
-      return next;
-    });
+    setBreakpoints((prev) => removeFromSet(prev, key));
   }, []);
 
   // Memoize the context value

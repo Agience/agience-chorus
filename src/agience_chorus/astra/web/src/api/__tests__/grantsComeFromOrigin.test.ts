@@ -14,6 +14,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import api from '../api'
 import { createGrant, deleteGrant, listGrants, updateGrant } from '../collections'
 import { inviteContext } from '../authority'
+import { recordInvite } from '../inviteArtifacts'
+
+// The invite record is made without waiting for it (authority.ts). Mocked, it never reaches the
+// network, so nothing logs after the file's worker is torn down.
+vi.mock('../inviteArtifacts', () => ({ recordInvite: vi.fn(async () => 'a1') }))
 
 type Sent = { url: string; method: string; body: Record<string, unknown> | null }
 
@@ -100,6 +105,7 @@ describe('grants come from Origin\'s own record', () => {
                                    expires_at: null })
     expect((g as unknown as Record<string, unknown>).claim_token).toBeUndefined()
     expect(g.target_entity).toBe('bob@x.test')
+    expect(recordInvite).toHaveBeenCalledWith('inv-1')
   })
 
   it('the claim page reads an invite\'s context from Origin; no raw token reaches Mantle', async () => {

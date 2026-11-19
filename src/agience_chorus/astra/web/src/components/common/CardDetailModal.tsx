@@ -6,9 +6,12 @@ import KeyValueEditor from './KeyValueEditor';
 import { useAuth } from '../../hooks/useAuth';
 import { ArtifactResponse, ArtifactUpdate } from '../../api/types';
 import { addArtifactToCollection, removeArtifactFromCollection } from '../../api/collections';
+import { getStoreKeys } from '../../api/artifacts';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { keySet, toggle } from '@/display-state/lists';
+import { announceMembershipChange } from '@/constants/strings';
 
 type JSONValue = string | number | boolean | null | JSONArray | JSONObject;
 type JSONArray = JSONValue[];
@@ -49,6 +52,15 @@ export default function ArtifactEditModal({ artifact, onSave, onClose }: Artifac
     if (isPlainObject(artifact.context)) return artifact.context as JSONObject;
     return { description: '', title: '', content_type: 'text/plain', tags: [] };
   });
+
+  const [storeKeys, setStoreKeys] = useState<string[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    getStoreKeys()
+      .then((r) => { if (live) setStoreKeys(r.keys); })
+      .catch(() => { if (live) setStoreKeys([]); });
+    return () => { live = false; };
+  }, []);
 
   const { collections = [], isLoading: collectionsLoading } = useCollections();
   const initialTargetCollections = Array.isArray(artifact.committed_collection_ids)
@@ -161,13 +173,18 @@ export default function ArtifactEditModal({ artifact, onSave, onClose }: Artifac
 
           {/* Context Tab */}
           <TabsContent value="context" className="flex-1 overflow-y-auto p-4 mt-0">
-            <KeyValueEditor 
-              key={String(artifact.id ?? 'unsaved')} 
-              value={contextObj} 
-              onChange={setContextObj}
-              artifactId={artifact.id ? String(artifact.id) : undefined}
-              filename={contextObj.filename as string}
-            />
+            {storeKeys === null ? (
+              <Skeleton className="h-6 w-full" />
+            ) : (
+              <KeyValueEditor
+                key={String(artifact.id ?? 'unsaved')}
+                value={contextObj}
+                onChange={setContextObj}
+                artifactId={artifact.id ? String(artifact.id) : undefined}
+                filename={contextObj.filename as string}
+                storeKeys={storeKeys}
+              />
+            )}
           </TabsContent>
 
           {/* Collections Tab */}
@@ -190,7 +207,7 @@ export default function ArtifactEditModal({ artifact, onSave, onClose }: Artifac
                       checked={selectedCollectionIds.some(x => x === c.id)}
                       onChange={() =>
                         setSelectedCollectionIds(prev =>
-                          prev.some(x => x === c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id]
+                          toggle(prev, c.id)
                         )
                       }
                       className="w-4 h-4"
@@ -222,17 +239,19 @@ export default function ArtifactEditModal({ artifact, onSave, onClose }: Artifac
               const collectionsChanged = !sameIds(currentIds, selectedCollectionIds);
 
               if (collectionsChanged && artifact.id) {
-                const currentSet = new Set(currentIds);
-                const nextSet = new Set(selectedCollectionIds);
+                const currentSet = keySet(currentIds);
+                const nextSet = keySet(selectedCollectionIds);
                 for (const id of nextSet) {
                   if (!currentSet.has(id)) {
                     await addArtifactToCollection(id, String(artifact.id));
+                    announceMembershipChange({ container_id: id });
                   }
                 }
                 for (const id of currentSet) {
                   if (!nextSet.has(id)) {
                     const rootId = String((artifact as { root_id?: string }).root_id ?? artifact.id);
                     await removeArtifactFromCollection(id, rootId);
+                    announceMembershipChange({ container_id: id });
                   }
                 }
               }

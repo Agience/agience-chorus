@@ -28,7 +28,7 @@
     },
     {
       "name": "schedule_action",
-      "description": "Create a Timer card that will run an artifact's operation on a schedule; it runs once its owner arms it from the card"
+      "description": "Create a timer artifact that will run an artifact's operation on a schedule; it runs once its owner arms it there"
     },
     {
       "name": "arm_timer",
@@ -40,7 +40,7 @@
     },
     {
       "name": "workflow_reach",
-      "description": "What one run of a workflow must reach, now: the workflow, each operator a step invokes and each item a step links; approved at Origin for that one run"
+      "description": "What one run of a workflow must reach, now: the workflow, its Runs collection, each operator a step invokes and each item a step links; approved at Origin for that one run"
     },
     {
       "name": "run_workflow_now",

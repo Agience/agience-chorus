@@ -178,6 +178,50 @@ async def test_a_run_s_reach_is_the_workflow_its_operators_and_the_items_it_link
 
 
 @pytest.mark.asyncio
+async def test_a_run_s_reach_holds_the_runs_collection_it_records_in(person, monkeypatch):
+    """The run writes its run artifact into the workflow's Runs collection on the one-shot grant,
+    so the grant reaches it."""
+    monkeypatch.setitem(FULL, "wf-l", ("application/vnd.agience.transform+json", {}))
+    with patch.object(L.httpx, "AsyncClient", Mantle().client()):
+        out = json.loads(await L.workflow_reach("wf-l", {**LINKED, "runs_to": "runs-1"},
+                                                {"s2.artifact_id": "note-1"}))
+    assert out == {"resources": ["wf-l", "runs-1", "op-read", "note-1"]}
+
+
+@pytest.mark.asyncio
+async def test_a_run_s_reach_holds_the_runs_collection_the_workflow_links(person, monkeypatch):
+    monkeypatch.setitem(FULL, "wf-l", ("application/vnd.agience.transform+json", {}))
+    with patch.object(L.httpx, "AsyncClient", Mantle().client()):
+        out = json.loads(await L.workflow_reach("wf-l", LINKED,
+                                                {"s2.artifact_id": "note-1", "runs": "runs-2"}))
+    assert out == {"resources": ["wf-l", "runs-2", "op-read", "note-1"]}
+
+
+@pytest.mark.asyncio
+async def test_a_first_run_makes_its_runs_collection_in_the_person_s_session(person, monkeypatch):
+    monkeypatch.setitem(FULL, "wf-l", ("application/vnd.agience.transform+json", {}))
+    mantle, writes = Mantle(), []
+    base = mantle.client()
+
+    class _C(base):
+        async def post(self, url, headers=None, json=None, **kw):
+            writes.append(("POST", url, json))
+            return MockResponse({"id": "runs-new"}, 201)
+
+        async def patch(self, url, headers=None, json=None, **kw):
+            writes.append(("PATCH", url, json))
+            return MockResponse({}, 200)
+
+    with patch.object(L.httpx, "AsyncClient", _C):
+        out = json.loads(await L.workflow_reach("wf-l", LINKED, {"s2.artifact_id": "note-1"}))
+    assert out == {"resources": ["wf-l", "runs-new", "op-read", "note-1"]}
+    made = [w for w in writes if w[0] == "POST"]
+    assert made and made[0][2]["content_type"] == "application/vnd.agience.collection+json"
+    saved = [w for w in writes if w[0] == "PATCH"]
+    assert saved and json.loads(saved[0][2]["context"])["runs_to"] == "runs-new"
+
+
+@pytest.mark.asyncio
 async def test_a_timer_s_reach_takes_the_links_the_person_s_session_lists(person, monkeypatch):
     timer = {"timer": {"schedule": {"every_minutes": 60}, "target": {"artifact_id": "wf-l"}}}
     monkeypatch.setitem(FULL, "t-3", (T.TIMER_TYPE, timer))

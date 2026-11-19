@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import AdvancedSearch from '../AdvancedSearch';
 
@@ -18,15 +18,17 @@ vi.mock('@/context/shortcuts/useShortcuts', () => ({
 }));
 
 describe('AdvancedSearch Apply with no search text', () => {
-  // 2026-10-23, a tester applied a tag filter with the box empty: no request, and no word why.
-  it('keeps the panel open and says a word is needed', () => {
+  // Mantle refuses a search of filters alone; the panel stays open and says Mantle's reason.
+  it('keeps the panel open and says the reason Mantle refused it', async () => {
+    const reason = 'Add a word to search for: tag: narrows a search, it is not one.';
+    searchGlobalMock.mockRejectedValue({ response: { status: 400, data: { detail: reason } } });
     render(<AdvancedSearch scope="global" scopeId="" enableSuggestions={false} compact />);
     fireEvent.click(screen.getByTitle('Advanced search filters'));
     fireEvent.change(screen.getByLabelText('Has tag'), { target: { value: 'beta-test' } });
-    fireEvent.click(screen.getByText('Apply filters'));
+    await act(async () => { fireEvent.click(screen.getByText('Apply filters')); });
 
     expect(screen.getByText('Apply filters')).toBeInTheDocument();
-    expect(screen.getAllByRole('status').some((n) => /add a word to search for/i.test(n.textContent ?? ''))).toBe(true);
-    expect(searchGlobalMock).not.toHaveBeenCalled();
+    expect(screen.getAllByRole('status').some((n) => (n.textContent ?? '').includes(reason))).toBe(true);
+    expect(searchGlobalMock.mock.calls[0][0]).toMatchObject({ query_text: '', tag: 'beta-test' });
   });
 });

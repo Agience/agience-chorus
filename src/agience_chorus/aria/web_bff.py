@@ -170,6 +170,8 @@ def register_web_operators(artifact_store, graph_store=None, *, author: str = "a
         "content_type": OPERATOR_CONTENT_TYPE,
         "state": "live",
         "context": _OFFER,
+        "offer": _OFFER,
+        "needs": ["ui.render", "net.request"],
         "content": (
             f"web-bff tekton {OP_WEB_BFF}: {_OFFER}. "
             f"routes: {', '.join(BFF_ROUTES)}"

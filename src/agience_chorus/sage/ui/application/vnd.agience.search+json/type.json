@@ -1,0 +1,45 @@
+{
+  "content_type": "application/vnd.agience.search+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "description": "A Search — how a recall ranks, how many hits it returns and where it looks. Crystal runs it over what Mantle answers the caller may read; a Chat linked to a Search grounds through it, and a Chat with none runs the platform Search.",
+  "context_schema": {
+    "scope": {
+      "description": "collection ids the recall looks in; empty means everything the caller may read",
+      "index": [
+        "lexical"
+      ]
+    },
+    "size": {
+      "description": "how many hits the recall returns",
+      "index": []
+    },
+    "rank": {
+      "description": "ordered rank keys: title (an exact title, then one the query begins), rarity (rarest matched words first), own (the caller's own artifacts), coverage (more matched words), recency",
+      "index": [
+        "lexical"
+      ]
+    }
+  },
+  "ui": {
+    "label": "Search",
+    "icon": "search",
+    "color": "#0ea5e9",
+    "badge_class": "bg-sky-100 text-sky-800",
+    "tile_class": "ring-1 ring-sky-200/70",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "description": "A Search — rank, size and scope a recall runs with."
+  }
+}

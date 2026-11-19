@@ -41,7 +41,7 @@
   </div>
 
   <div class="card hidden" id="legacyCard">
-    <h2>This card runs a tool directly</h2>
+    <h2>This workflow runs a tool directly</h2>
     <div class="hint">A workflow now runs operators: each one granted, so what it may do is decided by
       who may invoke it. Rebuild it as steps to run it again.</div>
     <div class="row" style="margin-top:8px"><button id="toWorkflow">Rebuild as steps</button></div>
@@ -52,12 +52,15 @@
     <div class="recipes" id="recipes"></div>
   </div>
 
-  <div class="card" id="flowCard">
+  <div class="muted" id="reading">Reading the workflow…</div>
+
+  <div class="card hidden" id="flowCard">
     <h2>Steps, in order</h2>
     <div id="steps"><div class="muted">No steps yet.</div></div>
     <div style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px">
       <label for="newOp">Add a step</label>
       <select id="newOp"></select>
+      <div class="hint hidden" id="noOps"></div>
       <div class="hint" id="newOpHint"></div>
       <div id="newArgForm"></div>
       <label for="newName">Step name</label>
@@ -71,7 +74,10 @@
     <button id="run" class="primary">Run now</button>
     <span id="status" class="muted"></span>
   </div>
-  <pre id="result" class="hidden"></pre>
+  <div id="resultBox" class="hidden">
+    <pre id="result"></pre>
+    <details id="resultRaw" class="hidden"><summary>Details</summary><pre></pre></details>
+  </div>
 
   <div class="card hidden" id="runsCard">
     <h2>Recent runs</h2>
@@ -89,11 +95,13 @@
       <label style="margin:0;font-weight:400" class="row"><input type="checkbox" id="inbox" checked /> tell me in my Inbox if it fails</label>
       <button id="schedule">Create timer</button>
     </div>
-    <div class="hint" id="scheduleHint">A Timer card is made next to this one; open it and press Arm. It runs on a key you approve there.</div>
+    <div class="hint" id="scheduleHint">A timer artifact is made next to this one; open it and press Arm. It runs on a key you approve there.</div>
   </div>
 
 <script>
-let _id = 0; const _pending = {};
+// Ids start at a random point in each document, so an answer meant for an earlier view of this
+// card never settles a request of this one.
+let _id = Math.floor(Math.random() * 1e9); const _pending = {};
 function rpc(method, params) {
   return new Promise((resolve, reject) => { const id = ++_id; _pending[id] = { resolve, reject };
     parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*'); });
@@ -153,7 +161,7 @@ async function tool(name, args) {
 }
 
 const $ = (id) => document.getElementById(id);
-let artifactId = null, ctx = {}, catalog = { operators: [], steps: [], inbox_id: '' };
+let artifactId = null, ctx = {}, catalog = { operators: [], steps: [], inbox_id: '' }, loaded = false, failed = false;
 // The artifacts chosen for the step being added: argument -> { id, title }.
 let picks = {};
 
@@ -179,8 +187,9 @@ function onCard(params) {
 }
 
 function refresh() {
-  return tool('workflow_catalog', { workflow_id: artifactId, context: ctx }).then(named).then((c) => { catalog = c; render(); })
-    .catch((e) => status(e.message, true));
+  return tool('workflow_catalog', { workflow_id: artifactId, context: ctx }).then(named).then((c) => { catalog = c; loaded = true; render();
+    if (c.operators_error) status(c.operators_error, true); })
+    .catch((e) => { failed = true; render(); status(e.message, true); });
 }
 
 const GROUPS = [['platform', 'Platform'], ['mine', 'Mine'], ['shared', 'Shared with me']];
@@ -295,7 +304,7 @@ function renderRuns() {
     d.appendChild(sm);
     for (const st of r.steps || []) {
       const pre = document.createElement('pre');
-      pre.textContent = `${(st.index ?? 0) + 1}. ${st.name} — ${st.status}\n${st.error || st.output || ''}`;
+      pre.textContent = `${(st.index ?? 0) + 1}. ${st.name} — ${st.status}\n${briefly(st.error || st.output)}`;
       d.appendChild(pre);
     }
     return d;
@@ -309,18 +318,28 @@ function render() {
   $('title').value = ctx.title || '';
   const legacy = !isWorkflow();
   $('legacyCard').classList.toggle('hidden', !legacy);
-  $('flowCard').classList.toggle('hidden', legacy);
+  // The steps show once their operators and linked items are read, never half-named.
+  const ready = loaded || failed;
+  $('reading').classList.toggle('hidden', ready || legacy);
+  $('flowCard').classList.toggle('hidden', legacy || !ready);
   const steps = (!legacy && ctx.run && ctx.run.steps) || [];
-  $('recipesCard').classList.toggle('hidden', legacy || steps.length > 0);
-
   const ops = catalog.operators || [];
-  $('recipes').replaceChildren(...RECIPES.map((r) => ({ r, op: ops.find((o) => o.slug === r.slug) }))
-    .filter((x) => x.op).map(({ r, op }) => { const b = document.createElement('button'); b.className = 'recipe';
+  const recipes = RECIPES.map((r) => ({ r, op: ops.find((o) => o.slug === r.slug) })).filter((x) => x.op);
+  // A recipe section shows only when it has a recipe in it.
+  $('recipesCard').classList.toggle('hidden', legacy || steps.length > 0 || !recipes.length);
+  $('recipes').replaceChildren(...recipes.map(({ r, op }) => { const b = document.createElement('button'); b.className = 'recipe';
       b.innerHTML = '<b></b><span class="muted"></span>'; b.querySelector('b').textContent = op.title;
       b.querySelector('span').textContent = r.blurb; b.onclick = () => useRecipe(r, op); return b; }));
 
   const chosen = $('newOp').value;
   fillOpSelect($('newOp'), chosen);
+  // Nothing to add says why, in place, with where an operator comes from.
+  const none = loaded && !ops.length;
+  $('newOp').disabled = none;
+  $('noOps').classList.toggle('hidden', !none);
+  $('noOps').textContent = catalog.operators_error
+    || 'No operators are available to you in this workspace. Connect a server (Create → MCP Server), '
+     + 'or ask someone to share an operator with you.';
   const described = catalog.steps || [];
   $('steps').replaceChildren(...(steps.length ? steps.map((s, i) => {
     const row = document.createElement('div'); row.className = 'step';
@@ -335,9 +354,8 @@ function render() {
       row.querySelector('.links').append(c, ' ');
     }
     // Its values too, not only its links (BUG-053).
-    for (const [arg, value] of Object.entries(known.arguments || s.arguments || {})) {
-      if (typeof value === 'string' && value.startsWith('@link.')) continue;
-      const shown = typeof value === 'string' ? value : JSON.stringify(value);
+    for (const [arg, shown] of fields(known.arguments || s.arguments || {})) {
+      if (shown.startsWith('@link.')) continue;
       const c = document.createElement('span'); c.className = 'chip';
       c.textContent = `${arg}: ${shown.length > 60 ? shown.slice(0, 57) + '…' : shown}`;
       row.querySelector('.links').append(c, ' ');
@@ -346,7 +364,9 @@ function render() {
       const b = document.createElement('button'); b.className = 'small'; b.textContent = label; b.onclick = fn; row.appendChild(b);
     }
     return row;
-  }) : [Object.assign(document.createElement('div'), { className: 'muted', textContent: 'No steps yet. Start from a recipe, or add one below.' })]));
+  }) : [Object.assign(document.createElement('div'), { className: 'muted',
+    textContent: recipes.length ? 'No steps yet. Start from a recipe, or add one below.'
+      : ops.length ? 'No steps yet. Add one below.' : 'No steps yet.' })]));
 }
 
 function status(text, bad) { $('status').textContent = text || ''; $('status').className = bad ? 'err' : 'muted'; }
@@ -419,6 +439,7 @@ $('newOp').onchange = () => { picks = {}; showNewOp({}); };
 $('save').onclick = saveNow;
 
 $('addStep').onclick = async () => {
+  if (loaded && !(catalog.operators || []).length) { status('There is no operator to add. ' + $('noOps').textContent, true); return; }
   const op = findOp($('newOp').value); if (!op) { status('Choose the step\'s operator.', true); return; }
   if (unread(op)) { status('This operator\'s inputs can\'t be read, so the step can\'t be added.', true); return; }
   const props = (op.input_schema && op.input_schema.properties) || {};
@@ -457,42 +478,77 @@ function unwrap(o) {
 }
 
 $('run').onclick = async () => {
-  if (!currentSteps().length) { status('Add a step first.', true); return; }
+  if (!currentSteps().length) { status('Nothing to run yet: add a step first.', true); return; }
   await saveNow(); if ($('status').className === 'err') return;
   // The run waits on the person's approval at Origin before anything runs (BUG-054).
   status('Waiting for your approval at Origin…'); $('run').disabled = true;
   try {
     const out = unwrap(unwrap(await rpc('tools/call', { name: 'run_now', arguments: { context: ctx } })));
-    $('result').classList.remove('hidden');
-    $('result').textContent = typeof out === 'string' ? out : described(out);
+    showResult(typeof out === 'string' ? out : described(out), out);
     status('Done.');
     tool('workflow_catalog', { workflow_id: artifactId, context: ctx }).then(named).then((c) => { catalog = c; renderRuns(); }).catch(() => {});
   } catch (e) {
     if (/did not run the workflow|did not approve it/i.test(e.message)) { status('Not run.'); return; }
-    $('result').classList.remove('hidden'); $('result').textContent = e.message; status('It failed.', true);
+    showResult(e.message); status('It failed.', true);
   } finally { $('run').disabled = false; }
 };
 
-// A run in words (BUG-053): each step, how it ended, and what it gave, briefly.
+// A run in words: each step, how it ended, and what it gave, briefly. Values are named fields,
+// never raw JSON; the raw response sits behind Details.
+function scalar(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v !== 'object') return String(v);
+  if (Array.isArray(v)) return v.map(scalar).join(', ');
+  return Object.entries(v).map(([k, x]) => `${k}: ${scalar(x)}`).join(', ');
+}
+// [label, text] for each key; a nested object gives its own keys, one level down.
+function fields(o) {
+  if (o === null || o === undefined) return [];
+  if (typeof o !== 'object' || Array.isArray(o)) return [['value', scalar(o)]];
+  const out = [];
+  for (const [k, v] of Object.entries(o)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) for (const [k2, v2] of Object.entries(v)) out.push([k2, scalar(v2)]);
+    else out.push([k, scalar(v)]);
+  }
+  return out;
+}
 function briefly(v) {
   if (v === null || v === undefined) return '';
-  if (typeof v === 'string') return v;
-  if (typeof v === 'object') {
-    if (typeof v.answer === 'string') return v.answer;
-    if (v.refusal && v.refusal.reason) return `no answer: ${v.refusal.reason}`;
-    let c = v.context; try { c = typeof c === 'string' ? JSON.parse(c) : c; } catch { c = null; }
-    if (c && c.title) return String(c.title);
-    if (v.title) return String(v.title);
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (t.startsWith('{') || t.startsWith('[')) { try { return briefly(JSON.parse(t)); } catch { /* plain text */ } }
+    return v;
   }
-  return JSON.stringify(v);
+  if (typeof v !== 'object') return String(v);
+  if (Array.isArray(v)) return v.map(briefly).join(', ');
+  // A tool's MCP result: its text content, or its structured fields.
+  if (Array.isArray(v.content) || v.structuredContent) {
+    const text = (v.content || []).filter((c) => c && c.type !== 'image').map((c) => briefly(c.text ?? '')).join(' ').trim();
+    const said = text || (v.structuredContent ? briefly(v.structuredContent) : '');
+    return v.isError ? `failed: ${said || 'the tool reported an error'}` : said;
+  }
+  if (typeof v.answer === 'string') return v.answer;
+  if (v.refusal && v.refusal.reason) return `no answer: ${v.refusal.reason}`;
+  if (typeof v.error === 'string') return `failed: ${v.error}`;
+  let c = v.context; try { c = typeof c === 'string' ? JSON.parse(c) : c; } catch { c = null; }
+  if (c && c.title) return String(c.title);
+  if (v.title) return String(v.title);
+  return fields(v).map(([k, x]) => `${k}: ${x}`).join(', ');
 }
 function described(out) {
-  if (!out || typeof out !== 'object' || !Array.isArray(out.results)) return JSON.stringify(out, null, 2);
+  if (!out || typeof out !== 'object' || !Array.isArray(out.results)) return briefly(out);
   return out.results.map((r, i) => {
-    const what = r.status === 'completed' ? briefly(r.output) : (r.error || r.status);
+    const what = r.status === 'completed' ? briefly(r.output) : (briefly(r.error) || r.status);
     const text = String(what || '');
     return `${i + 1}. ${r.name || 'Step'}: ${r.status}${text ? ' — ' + (text.length > 300 ? text.slice(0, 297) + '…' : text) : ''}`;
   }).join(String.fromCharCode(10));
+}
+function showResult(text, raw) {
+  $('resultBox').classList.remove('hidden');
+  $('result').textContent = text;
+  const hasRaw = raw !== undefined && typeof raw !== 'string';
+  $('resultRaw').classList.toggle('hidden', !hasRaw);
+  $('resultRaw').querySelector('pre').textContent = hasRaw ? JSON.stringify(raw, null, 2) : '';
 }
 
 $('schedule').onclick = async () => {
@@ -506,7 +562,7 @@ $('schedule').onclick = async () => {
     // The timer records each run where the workflow keeps its runs, so its key reaches them.
     if (catalog.runs_to) args.results_to = catalog.runs_to;
     const out = await tool('schedule_action', args);
-    $('scheduleHint').textContent = `Timer "${args.title}" is ready next to this card. Open it and press Arm.`;
+    $('scheduleHint').textContent = `Timer "${args.title}" is ready next to this workflow. Open it and press Arm.`;
     status(out.timer_id ? 'Timer created.' : '');
   } catch (e) { status(e.message, true); }
 };

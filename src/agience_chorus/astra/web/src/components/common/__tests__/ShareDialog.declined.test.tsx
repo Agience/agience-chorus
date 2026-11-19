@@ -6,13 +6,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // sender's share dialog says so instead of the invite vanishing.
 vi.mock('@/api/api', () => ({ post: vi.fn() }));
 const listGrantsMock = vi.fn();
-vi.mock('@/api/collections', () => ({
+const { ROLES } = vi.hoisted(() => ({ ROLES: [
+  { name: 'viewer', actions: ['read'] }, { name: 'contributor', actions: ['create', 'read'] },
+  { name: 'admin', actions: ['create', 'read', 'update', 'delete', 'evict', 'invoke', 'add', 'share', 'admin'] },
+] }));
+vi.mock('@/api/collections', async (orig) => ({
+  ...(await orig<typeof import('@/api/collections')>()),
+  listRoles: async () => ROLES,
   listGrants: (...a: unknown[]) => listGrantsMock(...a),
+  markMembers: async (_id: string, gs: never[]) => (await import('./memberMarks')).marked(gs),
   deleteGrant: vi.fn(),
   createGrant: vi.fn(),
 }));
 vi.mock('@/api/authority', async (orig) => ({
   AuthorityRefused: ((await orig()) as { AuthorityRefused: unknown }).AuthorityRefused,
+  actionsOf: ((await orig()) as { actionsOf: unknown }).actionsOf,
   describeParent: ((await orig()) as { describeParent: unknown }).describeParent,
   describeItem: ((await orig()) as { describeItem: unknown }).describeItem,
   describeGrantee: ((await orig()) as { describeGrantee: unknown }).describeGrantee,

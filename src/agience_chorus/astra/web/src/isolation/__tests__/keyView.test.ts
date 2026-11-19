@@ -5,7 +5,6 @@ import { resolve } from 'node:path';
 // @ts-expect-error jsdom ships no declarations; this test uses its JSDOM constructor alone.
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
-import { KEY_MAX_DAYS } from '@/api/apiKeys';
 
 const VIEW = resolve(__dirname, '../../../../../seraph/ui/application/vnd.agience.key+json/view.html');
 
@@ -47,7 +46,9 @@ describe('the Key view', () => {
     void (dom.window as unknown as { handleGenerate: () => Promise<void> }).handleGenerate();
     await new Promise((r) => setTimeout(r, 0));
     const create = sent.find((m) => m.method === 'tools/call' && m.params?.name === 'create_api_key');
-    expect((create?.params?.arguments as { resources: string[] }).resources).toEqual(['col-1']);
+    expect(create?.params?.arguments).toMatchObject({ collections: ['col-1'], actions: ['read'],
+                                                      collection_titles: { 'col-1': 'Pilot notes' } });
+    expect(create?.params?.arguments).not.toHaveProperty('agent');
   });
 
   it('refuses to make a key over no collection', async () => {
@@ -60,8 +61,30 @@ describe('the Key view', () => {
   it('offers 1 to the most days the host accepts, and says so', () => {
     const { doc } = openView();
     const days = doc.getElementById('inputDays') as HTMLInputElement;
-    expect(Number(days.max)).toBe(KEY_MAX_DAYS);
-    expect(doc.querySelector('label[for="inputDays"]')?.textContent).toContain(`1 to ${KEY_MAX_DAYS}`);
+    expect(Number(days.max)).toBeGreaterThan(0);
+    expect(doc.querySelector('label[for="inputDays"]')?.textContent).toContain(`1 to ${days.max}`);
     expect(doc.getElementById('inputCollections')).toBeNull();
+  });
+  it('shows an issued Key from its own fields, with its hint and never a token', () => {
+    const { deliver, doc } = openView();
+    deliver({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { content: [{ type: 'text',
+      text: JSON.stringify({ artifact_id: 'k1', state: 'live', context: { title: 'CI', collections: ['c-1'],
+        collection_titles: { 'c-1': 'Notes' }, actions: ['read'], agent: 'agent-1',
+        expires_at: '2026-12-01T00:00:00Z', token_hash: 'h', hint: 'wxyz' } }) }] } });
+    expect(doc.getElementById('keyScope')?.textContent).toBe('Notes');
+    expect(doc.getElementById('keyAgent')?.textContent).toBe('agent-1');
+    expect(doc.getElementById('keyHint')?.textContent).toBe('…wxyz');
+    expect(doc.getElementById('createSection')?.classList.contains('hidden')).toBe(true);
+    expect(doc.getElementById('storedSection')?.classList.contains('hidden')).toBe(false);
+  });
+
+  it('shows an archived Key as revoked, and revoking asks the host to archive the hosted Key', async () => {
+    const { sent, deliver, doc, dom } = openView();
+    deliver({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { content: [{ type: 'text',
+      text: JSON.stringify({ artifact_id: 'k1', state: 'archived', context: { token_hash: 'h', hint: 'wxyz' } }) }] } });
+    expect(doc.getElementById('revokedSection')?.classList.contains('hidden')).toBe(false);
+    void (dom.window as unknown as { handleRevoke: () => Promise<void> }).handleRevoke();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.find((m) => m.params?.name === 'delete_api_key')?.params?.arguments).toEqual({});
   });
 });

@@ -13,6 +13,7 @@ import { GLOSSARY_ENTRIES } from '@/product/help/glossary';
 import { useShortcuts } from '@/context/shortcuts/useShortcuts';
 import { formatShortcutCombo } from '@/context/shortcuts/shortcut-utils';
 import { article, FEEDBACK_HREF, GET_STARTED_STEPS } from './helpContent';
+import { keyList } from '@/display-state/lists';
 
 type HelpDialogProps = {
   isOpen: boolean;
@@ -29,9 +30,7 @@ export default function HelpDialog({ isOpen, onClose, defaultTab = 'start' }: He
   const shortcutHint = useMemo(() => {
     const combos = [formatShortcutCombo('?'), formatShortcutCombo('mod+/')];
     // Render as simple text: "?" or "Ctrl + /"
-    const pretty = combos
-      .map((parts) => parts.join(' + '))
-      .filter(Boolean);
+    const pretty = keyList(combos.map((parts) => parts.join(' + ')));
     return pretty.length ? pretty.join(' or ') : '?';
   }, []);
 

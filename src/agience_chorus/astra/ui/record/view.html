@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Record</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #fff; color: #1f2937; font-size: 14px; line-height: 1.5;
+    }
+    .page { display: flex; flex-direction: column; gap: 16px; padding: 16px; }
+    .head { display: flex; align-items: flex-start; gap: 12px; }
+    .head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+    .title { font-size: 14px; font-weight: 600; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .subtitle { font-size: 12px; color: #6b7280; }
+    .actions { display: flex; gap: 8px; flex-shrink: 0; }
+    button {
+      border: 0; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer;
+    }
+    .primary { background: #2563eb; color: #fff; }
+    .primary:disabled { background: #93c5fd; cursor: not-allowed; }
+    .secondary { background: #f3f4f6; color: #374151; }
+    .edit { background: #eff6ff; color: #1d4ed8; }
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px;
+      border: 1px solid #e5e7eb; border-radius: 12px; background: #f9fafb; padding: 12px;
+    }
+    .block { display: flex; flex-direction: column; gap: 8px; border: 1px solid #e5e7eb; border-radius: 12px; background: #f9fafb; padding: 12px; }
+    .nested { border-left: 2px solid #e5e7eb; padding-left: 12px; grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; }
+    .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .label { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; }
+    .value { font-size: 14px; color: #1f2937; overflow-wrap: anywhere; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip { border-radius: 999px; background: #f3f4f6; padding: 2px 8px; font-size: 11px; font-weight: 500; color: #374151; }
+    .hint { font-size: 12px; color: #6b7280; }
+    input, select, textarea {
+      width: 100%; border: 1px solid #d1d5db; border-radius: 8px; background: #fff;
+      padding: 8px 12px; font: inherit; color: #1f2937;
+    }
+    input:focus, select:focus, textarea:focus { outline: 2px solid #bfdbfe; border-color: #3b82f6; }
+    textarea { min-height: 88px; resize: vertical; }
+    input[type="checkbox"] { width: 16px; height: 16px; }
+    .check { display: flex; align-items: center; gap: 8px; }
+    .summary { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; color: #374151; }
+    .error { color: #b91c1c; font-size: 12px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="head">
+      <div class="head-text" id="headText"></div>
+      <div class="actions" id="actions"></div>
+    </div>
+    <div class="error hidden" id="error"></div>
+    <div id="body" style="display:flex;flex-direction:column;gap:16px"></div>
+  </div>
+  <script type="module">
+    // One view for every type whose type.json declares a `ui.record` layout: the title, the named
+    // fields with the editor each declares, list fields, and nested objects as named fields; an object
+    // the layout marks `open` takes fields by any name, added and removed in the editor. The
+    // host passes the layout with the artifact; the view saves the context through update_artifact.
+    let _rpcId = 0;
+    const _pending = {};
+    function sendRpc(method, params) {
+      const id = ++_rpcId;
+      return new Promise((resolve, reject) => {
+        _pending[id] = { resolve, reject };
+        parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*');
+      });
+    }
+    window.addEventListener('message', (e) => {
+      const d = e.data;
+      if (!d || d.jsonrpc !== '2.0') return;
+      if (d.id && _pending[d.id]) {
+        if (d.error) _pending[d.id].reject(d.error); else _pending[d.id].resolve(d.result);
+        delete _pending[d.id];
+        return;
+      }
+      if (d.method === 'ui/notifications/tool-result') handleToolResult(d.params);
+    });
+    sendRpc('ui/initialize', { protocolVersion: '2026-01-26', clientInfo: { name: 'agience-record', version: '0.1.0' } })
+      .then(() => { parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/initialized' }, '*'); render(); });
+
+    let artifactId = null;
+    let ctx = {};
+    let summary = '';
+    let type = { label: 'Record', record: null, content_type: '' };
+    let draft = null;
+    let saving = false;
+
+    function handleToolResult(params) {
+      for (const block of (params && params.content) || []) {
+        if (block.type !== 'text' || !block.text) continue;
+        try {
+          const data = JSON.parse(block.text);
+          artifactId = data.artifact_id || artifactId;
+          ctx = typeof data.context === 'string' ? JSON.parse(data.context) : (data.context || {});
+          summary = typeof data.content === 'string' ? data.content : '';
+          if (data.type) type = data.type;
+          render();
+        } catch { /* a malformed notice leaves the view as it is */ }
+      }
+    }
+
+    const layout = () => type.record || { titlePath: 'title', subtitlePath: 'content_type', fields: [] };
+    const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+    const toLabel = (key) => key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const shown = (v) => {
+      if (v === null || v === undefined || v === '') return '—';
+      if (Array.isArray(v)) return v.length ? v.map(shown).join(', ') : '—';
+      if (isObject(v)) return Object.entries(v).map(([k, x]) => `${toLabel(k)}: ${shown(x)}`).join(', ') || '—';
+      return String(v);
+    };
+    const getValue = (obj, path) => !path ? obj : path.split('.').reduce(
+      (cur, k) => (isObject(cur) && k in cur ? cur[k] : undefined), obj);
+    function setValue(obj, path, value) {
+      const keys = path.split('.');
+      const root = { ...obj };
+      let cur = root;
+      keys.forEach((k, i) => {
+        if (i === keys.length - 1) { cur[k] = value; return; }
+        cur[k] = isObject(cur[k]) ? { ...cur[k] } : {};
+        cur = cur[k];
+      });
+      return root;
+    }
+    const splitList = (text, sep) => text.split(sep).map((s) => s.trim()).filter(Boolean);
+    function editorFor(v) {
+      if (typeof v === 'boolean') return 'boolean';
+      if (typeof v === 'number') return 'number';
+      if (typeof v === 'string' && (v.includes('\n') || v.length > 80)) return 'textarea';
+      return 'text';
+    }
+
+    function el(tag, attrs, ...children) {
+      const node = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs || {})) {
+        if (k === 'class') node.className = v;
+        else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+        else if (v !== undefined && v !== null) node.setAttribute(k, v);
+      }
+      for (const c of children) if (c !== null && c !== undefined) node.append(c);
+      return node;
+    }
+
+    function setDraft(path, value) { draft = setValue(draft, path, value); }
+
+    // One scalar input: the editor the field declares, or `options` for a select.
+    function scalarEditor(id, field, value) {
+      const editor = field.editor || 'text';
+      const text = value === null || value === undefined ? '' : String(value);
+      if (editor === 'textarea') {
+        const t = el('textarea', { id, oninput: (e) => setDraft(field.path, e.target.value) });
+        t.value = text;
+        return t;
+      }
+      if (editor === 'select') {
+        const options = field.options || [];
+        const s = el('select', { id, onchange: (e) => setDraft(field.path, e.target.value) });
+        if (!options.includes(text)) s.append(el('option', { value: text }, text || '—'));
+        for (const o of options) s.append(el('option', { value: o }, o));
+        s.value = text;
+        return s;
+      }
+      if (editor === 'boolean') {
+        const box = el('input', { id, type: 'checkbox', onchange: (e) => setDraft(field.path, e.target.checked) });
+        box.checked = Boolean(value);
+        return el('label', { class: 'check' }, box, 'Enabled');
+      }
+      const input = el('input', {
+        id, type: editor,
+        oninput: (e) => {
+          const raw = e.target.value;
+          if (editor !== 'number') { setDraft(field.path, raw); return; }
+          if (raw.trim() === '') { setDraft(field.path, ''); return; }
+          const n = Number(raw);
+          if (Number.isFinite(n)) setDraft(field.path, n);
+        },
+      });
+      input.value = text;
+      return input;
+    }
+
+    // A value typed into an open object: true or false, a number, or else the text as typed.
+    function typed(text) {
+      const t = text.trim();
+      if (t === 'true' || t === 'false') return t === 'true';
+      if (t !== '' && !Number.isNaN(Number(t))) return Number(t);
+      return text;
+    }
+
+    // The row that adds a named field to an open object.
+    function addFieldRow(path) {
+      const name = el('input', { id: `record-add-name-${path}`, placeholder: 'Field name', 'aria-label': 'Field name' });
+      const value = el('input', { id: `record-add-value-${path}`, placeholder: 'Value', 'aria-label': 'Value' });
+      const add = el('button', { class: 'secondary', type: 'button', onclick: () => {
+        const key = name.value.trim();
+        if (!key || key.includes('.')) return;
+        const cur = getValue(draft, path);
+        setDraft(path, { ...(isObject(cur) ? cur : {}), [key]: typed(value.value) });
+        render();
+      } }, 'Add field');
+      return el('div', { class: 'field', style: 'grid-column:1/-1' }, name, value, add);
+    }
+
+    // `open`: the object takes fields by any name, so its editor adds and removes them.
+    function objectFields(path, value, saved, editing, open) {
+      const entries = Object.entries(value);
+      const adds = editing && open;
+      if (!entries.length && !adds) return el('div', { class: 'hint' }, '—');
+      const grid = el('div', { class: 'grid', style: 'border:0;padding:0;background:none' });
+      for (const [key, item] of entries) {
+        const itemPath = `${path}.${key}`;
+        const savedItem = isObject(saved) ? saved[key] : undefined;
+        if (isObject(item)) {
+          grid.append(el('div', { class: 'nested' }, el('div', { class: 'label' }, toLabel(key)),
+            objectFields(itemPath, item, savedItem, editing)));
+          continue;
+        }
+        const id = `record-object-${itemPath}`;
+        const scalarList = Array.isArray(item) && item.every((x) => x === null || typeof x !== 'object');
+        const canEdit = editing && (!Array.isArray(item) || scalarList);
+        let control;
+        if (!canEdit) control = el('div', { class: 'value' }, shown(item));
+        else if (Array.isArray(item)) {
+          control = el('textarea', { id, oninput: (e) => setDraft(itemPath, splitList(e.target.value, /\r?\n/)) });
+          control.value = item.map((v) => String(v ?? '')).join('\n');
+        } else control = scalarEditor(id, { path: itemPath, editor: editorFor(savedItem ?? item) }, item);
+        const remove = adds ? el('button', { class: 'secondary', type: 'button', 'aria-label': `Remove ${key}`,
+          onclick: () => {
+            const rest = { ...getValue(draft, path) };
+            delete rest[key];
+            setDraft(path, rest);
+            render();
+          } }, 'Remove') : null;
+        grid.append(el('div', { class: 'field' }, el('label', { class: 'label', for: id }, toLabel(key)), control,
+          ...(remove ? [remove] : [])));
+      }
+      if (adds) grid.append(addFieldRow(path));
+      return grid;
+    }
+
+    function render() {
+      const rec = layout();
+      const editing = draft !== null;
+      const active = editing ? draft : ctx;
+      const fields = rec.fields || [];
+      const collections = rec.collections || [];
+      const objects = rec.objects || [];
+
+      const head = document.getElementById('headText');
+      head.replaceChildren();
+      if (editing && rec.titlePath) {
+        head.append(scalarEditor('record-title', { path: rec.titlePath, editor: 'text' }, getValue(draft, rec.titlePath)));
+        if (rec.subtitlePath) head.append(scalarEditor('record-subtitle', { path: rec.subtitlePath, editor: 'text' }, getValue(draft, rec.subtitlePath)));
+      } else {
+        const title = shown(getValue(active, rec.titlePath || 'title'));
+        head.append(el('div', { class: 'title' }, title !== '—' ? title : type.label));
+        const sub = rec.subtitlePath ? shown(getValue(active, rec.subtitlePath)) : '—';
+        if (sub !== '—') head.append(el('div', { class: 'subtitle' }, sub));
+      }
+
+      const actions = document.getElementById('actions');
+      actions.replaceChildren();
+      const canEdit = Boolean(type.record) && (Boolean(rec.titlePath) || fields.some((f) => f.editable)
+        || collections.some((f) => f.editable) || objects.some((f) => f.editable !== false));
+      if (canEdit) {
+        if (editing) {
+          const save = el('button', { class: 'primary', type: 'button', onclick: handleSave }, 'Save');
+          save.disabled = saving;
+          actions.append(save, el('button', { class: 'secondary', type: 'button', onclick: handleCancel }, 'Cancel'));
+        } else {
+          actions.append(el('button', { class: 'edit', type: 'button', onclick: handleEdit }, 'Edit'));
+        }
+      }
+
+      const body = document.getElementById('body');
+      body.replaceChildren();
+      if (fields.length) {
+        const grid = el('div', { class: 'grid' });
+        for (const f of fields) {
+          const id = `record-field-${f.path}`;
+          const control = editing && f.editable ? scalarEditor(id, f, getValue(draft, f.path))
+            : el('div', { class: 'value' }, shown(getValue(active, f.path)));
+          grid.append(el('div', { class: 'field' }, el('label', { class: 'label', for: id }, f.label || f.path), control));
+        }
+        body.append(grid);
+      }
+      for (const f of collections) {
+        const label = f.label || f.path;
+        const values = getValue(active, f.path);
+        if (editing && f.editable) {
+          const id = `record-collection-${f.path}`;
+          const t = el('textarea', { id, oninput: (e) => setDraft(f.path, splitList(e.target.value, /\r?\n|,/)) });
+          t.value = Array.isArray(values) ? values.map(String).join('\n') : '';
+          body.append(el('div', { class: 'field' }, el('label', { class: 'label', for: id }, label), t,
+            el('div', { class: 'hint' }, 'One value per line.')));
+        } else if (Array.isArray(values) && values.length) {
+          body.append(el('div', { class: 'field' }, el('div', { class: 'label' }, label),
+            el('div', { class: 'chips' }, ...values.map((v) => el('span', { class: 'chip' }, String(v))))));
+        }
+      }
+      for (const f of objects) {
+        const editsThis = editing && f.editable !== false;
+        let value = getValue(active, f.path);
+        if (!isObject(value)) {
+          if (!(editsThis && f.open)) continue;
+          value = {};
+        }
+        body.append(el('div', { class: 'block' }, el('div', { class: 'label' }, f.label || f.path),
+          objectFields(f.path, value, getValue(ctx, f.path), editsThis, Boolean(f.open))));
+      }
+      if (summary) {
+        body.append(el('div', { class: 'block', style: 'background:#fff' },
+          el('div', { class: 'label' }, 'Summary'), el('div', { class: 'summary' }, summary)));
+      }
+    }
+
+    function showError(msg) {
+      const node = document.getElementById('error');
+      node.textContent = msg;
+      node.classList.toggle('hidden', !msg);
+    }
+
+    function handleEdit() { draft = { ...ctx }; showError(''); render(); }
+    function handleCancel() { draft = null; showError(''); render(); }
+    async function handleSave() {
+      if (!artifactId || draft === null) return;
+      saving = true; showError(''); render();
+      try {
+        await sendRpc('tools/call', { name: 'update_artifact',
+          arguments: { id: artifactId, patch: { context: JSON.stringify(draft) } } });
+        ctx = draft;
+        draft = null;
+      } catch (e) {
+        showError((e && e.message) || 'Save failed.');
+      } finally {
+        saving = false;
+        render();
+      }
+    }
+  </script>
+</body>
+</html>

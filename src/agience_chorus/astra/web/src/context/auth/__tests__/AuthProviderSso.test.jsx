@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { AuthProvider } from '../AuthProvider';
 import { useAuth } from '../../../hooks/useAuth';
-import { issueSpState } from '../../../auth/spState';
+import { issueSpState } from '@/display-state/spState';
 
 vi.mock('../../../api/api', () => ({
   get: vi.fn(),

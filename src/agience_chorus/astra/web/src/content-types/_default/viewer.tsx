@@ -13,6 +13,7 @@ import { getContentType } from '@/registry/content-types';
 import type { ViewMode, ViewState } from '@/registry/content-types';
 import { needsContentUrl, resolveArtifactContentUrl } from '@/utils/artifactDownload';
 import { getContextContentType, safeParseArtifactContext } from '@/utils/artifactContext';
+import { textEntries } from '@/display-state/lists';
 
 /** True when content is empty or trivially empty JSON (e.g. "{}" or "[]"). */
 function isContentEmpty(content: string | null | undefined): boolean {
@@ -78,7 +79,7 @@ export default function DefaultViewer({
   const description = typeof parsedContext.description === 'string' ? parsedContext.description
     : (artifact.description || undefined);
   const summary = typeof parsedContext.summary === 'string' ? parsedContext.summary : undefined;
-  const tags = Array.isArray(parsedContext.tags) ? parsedContext.tags.filter((t): t is string => typeof t === 'string') : [];
+  const tags = textEntries(parsedContext.tags);
 
   // If we have real content (inline or fetched from S3 via ContentRenderer), render it.
   if (!isContentEmpty(displayContent) || shouldFetchUrl) {

@@ -253,33 +253,32 @@ async function generateKey() {
   render();
   try {
     const c = ctx();
-    // A key is a grant on what it names (`POST /grants/keys`): this client's workspace, read and
-    // write. There is no key over everything; with no workspace the host refuses.
-    const resources = c.workspace_id ? [c.workspace_id] : [];
+    // A key is a Key artifact over what it names: this client's workspace, read and write. There
+    // is no key over everything; with no workspace the host refuses.
+    const collections = c.workspace_id ? [c.workspace_id] : [];
+    const actions = ['create', 'read', 'update', 'delete', 'evict'];
     const result = await sendRpc('tools/call', {
       name: 'create_api_key',
       arguments: {
         name: c.title || _artifactData.description || 'MCP Client Key',
-        role: 'editor',
-        // Every key expires (FR-019): this client's, a year from now; rotate it before then.
-        expires_at: new Date(Date.now() + 365 * 86400000).toISOString(),
-        resources,
+        collections,
+        actions,
+        // Every key expires within 90 days; rotate it before then.
+        expires_at: new Date(Date.now() + 90 * 86400000 - 60000).toISOString(),
       }
     });
-    // The host shows the new key's secret in its own dialog and returns the key record
-    // without it.
+    // The host shows the new token once in its own dialog and returns the Key's id and hint.
     const data = JSON.parse(result.content[0].text);
-    const preview = data.key_hint || data.preview || '';
     const newCtx = {
       ...c,
       api_key: {
         id: data.id,
-        preview,
+        preview: data.hint ? '…' + data.hint : '',
         is_active: true,
-        role: 'editor',
-        resources,
-        created_time: data.created_time || new Date().toISOString(),
-        last_used_at: null,
+        actions,
+        collections,
+        expires_at: data.expires_at || null,
+        created_time: new Date().toISOString(),
       },
     };
     await updateArtifact({ context: JSON.stringify(newCtx) });

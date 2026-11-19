@@ -8,7 +8,6 @@
 // stands, with the card's existing title kept by the caller's merge.
 
 import { getArtifact } from './artifacts';
-import { normalizeArtifactState } from '@/utils/artifactState';
 import type { ArtifactResponse } from './types';
 
 export async function completeFromFeed(descriptor: ArtifactResponse): Promise<ArtifactResponse> {
@@ -17,7 +16,7 @@ export async function completeFromFeed(descriptor: ArtifactResponse): Promise<Ar
   // An archived or trashed artifact is not read back: `GET /artifacts/{id}` answers 404 for it by
   // design. 2026-10-29, a tester saw bursts of those 404s after moving cards to Trash.
   const state = (descriptor as { state?: string }).state;
-  if (state && normalizeArtifactState(state) !== 'live') return withoutContext(descriptor);
+  if (state && state !== 'live') return withoutContext(descriptor);
   try {
     const full = await getArtifact(String(id));
     return { ...descriptor, ...full } as ArtifactResponse;

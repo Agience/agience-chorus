@@ -10,6 +10,7 @@ import { WorkspacesProvider } from './context/workspaces/WorkspacesProvider';
 import LoginProtected from './auth/LoginProtected';
 import { ContentTypesProvider } from './context/contenttypes/ContentTypesProvider';
 import { ShareProvider } from './context/share/ShareProvider';
+import { LinksProvider } from './context/links/LinksProvider';
 
 import Login from './pages/Login';
 import Privacy from './pages/Privacy';
@@ -178,7 +179,10 @@ function AppRoutes() {
                   <WorkspaceProvider>
                     {/* Share any artifact, from its window or context menu (FR-030). */}
                     <ShareProvider>
-                      <WorkspacePage />
+                      {/* The named links of any artifact, from its context menu. */}
+                      <LinksProvider>
+                        <WorkspacePage />
+                      </LinksProvider>
                     </ShareProvider>
                     </WorkspaceProvider>
                 </WorkspacesProvider>

@@ -14,11 +14,12 @@ import { EditorFactory } from './editors';
 import { SAFE_MARKDOWN_PREVIEW_OPTIONS } from './editors/safeMarkdownPreview';
 import { useConfirm } from '../../context/dialog/useConfirm';
 import { CARD_CONFIRM, BUTTON_LABELS } from '@/constants/strings';
-import { canDeleteArtifact } from '@/utils/artifact-permissions';
-import { useCurrentUserId } from '@/hooks/useCurrentUserId';
+import { allows } from '@/utils/artifact-permissions';
 import { safeParseArtifactContext, stringifyArtifactContext, type ArtifactContext } from '@/utils/artifactContext';
 import { getTransformFromArtifact } from '@/context/palette/orderSpec';
 import TransformCardSummary from '@/components/palette/OrderCardSummary';
+import { formatDay } from '@/utils/dates';
+import { keySet, without } from '@/display-state/lists';
 // Type color accents apply to grid artifacts; the preview header stays neutral.
 
 interface CardEditorProps {
@@ -44,7 +45,6 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
   } = useWorkspace();
   const { collections = [] } = useCollections();
   const dangerConfirm = useConfirm();
-  const currentUserId = useCurrentUserId();
   const { registerShortcut } = useShortcuts();
   
   const [isEditing, setIsEditing] = useState(false);
@@ -200,7 +200,7 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
     }
     if (days === 1) return 'Yesterday';
     if (days < 7) return `${days} days ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return formatDay(date);
   }, [artifact]);
 
   const handleExtractUnits = useCallback(async () => {
@@ -255,7 +255,7 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
 
   // Delete destroys the artifact when the user may delete it; otherwise the button removes it
   // from the workspace.
-  const canDelete = canDeleteArtifact(artifact, currentUserId);
+  const canDelete = allows(artifact, 'delete');
   const handleDelete = async () => {
     if (canDelete) {
       const confirmed = await dangerConfirm.confirm({
@@ -281,8 +281,8 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
   };
 
   const handleSelectCollections = async (collectionIds: string[]) => {
-    const currentIds = new Set(committedCollectionIds);
-    const nextIds = new Set(collectionIds);
+    const currentIds = keySet(committedCollectionIds);
+    const nextIds = keySet(collectionIds);
     // Add to new collections
     for (const id of nextIds) {
       if (!currentIds.has(id)) {
@@ -308,7 +308,7 @@ export function CardEditor({ artifactId, onClose }: CardEditorProps) {
   };
 
   const handleRemoveTag = (tag: string) => {
-    setEditTags(editTags.filter(t => t !== tag));
+    setEditTags(without(editTags, tag));
     setHasUnsavedChanges(true);
   };
 

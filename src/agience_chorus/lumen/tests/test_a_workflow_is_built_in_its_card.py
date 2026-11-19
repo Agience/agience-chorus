@@ -42,6 +42,10 @@ class World:
         self.links = []
         self.may_invoke = may_invoke
         self.calls = []
+        #: How many operator listings fail before one answers; what it lists; the node's platform set.
+        self.listing_fails = 0
+        self.listed_ops = None
+        self.platform = [{"id": "op-plat", "slug": "op-reconcile-accounts"}]
 
     def client(self):
         world = self
@@ -59,9 +63,14 @@ class World:
             async def get(self, url, headers=None, params=None, **kw):
                 world.calls.append(("GET", url, headers, params))
                 if url.endswith("/artifacts/platform-operators"):
-                    return MockResponse({"items": [{"id": "op-plat", "slug": "op-reconcile-accounts"}]})
+                    return MockResponse({"items": world.platform})
                 if url.endswith("/artifacts/visible") and (params or {}).get("content_type") == OP:
                     assert params.get("action") == "invoke", "only what the person may invoke"
+                    if world.listing_fails:
+                        world.listing_fails -= 1
+                        return MockResponse({"detail": "starting"}, 503)
+                    if world.listed_ops is not None:
+                        return MockResponse({"items": world.listed_ops})
                     return MockResponse({"items": [world.docs["op-fake"], _op("op-mine", "My step", "me-1"),
                                                    world.docs["op-plat"]]})
                 if url.endswith("/artifacts/visible"):
@@ -193,3 +202,43 @@ async def test_a_workflow_whose_steps_lumen_cannot_open_is_built_from_the_person
     assert [s["name"] for s in out["run"]["steps"]] == ["A", "Reconcile accounts"]
     assert not [c for c in sealed.calls if c[0] == "PATCH"]
 
+
+
+# BUG-144: after a node rebuild the first step menu listed no operators.
+@pytest.fixture
+def no_wait():
+    async def _now(*a, **kw):
+        return None
+    with patch.object(L.asyncio, "sleep", _now):
+        yield
+
+
+@pytest.mark.asyncio
+async def test_a_listing_that_fails_while_the_node_starts_is_asked_again(person, no_wait):
+    world = World()
+    world.listing_fails = L.READ_TRIES - 1
+    with patch.object(L.httpx, "AsyncClient", world.client()):
+        out = json.loads(await L.workflow_catalog("wf"))
+    assert [o["id"] for o in out["operators"]] == ["op-plat", "op-mine", "op-fake"]
+    assert "operators_error" not in out
+
+
+@pytest.mark.asyncio
+async def test_a_platform_operator_the_person_may_invoke_is_offered_before_the_listing_has_it(person, no_wait):
+    world = World()
+    world.listed_ops = []
+    world.platform = [{"id": "op-plat", "slug": "op-reconcile-accounts", "may_invoke": True},
+                      {"id": "op-other", "slug": "op-other", "may_invoke": False}]
+    with patch.object(L.httpx, "AsyncClient", world.client()):
+        out = json.loads(await L.workflow_catalog("wf"))
+    assert [(o["id"], o["group"], o["slug"]) for o in out["operators"]] == [
+        ("op-plat", "platform", "op-reconcile-accounts")]
+
+
+@pytest.mark.asyncio
+async def test_a_listing_mantle_never_answers_says_so_instead_of_an_empty_menu(person, no_wait):
+    world = World()
+    world.listing_fails = L.READ_TRIES
+    with patch.object(L.httpx, "AsyncClient", world.client()):
+        out = json.loads(await L.workflow_catalog("wf"))
+    assert out["operators"] == [] and out["operators_error"]

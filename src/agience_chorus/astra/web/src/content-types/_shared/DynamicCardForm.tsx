@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { splitList } from '@/display-state/lists';
 
 type FormValue = Record<string, unknown>;
 
@@ -26,7 +27,7 @@ interface DynamicCardFormProps {
 }
 
 function getPathValue(source: Record<string, unknown>, path: string): unknown {
-  const parts = path.split('.').filter(Boolean);
+  const parts = splitList(path, '.');
   let current: unknown = source;
   for (const part of parts) {
     if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined;
@@ -36,7 +37,7 @@ function getPathValue(source: Record<string, unknown>, path: string): unknown {
 }
 
 function setPathValue(source: FormValue, path: string, value: unknown): FormValue {
-  const parts = path.split('.').filter(Boolean);
+  const parts = splitList(path, '.');
   if (parts.length === 0) return source;
 
   const next: FormValue = { ...source };
@@ -122,10 +123,7 @@ export function DynamicCardForm({ value, fields, onChange }: DynamicCardFormProp
               <textarea
                 value={Array.isArray(raw) ? raw.map(String).join('\n') : ''}
                 onChange={(event) => {
-                  const list = event.target.value
-                    .split(/\r?\n/)
-                    .map((item) => item.trim())
-                    .filter(Boolean);
+                  const list = splitList(event.target.value, /\r?\n/);
                   onChange(setPathValue(normalized, field.path, list));
                 }}
                 rows={field.rows ?? 4}

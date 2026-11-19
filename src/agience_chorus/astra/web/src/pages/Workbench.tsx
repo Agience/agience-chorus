@@ -20,6 +20,7 @@ import { ArrowUp, Gem, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { proxyToolCall } from '@/api/mcp';
 import { ActivationError, type ActivatedCrystal, activateWorkbench } from '@/crystal/activation';
+import { keySet, notIn, textEntries } from '@/display-state/lists';
 
 // The lumen tekton's respond-shaped tool (agience-chorus/src/lumen/server.py):
 // `synthesize(input, artifact_ids?, workspace_id?)` — question in, synthesis out.
@@ -117,9 +118,7 @@ function ConversePanel() {
     setTektonState('busy');
     try {
       const result = await proxyToolCall(LUMEN_RESPOND_TOOL, { input: text }, LUMEN_SERVER_REF);
-      const reply = (result.content ?? [])
-        .map((c) => c.text ?? '')
-        .filter(Boolean)
+      const reply = textEntries((result.content ?? []).map((c) => c.text ?? ''))
         .join('\n');
       setMessages((m) => [
         ...m,
@@ -228,7 +227,7 @@ function CrystalPanel({ activation }: { activation: ActivationState }) {
 
   const { activated } = activation;
   const { crystal } = activated;
-  const advertised = new Set(activated.prismCapabilities);
+  const advertised = keySet(activated.prismCapabilities);
 
   return (
     <div className="p-4 space-y-4 overflow-y-auto text-sm">
@@ -308,8 +307,7 @@ function CrystalPanel({ activation }: { activation: ActivationState }) {
               <span className="text-[11px] text-muted-foreground">required · advertised</span>
             </li>
           ))}
-          {activated.prismCapabilities
-            .filter((c) => !activated.requiredCapabilities.includes(c))
+          {notIn(activated.prismCapabilities, activated.requiredCapabilities)
             .map((c) => (
               <li key={c} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span className="inline-block h-3 w-3" />

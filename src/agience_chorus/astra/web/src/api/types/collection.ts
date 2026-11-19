@@ -20,8 +20,18 @@ export interface CollectionResponse {
   created_by: string;
   created_time: string;   // ISO datetime
   modified_time: string;  // ISO datetime
-  /** Holds the title (`context.title`); `name` is set from it on the way in (`titled`). */
+  /** The collection that holds this one, when the stored artifact names it. */
+  collection_id?: string | null;
+  /** Holds the title (`context.title`); Mantle answers `name` as that title. */
   context?: unknown;
+  /** The actions Mantle allows the caller on it; the Facet offers only these. */
+  allowed_actions?: string[];
+  /** Crystal marks a collection whose name another the caller can reach shares. */
+  name_shared?: boolean;
+  /** With `name_shared`: the shown name of the collection holding it, when that one is reachable. */
+  place_in?: string;
+  /** With `name_shared`: whether the caller made it, when that is known. */
+  place_yours?: boolean;
 }
 
 export interface CollectionCommitResponse {

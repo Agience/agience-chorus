@@ -4,6 +4,7 @@
 // (BUG-016, 2026-11-10: John's docked workspaces vanished). So a change to the list is applied as
 // what this page added and removed, to the list the server holds now.
 import type { Preferences } from './preferences.types';
+import { notIn } from '@/display-state/lists';
 
 const docked = (prefs: Partial<Preferences> | undefined): string[] | undefined => {
   const raw = (prefs?.browser as { dockedWorkspaceCardIds?: unknown } | undefined)?.dockedWorkspaceCardIds;
@@ -17,13 +18,13 @@ export async function withDockedChange(newPrefs: Partial<Preferences>, local: Pr
   const next = docked(newPrefs);
   if (!next) return newPrefs;
   const before = docked(local) ?? [];
-  const added = next.filter(id => !before.includes(id));
-  const removed = before.filter(id => !next.includes(id));
+  const added = notIn(next, before);
+  const removed = notIn(before, next);
   let server: Preferences;
   try { server = await read(); } catch { return newPrefs; }
   const now = docked(server);
   if (!now) return newPrefs;
-  const rebased = [...now.filter(id => !removed.includes(id)), ...added.filter(id => !now.includes(id))];
+  const rebased = [...notIn(now, removed), ...notIn(added, now)];
   return {
     ...newPrefs,
     browser: { ...((server.browser as object) || {}), ...((newPrefs.browser as object) || {}),

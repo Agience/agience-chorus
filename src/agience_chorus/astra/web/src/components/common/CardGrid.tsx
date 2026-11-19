@@ -4,6 +4,8 @@ import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import { CardGridItem } from './CardGridItem';
 import { useWorkspace } from '../../context/workspace/WorkspaceContext';
 import { getStableArtifactId } from '@/utils/artifact-identifiers';
+import { keyList, keySet, keyedIn, lookUp, moveGroup, notIn, onlyIn, present } from '@/display-state/lists';
+import { bottomRowRight } from '@/display-state/layout';
 
 type DropPosition = 'before' | 'after' | null;
 
@@ -13,21 +15,8 @@ const isArtifactsDrag = (e: React.DragEvent) =>
   Array.from(e.dataTransfer?.types ?? []).includes(DND_MIME);
 
 const isFileDrag = (e: React.DragEvent) => {
-  const t = new Set(Array.from(e.dataTransfer?.types ?? []));
+  const t = keySet(e.dataTransfer?.types ?? []);
   return t.has('Files') || t.has('public.file-url');
-};
-
-const compareByOrderKeyStable = (a: Artifact, b: Artifact) => {
-  const ka = (a.order_key || '');
-  const kb = (b.order_key || '');
-  const primary = ka.localeCompare(kb);
-  if (primary !== 0) return primary;
-
-  const ta = new Date(a.created_time || 0).getTime();
-  const tb = new Date(b.created_time || 0).getTime();
-  if (ta !== tb) return ta - tb;
-
-  return String(a.id || '').localeCompare(String(b.id || ''));
 };
 
 function getArtifactIdForGrid(
@@ -64,7 +53,9 @@ interface CardGridProps {
   /** A menu action on a card: the host takes it for the selection the card is in and answers true,
    * or answers false and the card acts alone. */
   onSelectionAction?: (actionId: string, artifact: Artifact) => boolean;
-  onOrder?: (orderedIds: string[]) => void;
+  /** After a drag-reorder: the new order, and the move that made it (`ids` now sit just before
+   * `beforeId`, or last when it is null). */
+  onOrder?: (orderedIds: string[], moved: { ids: string[]; beforeId: string | null }) => void;
   onEditArtifactOpen?: () => void;
   onEditArtifactClose?: () => void;
   onFileDrop?: (insertIndex: number, files: File[]) => void;
@@ -118,32 +109,22 @@ export default function CardGrid({
   // local ordering
   const [orderedIds, setOrderedIds] = useState<string[]>(() => {
     if (!artifacts.length) return [];
-    const sorted = [...artifacts].sort(compareByOrderKeyStable);
-    return sorted
-      .map((artifact) => getArtifactIdForGrid(artifact, isShowingSearchResults))
-      .filter((id): id is string => Boolean(id));
+    return present(artifacts.map((artifact) => getArtifactIdForGrid(artifact, isShowingSearchResults)));
   });
 
   // Sync orderedIds when artifacts prop changes - add/remove IDs without disrupting order
   useEffect(() => {
-    const currentIds = new Set(orderedIds);
-    const propsIds = artifacts
-      .map((artifact) => getId(artifact))
-      .filter((id): id is string => Boolean(id));
-    const propsIdSet = new Set(propsIds);
-    
+    const propsIds = present(artifacts.map((artifact) => getId(artifact)));
+
     // Remove IDs that no longer exist
-    const filtered = orderedIds.filter(id => propsIdSet.has(id));
-    
-    // Add new IDs in order_key sorted position
-    const newIds = propsIds.filter(id => !currentIds.has(id));
+    const filtered = onlyIn(orderedIds, propsIds);
+
+    // Add new IDs at their place in Mantle's order
+    const newIds = notIn(propsIds, orderedIds);
     if (newIds.length > 0) {
-      // Insert each new ID at the position its order_key earns it, without
+      // Insert each new ID after its nearest listed neighbour, without
       // disturbing the drag-applied local order of existing IDs.
-      const sortedArtifacts = [...artifacts].sort(compareByOrderKeyStable);
-      const sortedIds = sortedArtifacts
-        .map((artifact) => getId(artifact))
-        .filter((id): id is string => Boolean(id));
+      const sortedIds = propsIds;
 
       let result = [...filtered];
       for (const newId of newIds) {
@@ -177,7 +158,7 @@ export default function CardGrid({
   }, [artifacts, getId]);
 
   const orderedArtifacts = useMemo(
-    () => orderedIds.map((id) => idToArtifact.get(id)).filter(Boolean) as Artifact[],
+    () => lookUp(orderedIds, idToArtifact),
     [orderedIds, idToArtifact]
   );
 
@@ -404,9 +385,9 @@ export default function CardGrid({
       sourceType: typeof payload.sourceType === 'string' ? payload.sourceType : undefined,
       sourceId: typeof payload.sourceId === 'string' ? payload.sourceId : undefined,
       workspaceId: typeof payload.workspaceId === 'string' ? payload.workspaceId : undefined,
-      collectionIds: Array.isArray(payload.collectionIds) ? payload.collectionIds.map(String).filter(Boolean) : undefined,
-      rootIds: Array.isArray(payload.rootIds) ? payload.rootIds.map(String).filter(Boolean) : undefined,
-      versionIds: Array.isArray(payload.versionIds) ? payload.versionIds.map(String).filter(Boolean) : undefined,
+      collectionIds: Array.isArray(payload.collectionIds) ? keyList(payload.collectionIds) : undefined,
+      rootIds: Array.isArray(payload.rootIds) ? keyList(payload.rootIds) : undefined,
+      versionIds: Array.isArray(payload.versionIds) ? keyList(payload.versionIds) : undefined,
     };
   };
 
@@ -467,12 +448,9 @@ export default function CardGrid({
   ) => {
     if (!pos) return;
 
-    const idsFromProps = artifacts
-      .map((artifact) => getId(artifact))
-      .filter((id): id is string => Boolean(id));
-    const present = new Set(idsFromProps);
-    const notPresent = dragIds.filter(id => !present.has(id));
-    const filteredDrag = dragIds.filter((id) => present.has(id));
+    const idsFromProps = present(artifacts.map((artifact) => getId(artifact)));
+    const notPresent = notIn(dragIds, idsFromProps);
+    const filteredDrag = onlyIn(dragIds, idsFromProps);
     
     // If artifacts are external, notify the parent first and return; the parent updates the
     // artifacts prop and this component re-renders from that.
@@ -489,21 +467,16 @@ export default function CardGrid({
     if (!filteredDrag.length) return;
     if (filteredDrag.includes(targetId)) return;
 
-    const current = [...orderedIds];
-    const dragSet = new Set(filteredDrag);
-
-    // Separate the dragged artifacts from the rest, preserving order
-    const remaining = current.filter((id) => !dragSet.has(id));
-    const draggedOrdered = current.filter((id) => dragSet.has(id)); // Preserves original order
-
-    const insertAtBase = remaining.indexOf(targetId);
+    // The dragged artifacts move as a group, in their current order, to the target position
+    const insertAtBase = notIn(orderedIds, filteredDrag).indexOf(targetId);
     if (insertAtBase === -1) return;
     const insertAt = pos === 'before' ? insertAtBase : insertAtBase + 1;
-
-    // Insert the group of dragged artifacts at the target position
-    const next = [...remaining.slice(0, insertAt), ...draggedOrdered, ...remaining.slice(insertAt)];
+    const next = moveGroup(orderedIds, filteredDrag, insertAt);
     setOrderedIds(next);
-    onOrder?.(next);
+    onOrder?.(next, {
+      ids: onlyIn(orderedIds, filteredDrag),
+      beforeId: notIn(orderedIds, filteredDrag)[insertAt] ?? null,
+    });
     clearHover();
   };
 
@@ -594,10 +567,7 @@ export default function CardGrid({
       const mouseX = e.clientX;
 
       // Find the rightmost artifact in the bottom row
-      const bottomRowArtifacts = allArtifactRects.filter(r => Math.abs(r.bottom - maxBottom) < 8);
-      const maxRight = bottomRowArtifacts.length > 0
-        ? Math.max(...bottomRowArtifacts.map(r => r.right))
-        : 0;
+      const maxRight = bottomRowRight(allArtifactRects);
 
       // Only show end-of-list if:
       // - Mouse is below all artifacts (below maxBottom + tolerance), or
@@ -656,11 +626,8 @@ export default function CardGrid({
       const dragged = parseDragIds(e);
       const dragPayload = parseDragPayloadMeta(e);
       if (dragged && dragged.length) {
-        const idsFromProps = artifacts
-          .map((artifact) => getId(artifact))
-          .filter((id): id is string => Boolean(id));
-        const present = new Set(idsFromProps);
-        const notPresent = dragged.filter(id => !present.has(id));
+        const idsFromProps = present(artifacts.map((artifact) => getId(artifact)));
+        const notPresent = notIn(dragged, idsFromProps);
         
         console.log('[CardGrid] handleGridDrop - dragged:', dragged);
         console.log('[CardGrid] handleGridDrop - notPresent:', notPresent);
@@ -674,13 +641,9 @@ export default function CardGrid({
         }
         
         // Only reorder artifacts that are already in the grid
-        const current = [...orderedIds];
-        const dragSet = new Set(dragged);
-        const remaining = current.filter(id => !dragSet.has(id));
-        const draggedOrdered = current.filter(id => dragSet.has(id));
-        const next = [...remaining, ...draggedOrdered];
+        const next = moveGroup(orderedIds, dragged, orderedIds.length);
         setOrderedIds(next);
-        onOrder?.(next);
+        onOrder?.(next, { ids: onlyIn(orderedIds, dragged), beforeId: null });
       }
       clearHover();
     }
@@ -728,20 +691,10 @@ export default function CardGrid({
             ? {
                 type: 'artifacts' as const,
                 ids: selectedIds.includes(id) ? selectedIds : [id],
-                rootIds: orderedArtifacts
-                  .filter((candidate) => {
-                    const candidateId = getId(candidate);
-                    return candidateId ? (selectedIds.includes(id) ? selectedIds.includes(candidateId) : candidateId === id) : false;
-                  })
-                  .map((candidate) => String(candidate.root_id ?? candidate.id ?? ''))
-                  .filter(Boolean),
-                versionIds: orderedArtifacts
-                  .filter((candidate) => {
-                    const candidateId = getId(candidate);
-                    return candidateId ? (selectedIds.includes(id) ? selectedIds.includes(candidateId) : candidateId === id) : false;
-                  })
-                  .map((candidate) => String(candidate.id ?? ''))
-                  .filter(Boolean),
+                rootIds: keyList(keyedIn(orderedArtifacts, getId, selectedIds.includes(id) ? selectedIds : [id])
+                  .map((candidate) => candidate.root_id ?? candidate.id)),
+                versionIds: keyList(keyedIn(orderedArtifacts, getId, selectedIds.includes(id) ? selectedIds : [id])
+                  .map((candidate) => candidate.id)),
               }
             : undefined;
 
@@ -796,7 +749,7 @@ export default function CardGrid({
                   forceHover={forceHoverIndex === index}
                   activeSource={activeSource ?? undefined}
                   isShowingSearchResults={isShowingSearchResults}
-                  onMouseDown={(e) => onArtifactMouseDown?.(id, e, orderedArtifacts.map(getId).filter(Boolean) as string[])}
+                  onMouseDown={(e) => onArtifactMouseDown?.(id, e, present(orderedArtifacts.map(getId)))}
                   onEdit={(c) => handleEdit(c)}
                   onOpen={onOpenArtifact}
                   onRemove={(c, mode) => (mode === 'delete' ? handleDeleteViaRemove(c) : handleRemove(c))}

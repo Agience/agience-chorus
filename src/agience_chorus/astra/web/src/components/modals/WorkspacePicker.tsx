@@ -11,9 +11,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { workspaceLabels } from '@/utils/workspaceLabels';
+import { workspaceLabels, type Listed } from '@/utils/workspaceLabels';
+import { sortedBy } from '@/display-state/lists';
 
-type Listed = { id: string; name?: string; created_time?: string };
 
 type Props = {
   open: boolean;
@@ -29,7 +29,7 @@ type Props = {
 export default function WorkspacePicker({ open, title, description, workspaces, currentId, onPick, onClose }: Props) {
   const labels = useMemo(() => workspaceLabels(workspaces), [workspaces]);
   const ordered = useMemo(
-    () => [...workspaces].sort((a, b) => Number(b.id === currentId) - Number(a.id === currentId)),
+    () => sortedBy(workspaces, (w) => Number(w.id !== currentId)),
     [workspaces, currentId],
   );
   return (

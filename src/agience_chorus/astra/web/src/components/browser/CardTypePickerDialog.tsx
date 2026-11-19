@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { getCreatableTypes } from '@/registry/content-types';
+import { sortedBy } from '@/display-state/lists';
 
 type CardTypePickerDialogProps = {
   open: boolean;
@@ -15,16 +16,14 @@ export default function CardTypePickerDialog({
   onSelect,
 }: CardTypePickerDialogProps) {
   const creatableTypes = useMemo(() => {
-    return getCreatableTypes()
-      .filter((type) => !type.content_type.includes('*'))
-      .sort((left, right) => left.label.localeCompare(right.label));
+    return sortedBy(getCreatableTypes(), (type) => type.label);
   }, []);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Create Card</DialogTitle>
+          <DialogTitle>Create an artifact</DialogTitle>
           <DialogDescription>
             Pick an artifact type to create.
           </DialogDescription>

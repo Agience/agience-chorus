@@ -13,6 +13,8 @@ import { useWorkspace } from '../../context/workspace/WorkspaceContext';
 import { PaletteProvider } from '../../context/palette/PaletteProvider';
 import Palette from './Palette';
 import OptionsPanel from './panels/Options';
+import { formatDayTime } from '@/utils/dates';
+import { keySet, unique } from '@/display-state/lists';
 
 type TabKey = 'config' | 'inspect';
 
@@ -102,12 +104,12 @@ function TransformDockInner(props: { onClose?: () => void }) {
   }, [tab]);
 
   const allKnownPanels = useMemo(() => {
-    return Array.from(new Set([...CONFIG_PANELS, ...INSPECT_PANELS]));
+    return unique([...CONFIG_PANELS, ...INSPECT_PANELS]);
   }, []);
 
   useEffect(() => {
     // Ensure the correct panels are visible for the active tab.
-    const desiredSet = new Set(desiredPanels);
+    const desiredSet = keySet(desiredPanels);
     for (const key of allKnownPanels) {
       const isVisible = visiblePanels.includes(key);
       const shouldBeVisible = desiredSet.has(key);
@@ -158,7 +160,7 @@ function TransformDockInner(props: { onClose?: () => void }) {
     const spec = buildTransformSpec({
       state,
       breakpoints,
-      title: transform?.title ?? `Transform ${now.toLocaleString()}`,
+      title: transform?.title ?? `Transform ${formatDayTime(now)}`,
       now,
     });
     const hash = computeTransformHash(spec);

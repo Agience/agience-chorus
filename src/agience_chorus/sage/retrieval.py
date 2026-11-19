@@ -44,34 +44,65 @@ def _bearer(token: Optional[str]) -> Optional[str]:
     return t if t.lower().startswith("bearer ") else f"Bearer {t}"
 
 
+def _recall(client, mantle_url: str, token: str, body: dict):
+    r = client.post(f"{mantle_url.rstrip('/')}/artifacts/recall",
+                    headers={"Authorization": _bearer(token), "Content-Type": "application/json"},
+                    json=body, timeout=12)
+    r.raise_for_status()
+    return r.json()
+
+
+def _searched(client, query: str, token: str, mantle_url: str, search_id: str) -> List[dict]:
+    """The Search `search_id` run for `query`: Mantle reads what the caller may read and
+    `crystal.search` orders it by the Search's rank keys."""
+    from crystal import search
+    r = client.get(f"{mantle_url.rstrip('/')}/artifacts/{search_id}",
+                   headers={"Authorization": _bearer(token)}, timeout=12)
+    r.raise_for_status()
+    artifact = r.json()
+    s = search.settings(artifact, {"query_text": query})
+    hits: list = []
+    total = 0
+    while len(hits) < search.WINDOW:
+        page = _recall(client, mantle_url, token,
+                       search.recall_body(query, s["scope"], len(hits))) or {}
+        batch = page.get("hits") or []
+        total = int(page.get("total") or 0)
+        hits.extend(batch)
+        if not batch or len(hits) >= total:
+            break
+    return search.answer(artifact, s, hits, total, token)["hits"]
+
+
 def retrieve(query: str, auth_token: Optional[str], mantle_url: str,
-             k: int = RETRIEVAL_K) -> List[dict]:
-    """Return up to k relevant artifacts for `query` as evidence dicts {title, content, score}.
+             k: int = RETRIEVAL_K, search_id: Optional[str] = None) -> List[dict]:
+    """Return relevant artifacts for `query` as evidence dicts {title, content, score}.
+
+    `search_id` names a Search artifact: its rank, size and scope decide the hits, run as Crystal
+    runs it (`crystal.search`). Without one, up to `k` hits come back in recall's own order.
 
     Uses the caller's own token, so retrieval respects the user's grants — Lumen only ever grounds
     on knowledge the user is authorized to see. Fail-soft: any error (incl. 503 when encrypted
-    search isn't provisioned) yields an empty list.
+    search isn't provisioned) yields an empty list; a Search the caller cannot run falls back to
+    the plain recall.
     """
     if not RETRIEVAL_ON or not query or not auth_token:
         return []
     import httpx
 
+    hits: Optional[list] = None
     try:
-        r = httpx.post(
-            # WAS `/artifacts/search`, DELETED BY MANTLE. The 404 fell into the `!= 200`
-            # branch below, which logs at INFO and returns [] — so grounding was silently
-            # skipped on every answer, beneath the default log level.
-            f"{mantle_url.rstrip('/')}/artifacts/recall",
-            headers={"Authorization": _bearer(auth_token), "Content-Type": "application/json"},
-            # No `state`: recall's default is the live set, which is what grounding reads.
-            # Recall ignores unknown fields, so only `highlight` rides beside the query.
-            json={"query_text": query, "size": k, "highlight": True},
-            timeout=12,
-        )
-        if r.status_code != 200:
-            log.info("retrieval: search returned %s (grounding skipped)", r.status_code)
-            return []
-        hits = r.json().get("hits", []) or []
+        with httpx.Client() as client:
+            if search_id:
+                try:
+                    hits = _searched(client, query, auth_token, mantle_url, search_id)
+                except Exception as exc:
+                    log.info("retrieval: search %s failed (%s); plain recall", search_id,
+                             type(exc).__name__)
+            if hits is None:
+                # No `state`: recall's default is the live set, which is what grounding reads.
+                hits = _recall(client, mantle_url, auth_token,
+                               {"query_text": query, "size": k, "highlight": True}).get("hits") or []
     except Exception as exc:  # pragma: no cover - network/search failures degrade to no-grounding
         log.info("retrieval: search failed (%s); grounding skipped", type(exc).__name__)
         return []
@@ -99,6 +130,12 @@ _RETRIEVAL_OPS = [
 ]
 
 
+#: the capabilities each operator needs to run, by operator id.
+_NEEDS = {
+    "op.retrieve": ["store.read"],
+}
+
+
 def register_retrieval_operators(store, *, author: str = "ember-local") -> int:
     """Register the lumen-tekton retrieval operator(s). Mirrors the impl register_* pattern."""
     from crystal import evolution
@@ -106,7 +143,8 @@ def register_retrieval_operators(store, *, author: str = "ember-local") -> int:
     for name, offer in _RETRIEVAL_OPS:
         store.put_artifact(evolution.preserve_fitness(store, {
             "id": name, "content_type": OPERATOR_CONTENT_TYPE, "state": "live",
-            "context": offer, "content": f"lumen tekton operator {name}: {offer}",
+            "context": offer, "offer": offer, "needs": list(_NEEDS[name]),
+            "content": f"lumen tekton operator {name}: {offer}",
             "created_by": author}))
     return len(_RETRIEVAL_OPS)
 

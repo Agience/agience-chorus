@@ -125,7 +125,7 @@ export function CardTreeItem({
           <Icon size={13} style={{ color: barColor }} className="flex-shrink-0" />
 
           {/* Title */}
-          <span className="flex-1 text-sm text-gray-900 truncate">{title}</span>
+          <span className="min-w-0 flex-1 text-sm text-gray-900 truncate" title={title}>{title}</span>
 
           {/* State badge */}
           {shouldShowStateBadge(artifact.state) && (

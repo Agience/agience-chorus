@@ -28,15 +28,3 @@ export async function waitForAccess(resourceId: string, waitMs = JOIN_WAIT_MS, p
 export function openShared(resourceId: string): void {
   window.location.assign('/' + encodeURIComponent(resourceId));
 }
-
-/** The role an invite's actions amount to, in the share dialog's words (Viewer, Contributor,
- *  Editor, Collaborator, Admin). */
-export function roleOf(actions: string[]): string {
-  const a = new Set(actions);
-  if (a.has('admin')) return 'Admin';
-  if (a.has('share')) return 'Collaborator';
-  if (a.has('update') || a.has('delete')) return 'Editor';
-  if (a.has('create') || a.has('add')) return 'Contributor';
-  if (a.has('read')) return 'Viewer';
-  return actions.join(', ') || 'no access';
-}

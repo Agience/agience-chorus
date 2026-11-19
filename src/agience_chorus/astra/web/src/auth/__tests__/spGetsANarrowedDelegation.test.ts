@@ -5,19 +5,25 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { KNOWN_SP_ORIGINS, spAudience, tokenForSp } from '../spRedirect'
+import { isAllowedSpRedirect, spAudience, tokenForSp } from '../spRedirect'
 
 afterEach(() => vi.restoreAllMocks())
 
 describe('the token a service provider receives', () => {
   it('names an audience for every SP but the platform app and Origin', () => {
     expect(spAudience('https://aria.home.agience.ai/x')).toBe('https://aria.home.agience.ai')
-    expect(spAudience('https://my.agience.ai/app')).toBeNull()
-    expect(spAudience('https://origin.agience.ai/x')).toBeNull()
+    expect(spAudience(`${window.location.origin}/app`)).toBeNull()
+    const w = window as { __AGIENCE_CONFIG__?: unknown }
+    w.__AGIENCE_CONFIG__ = { originUri: 'https://origin.test/' }
+    try {
+      expect(spAudience('https://origin.test/x')).toBeNull()
+    } finally {
+      delete w.__AGIENCE_CONFIG__
+    }
   })
 
   it('treats the retired Lumen site as no SP of the platform, and not as Ember', () => {
-    expect(KNOWN_SP_ORIGINS).not.toContain('https://lumen.agience.ai')
+    expect(isAllowedSpRedirect('https://lumen.agience.ai/chat')).toBe(false)
     expect(spAudience('https://lumen.agience.ai/chat')).not.toBe('ember')
   })
 
@@ -46,7 +52,7 @@ describe('the token a service provider receives', () => {
   it('keeps the platform app\'s own token for the platform app', async () => {
     const f = vi.fn()
     vi.stubGlobal('fetch', f)
-    expect(await tokenForSp('FULL', 'https://my.agience.ai/', 'https://origin.test')).toBe('FULL')
+    expect(await tokenForSp('FULL', `${window.location.origin}/`, 'https://origin.test')).toBe('FULL')
     expect(f).not.toHaveBeenCalled()
   })
 })

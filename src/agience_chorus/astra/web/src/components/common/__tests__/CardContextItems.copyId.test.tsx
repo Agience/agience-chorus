@@ -21,7 +21,7 @@ import { CardContextItems } from '../CardContextItems';
 const plainType = { actions: [] } as unknown as ContentTypeDefinition;
 const declaredType = { actions: [{ id: 'run', label: 'Run now', states: ['live'] }] } as unknown as ContentTypeDefinition;
 const note = (state = 'live') =>
-  ({ id: 'note-9', context: JSON.stringify({ title: 'Meeting notes', content_type: 'text/markdown' }), state }) as unknown as Artifact;
+  ({ id: 'note-9', allowed_actions: ['read', 'update', 'share'], context: JSON.stringify({ title: 'Meeting notes', content_type: 'text/markdown' }), state }) as unknown as Artifact;
 
 describe('CardContextItems — Copy ID on any artifact', () => {
   let writeText: ReturnType<typeof vi.fn>;

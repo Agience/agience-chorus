@@ -1,15 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// FR-004: an invite to someone with an account arrives in their Inbox, with Accept and Decline,
-// so accepting it needs no email. Both are made at Origin in the person's Origin session.
+// FR-004: an invite to someone with an account arrives in their Inbox as an invite artifact, with
+// Accept and Decline, so accepting it needs no email. Both are taken in the person's Origin
+// session, at the path the invite's type names.
 const incomingMock = vi.fn();
-const acceptMock = vi.fn();
-const declineMock = vi.fn();
-vi.mock('@/api/authority', () => ({
-  incomingInvites: (...a: unknown[]) => incomingMock(...a),
-  acceptInvite: (...a: unknown[]) => acceptMock(...a),
-  declineInvite: (...a: unknown[]) => declineMock(...a),
+const actMock = vi.fn();
+vi.mock('@/api/inviteArtifacts', () => ({
+  offeredInvites: (...a: unknown[]) => incomingMock(...a),
+  actOnInvite: (...a: unknown[]) => actMock(...a),
 }));
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
@@ -17,51 +16,57 @@ vi.mock('sonner', () => ({ toast: { success: (...a: unknown[]) => toastSuccess(.
                                     error: (...a: unknown[]) => toastError(...a),
                                     loading: vi.fn(() => 'joining'), dismiss: vi.fn(),
                                     info: vi.fn() } }));
+// Mantle's role presets, which name each invite's actions.
+vi.mock('@/api/collections', async (orig) => ({
+  ...(await orig<typeof import('@/api/collections')>()),
+  listRoles: vi.fn().mockResolvedValue([
+    { name: 'viewer', actions: ['read'] },
+    { name: 'editor', actions: ['create', 'read', 'update', 'delete'] },
+  ]),
+}));
 // The store answers at once here, so Accept opens the item.
 vi.mock('@/api/artifacts', () => ({ getArtifact: vi.fn().mockResolvedValue({ id: 'W' }) }));
 const assign = vi.fn();
 Object.defineProperty(window, 'location', { value: { ...window.location, assign }, writable: true });
 
 import { IncomingInvites } from '../IncomingInvites';
-import { roleOf } from '../invites';
 
-const INV = { invite_id: 'inv-1', resource_id: 'W', actions: ['read'], expires_at: null,
-              from: 'Ann Lee' };
+const INV = { id: 'a1', invite_id: 'inv-1', resource_id: 'W', resource_name: 'Plans',
+              actions: ['read'], expires_at: null, from: 'ann' };
 
 describe('IncomingInvites — invites arrive in the Inbox', () => {
   beforeEach(() => {
     incomingMock.mockReset();
-    acceptMock.mockReset();
-    declineMock.mockReset();
+    actMock.mockReset();
     toastSuccess.mockReset();
     toastError.mockReset();
   });
 
-  it('names who invited and the role, and accepts at Origin', async () => {
+  it('names what is shared and the role, and accepts the invite artifact', async () => {
     incomingMock.mockResolvedValueOnce([INV]).mockResolvedValueOnce([]);
-    acceptMock.mockResolvedValue({ grant_id: 'claim-1' });
+    actMock.mockResolvedValue({ grant_id: 'claim-1' });
     render(<IncomingInvites />);
-    await waitFor(() => expect(screen.getByText('Ann Lee')).toBeTruthy());
-    expect(screen.getByText(/invited you as Viewer/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Plans')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/as Viewer/)).toBeTruthy());
     fireEvent.click(screen.getByText('Accept'));
-    await waitFor(() => expect(acceptMock).toHaveBeenCalledWith('inv-1'));
-    await waitFor(() => expect(screen.queryByText('Ann Lee')).toBeNull());
+    await waitFor(() => expect(actMock).toHaveBeenCalledWith('a1', 'accept'));
+    await waitFor(() => expect(screen.queryByText('Plans')).toBeNull());
     expect(toastSuccess).toHaveBeenCalled();
     expect(assign).toHaveBeenCalledWith('/W');
-    expect(declineMock).not.toHaveBeenCalled();
+    expect(actMock).toHaveBeenCalledTimes(1);
   });
 
-  it('declines at Origin', async () => {
+  it('declines the invite artifact', async () => {
     incomingMock.mockResolvedValueOnce([INV]).mockResolvedValueOnce([]);
-    declineMock.mockResolvedValue({});
+    actMock.mockResolvedValue({});
     render(<IncomingInvites />);
     await waitFor(() => expect(screen.getByText('Decline')).toBeTruthy());
     fireEvent.click(screen.getByText('Decline'));
-    await waitFor(() => expect(declineMock).toHaveBeenCalledWith('inv-1'));
-    expect(acceptMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(actMock).toHaveBeenCalledWith('a1', 'decline'));
+    expect(actMock).toHaveBeenCalledTimes(1);
   });
 
-  it('shows nothing when there are no invites, or Origin cannot be asked', async () => {
+  it('shows nothing when there are no invites, or they cannot be listed', async () => {
     incomingMock.mockRejectedValue(new Error('401'));
     const { container } = render(<IncomingInvites />);
     await waitFor(() => expect(incomingMock).toHaveBeenCalled());
@@ -70,20 +75,22 @@ describe('IncomingInvites — invites arrive in the Inbox', () => {
 
   it('a refused accept says so and keeps the invite listed', async () => {
     incomingMock.mockResolvedValue([INV]);
-    acceptMock.mockRejectedValue(new Error('this invite does not name you'));
+    actMock.mockRejectedValue(new Error('this invite does not name you'));
     render(<IncomingInvites />);
     await waitFor(() => expect(screen.getByText('Accept')).toBeTruthy());
     fireEvent.click(screen.getByText('Accept'));
     await waitFor(() => expect(toastError).toHaveBeenCalled());
-    expect(screen.getByText('Ann Lee')).toBeTruthy();
+    expect(screen.getByText('Plans')).toBeTruthy();
   });
 
-  it('names roles as the share dialog does', () => {
-    expect(roleOf(['read'])).toBe('Viewer');
-    expect(roleOf(['create', 'read'])).toBe('Contributor');
-    expect(roleOf(['create', 'read', 'update', 'delete'])).toBe('Editor');
-    expect(roleOf(['read', 'share'])).toBe('Collaborator');
-    expect(roleOf(['read', 'admin'])).toBe('Admin');
+  it('names the Mantle role whose actions an invite holds exactly, else lists the actions', async () => {
+    incomingMock.mockResolvedValue([
+      { ...INV, id: 'a2', invite_id: 'inv-2', actions: ['delete', 'update', 'read', 'create'] },
+      { ...INV, id: 'a3', invite_id: 'inv-3', actions: ['read', 'invoke'] },
+    ]);
+    render(<IncomingInvites />);
+    await waitFor(() => expect(screen.getByText(/as Editor/)).toBeTruthy());
+    expect(screen.getByText(/as read, invoke/)).toBeTruthy();
   });
 });
 

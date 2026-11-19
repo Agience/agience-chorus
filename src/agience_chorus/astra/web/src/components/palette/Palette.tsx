@@ -2,6 +2,7 @@
 import { usePalette } from '../../context/palette/PaletteContext';
 import { PALETTE_PANELS } from './PalettePanels';
 import { PalettePanel } from './PalettePanel';
+import { keyedIn } from '@/display-state/lists';
 
 export default function Palette() {
   
@@ -25,7 +26,7 @@ const {
     <div className="shadow-lg overflow-visible rounded-b-lg">
       {visiblePanels.length > 0 && (
         <div className="divide-y divide-gray-200 rounded-b-lg overflow-hidden">
-          {PALETTE_PANELS.filter(p => visiblePanels.includes(p.key)).map(
+          {keyedIn(PALETTE_PANELS, p => p.key, visiblePanels).map(
             ({ key, label, controls, content }) => {
               const paused = breakpoints.has(key);
               const has = (c: 'pause' | 'redo' | 'play') => (controls as unknown as string[]).includes(c);

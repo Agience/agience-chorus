@@ -9,6 +9,7 @@ import { getArtifactType, getArtifactIcon, getArtifactColor, shouldShowStateBadg
 import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import { CardContextItems } from './CardContextItems';
 import type { CardActionId } from './CardContextItems';
+import { formatDay } from '@/utils/dates';
 
 interface CardListItemProps {
   artifact: Artifact;
@@ -123,7 +124,7 @@ export const CardListItem = ({
       return `${hours}h ago`;
     }
     if (days < 7) return `${days}d ago`;
-    return date.toLocaleDateString();
+    return formatDay(date);
   }, [artifact.created_time, artifact.modified_time]);
 
   // Content preview (first 100 chars)
@@ -242,23 +243,24 @@ export const CardListItem = ({
 
           {/* Content area with type icon */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            {/* Badges wrap below a long title rather than shortening it. */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <CardIcon className="flex-shrink-0" size={14} style={{ color: artifactBarColor }} />
-              <h3 className="font-medium text-gray-900 truncate">{title}</h3>
+              <h3 className="min-w-0 font-medium text-gray-900 truncate" title={title}>{title}</h3>
               {artifactCount > 0 && (
-                <Badge className="border-0 bg-slate-100 text-slate-700 text-[10px] px-1.5 py-0.5 font-medium">
+                <Badge className="flex-shrink-0 whitespace-nowrap border-0 bg-slate-100 text-slate-700 text-[10px] px-1.5 py-0.5 font-medium">
                   {artifactCount} artifact{artifactCount === 1 ? '' : 's'}
                 </Badge>
               )}
               {contentType.badgeClassName && (
                 <Badge
-                  className={`border-0 text-[10px] px-1.5 py-0.5 font-medium ${contentType.badgeClassName}`}
+                  className={`flex-shrink-0 whitespace-nowrap border-0 text-[10px] px-1.5 py-0.5 font-medium ${contentType.badgeClassName}`}
                 >
                   {contentType.label}
                 </Badge>
               )}
               {ctx.content_type && (
-                <span className="text-xs text-gray-400">
+                <span className="flex-shrink-0 whitespace-nowrap text-xs text-gray-400">
                   {ctx.content_type?.split('/')[1]?.toUpperCase()}
                 </span>
               )}
@@ -294,7 +296,7 @@ export const CardListItem = ({
                 }}
                 className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700"
                 title="Edit"
-                aria-label="Edit card"
+                aria-label="Edit artifact"
               >
                 <EditIcon className="w-4 h-4" />
               </button>

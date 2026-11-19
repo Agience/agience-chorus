@@ -8,16 +8,10 @@ import type { Artifact } from '@/context/workspace/workspace.types';
 export type CardRemoveMode = 'delete';
 
 /**
- * Whether to offer Delete for this artifact.
- *
- * The artifact carries no permissions field, so the offer is made from what it does carry:
- * the caller created it (`created_by`, which Mantle stamps with the creating user's id, the same
- * id the Inbox workspace is keyed on). The server's `delete` access check on
- * `DELETE /artifacts/{id}` is the gate; a refusal there surfaces as a toast.
- *
- * Never offered for the Inbox itself, whose id is the user id.
+ * Whether Mantle allows the caller this action on the artifact, as it answered in
+ * `allowed_actions` with the artifact. An artifact without that answer offers nothing.
  */
-export function canDeleteArtifact(artifact: Artifact, userId: string | null | undefined): boolean {
-  if (userId && (artifact.id === userId || artifact.root_id === userId)) return false;
-  return Boolean(userId) && artifact.created_by === userId;
+export function allows(artifact: Pick<Artifact, 'allowed_actions'> | null | undefined,
+  action: string): boolean {
+  return Boolean(artifact?.allowed_actions?.includes(action));
 }

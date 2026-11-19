@@ -1,6 +1,5 @@
 import { toast } from 'sonner';
 import { useState, useEffect, useCallback } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -20,6 +19,7 @@ import {
 } from '@/components/ui/table';
 import { CollectionResponse, Grant } from '../../api/types';
 import { useAuth } from '../../hooks/useAuth';
+import { allows } from '@/utils/artifact-permissions';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import {
   listCollections,
@@ -30,8 +30,12 @@ import {
   createGrant,
   updateGrant,
   deleteGrant,
+  listRoles,
+  roleNamed,
+  type Role,
 } from '../../api/collections';
-import { describeGrantee, describeItem, describeParent, previewAtOrigin, type OriginPreview } from '../../api/authority';
+import { actionsOf, describeGrantee, describeItem, describeParent, previewAtOrigin, type OriginPreview } from '../../api/authority';
+import { withoutKey } from '@/display-state/lists';
 
 interface NewCollectionInput {
   name: string;
@@ -68,10 +72,21 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
   const [inviteEcho, setInviteEcho] = useState<
     { resource_id: string; resource_name: string; email: string } | null>(null);
 
+  // The roles Mantle offers name each grant's actions.
+  const [roles, setRoles] = useState<Role[]>([]);
+  useEffect(() => {
+    if (open) listRoles().then(setRoles, () => setRoles([]));
+  }, [open]);
+  const accessOf = (grant: Grant): string => {
+    const actions = actionsOf(grant as unknown as Record<string, unknown>);
+    return roleNamed(actions, roles) ?? (actions.join(', ') || 'No access');
+  };
+
   const selectedCollectionData = collections.find(c => c.id === selectedCollection) || null;
-  const collectionCreatedBy = selectedCollectionData?.created_by;
-  const isOwner = collectionCreatedBy === user?.id;
-  const isPlatformOwned = !!(collectionCreatedBy && user?.platform_user_id && collectionCreatedBy === user.platform_user_id);
+  // Mantle answers which actions the caller may take on the collection; the controls follow it.
+  const canUpdate = allows(selectedCollectionData, 'update');
+  const canDelete = allows(selectedCollectionData, 'delete');
+  const canShare = allows(selectedCollectionData, 'share');
 
   const fetchCollections = useCallback(async () => {
     try {
@@ -143,7 +158,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
 
   const handleUpdateCollection = async () => {
     if (!selectedCollection || !selectedCollectionData) return;
-    if (!isOwner) return;
+    if (!canUpdate) return;
     try {
       await updateCollection(selectedCollection, editCollection);
       fetchCollections();
@@ -156,7 +171,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
 
 
   const handleDeleteCollection = async () => {
-    if (!selectedCollection || !isOwner) return;
+    if (!selectedCollection || !canDelete) return;
     try {
       await deleteCollection(selectedCollection);
       setSelectedCollection(null);
@@ -174,7 +189,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
     if (!grant) return;
     try {
       await deleteGrant(grant as never);
-      setGrants(prev => prev.filter(s => s.id !== grantId));
+      setGrants(prev => withoutKey(prev, s => s.id, grantId));
       toast.success('Grant removed');
     } catch (err) {
       console.error('Failed to remove grant:', err);
@@ -219,11 +234,6 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                       >
                         <div className="font-medium text-gray-900 flex items-center gap-1.5">
                           {collection.name}
-                          {user?.platform_user_id && collection.created_by === user.platform_user_id && (
-                            <Badge className="border-0 bg-violet-100 text-violet-700 text-[10px] px-1 py-0 font-medium leading-none">
-                              Platform
-                            </Badge>
-                          )}
                         </div>
                       </Button>
                     );
@@ -239,16 +249,11 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                       <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
                         <div className="flex items-center gap-2">
                           <h2 className="font-semibold text-gray-900">Details for {selectedCollectionData.name}</h2>
-                          {isPlatformOwned && (
-                            <Badge className="border-0 bg-violet-100 text-violet-700 text-[10px] px-1.5 py-0.5 font-medium">
-                              Platform
-                            </Badge>
-                          )}
                         </div>
                         <Button
                           variant="destructive"
                           onClick={() => setShowDeleteConfirm(true)}
-                          disabled={!isOwner}
+                          disabled={!canDelete}
                         >
                           Delete
                         </Button>
@@ -260,7 +265,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                           value={editCollection.name}
                           onChange={e => setEditCollection(prev => ({ ...prev, name: e.target.value }))}
                           className="w-full border rounded px-3 py-2"
-                          disabled={!isOwner}
+                          disabled={!canUpdate}
                         />
                         <input
                           type="text"
@@ -268,12 +273,12 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                           value={editCollection.description}
                           onChange={e => setEditCollection(prev => ({ ...prev, description: e.target.value }))}
                           className="w-full border rounded px-3 py-2"
-                          disabled={!isOwner}
+                          disabled={!canUpdate}
                         />
                         <div className="flex space-x-3">
                           <Button
                             onClick={handleUpdateCollection}
-                            disabled={!isOwner}
+                            disabled={!canUpdate}
                           >
                             Update
                           </Button>
@@ -289,7 +294,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                             setEditingGrant(null);
                             setShowGrantModal(true);
                           }}
-                          disabled={!isOwner}
+                          disabled={!canShare}
                         >
                           Invite
                         </Button>
@@ -314,14 +319,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                               grants.map((grant) => (
                                 <TableRow key={grant.id}>
                                   <TableCell className="font-medium">{grant.target_entity || grant.name || grant.grantee_id}</TableCell>
-                                  <TableCell>
-                                    {[
-                                      grant.can_read ? 'Read' : null,
-                                      grant.can_update ? 'Write' : null,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(', ')}
-                                  </TableCell>
+                                  <TableCell>{accessOf(grant)}</TableCell>
                                   <TableCell>
                                     {/* Origin mails an invite to its one address; no link or key is shown (round 13). */}
                                     <span className="text-xs text-gray-600">
@@ -340,7 +338,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                                           setEditingGrant(grant);
                                           setShowGrantModal(true);
                                         }}
-                                        disabled={!isOwner}
+                                        disabled={!canShare}
                                         className="h-auto p-0"
                                       >
                                         Edit
@@ -352,7 +350,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                                           setGrantToDelete(grant);
                                           setShowGrantDeleteConfirm(true);
                                         }}
-                                        disabled={!isOwner}
+                                        disabled={!canShare}
                                         className="text-red-500 hover:text-red-600 h-auto p-0"
                                       >
                                         Delete
@@ -407,7 +405,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                     value={grantName}
                     onChange={e => setGrantName(e.target.value)}
                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={!isOwner}
+                    disabled={!canShare}
                   />
                 </div>
                 <div className="space-y-4">
@@ -419,7 +417,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                         checked={read}
                         onChange={() => setRead(!read)}
                         className="h-4 w-4 rounded border-gray-300"
-                        disabled={!isOwner}
+                        disabled={!canShare}
                       />
                       <span>Read Access</span>
                     </label>
@@ -429,7 +427,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                         checked={write}
                         onChange={() => setWrite(!write)}
                         className="h-4 w-4 rounded border-gray-300"
-                        disabled={!isOwner}
+                        disabled={!canShare}
                       />
                       <span>Write Access</span>
                     </label>
@@ -523,7 +521,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                       toast.error((err as Error)?.message || 'Failed to save grant');
                     }
                   }}
-                  disabled={!isOwner}
+                  disabled={!canShare}
                 >
                   {editingGrant ? 'Save' : confirmingInvite ? 'Confirm and send' : 'Send invite'}
                 </Button>
@@ -603,7 +601,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                     await handleDeleteCollection(); 
                     setShowDeleteConfirm(false); 
                   }} 
-                  disabled={!isOwner}
+                  disabled={!canDelete}
                 >
                   Delete
                 </Button>
@@ -639,7 +637,7 @@ export default function CollectionDetailModal({ open, onClose }: Props) {
                     setGrantToDelete(null); 
                     setShowGrantDeleteConfirm(false); 
                   }} 
-                  disabled={!isOwner}
+                  disabled={!canShare}
                 >
                   Delete
                 </Button>

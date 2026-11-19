@@ -38,7 +38,8 @@ export interface WorkspaceContextType {
   discardArtifact: (id: string) => Promise<boolean>;
   refreshArtifacts: (workspaceId: string) => Promise<void>;
   selectArtifact: (id: string, event: MouseEvent, shownIds?: string[]) => void;
-  orderArtifacts: (orderedIds: string[]) => Promise<void>;
+  /** Move `ids`, in that order, to sit just before `beforeId` (last when it is null). */
+  moveArtifacts: (ids: string[], beforeId: string | null) => Promise<void>;
   /** Import collection-root artifacts into the active workspace and insert at a drop index */
   importArtifactsByRootIds: (rootIds: string[], insertIndex: number) => Promise<void>;
   selectAllArtifacts: () => void;

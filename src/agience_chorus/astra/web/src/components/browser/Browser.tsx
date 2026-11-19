@@ -3,9 +3,8 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useWorkspace } from "../../hooks/useWorkspace";
 import { useWorkspaces } from "../../hooks/useWorkspaces";
 import { useCollections } from '../../context/collections/CollectionsContext';
-import { useAuth } from "../../hooks/useAuth";
 import { usePreferences } from '../../hooks/usePreferences';
-import { useWorkspaceSearch } from "../../hooks/useWorkspaceSearch";
+import { useAddressedValue } from "../../hooks/useAddressedView";
 import CardList from "../common/CardList";
 import CardGrid from "../common/CardGrid";
 import ArtifactEditModal from "../common/CardDetailModal";
@@ -17,26 +16,21 @@ import { CollectionPicker } from '../modals/CollectionPicker';
 import { BulkTagDialog, type BulkTagApplyRequest } from '../modals/BulkTagDialog';
 import WorkspaceDetailModal from '../modals/WorkspaceDetailModal';
 import { useAddToWorkspace } from '@/hooks/useAddToWorkspace';
-import { UNTITLED_WORKSPACE } from '@/utils/workspaceLabels';
 import { Artifact } from "../../context/workspace/workspace.types";
 import { ArtifactCreate, ArtifactUpdate } from "../../api/types";
-import { addArtifactToWorkspace, importCollectionArtifactToWorkspace, initiateUpload, updateUploadStatus, getWorkspaceArtifactsBatchGlobal } from "../../api/workspaces";
-import { addArtifactToCollection, getCollectionArtifactsBatchGlobal } from "../../api/collections";
-import { midKey } from "../../utils/fractional-index";
+import { addArtifactToWorkspace, importCollectionArtifactToWorkspace, initiateUpload, updateUploadStatus } from "../../api/workspaces";
+import { addArtifactToCollection } from "../../api/collections";
 import { uploadWithProgress, withUploadProgress } from "../../utils/upload";
 import { mantleUrl } from "../../api/api";
 import type { ActiveSource } from "../../types/workspace";
-import { getCollectionArtifacts, listArchivedChildren, subscribeCollectionEvents } from "../../api/collections";
-import { getContentTypeCategory } from "../../utils/search";
-import type { SearchResponse, SearchHit } from "../../api/types/search";
+import { getCollectionArtifacts, runView, subscribeCollectionEvents, type ViewResult } from "../../api/collections";
 import { useConfirm } from "@/context/dialog/useConfirm";
-import { CARD_CONFIRM, BULK_CONFIRM, BUTTON_LABELS, SHORTCUTS } from "@/constants/strings";
+import { ARTIFACT_CHANGED_EVENT, CARD_CONFIRM, BULK_CONFIRM, BUTTON_LABELS, MEMBERSHIP_CHANGED_EVENT, SHORTCUTS, TRASH_RETENTION_DAYS, announceMembershipChange, changeOf, containerOf } from "@/constants/strings";
 import { noun } from "@/product/copy";
 import { inboxWorkspaceId as inboxWorkspaceIdOf } from "@/utils/inbox";
-import { canDeleteArtifact, type CardRemoveMode } from "@/utils/artifact-permissions";
+import { allows, type CardRemoveMode } from "@/utils/artifact-permissions";
 import { useShortcuts } from "@/context/shortcuts/useShortcuts";
 import BrowserHeader from "./BrowserHeader";
-import { deriveArtifactCountArtifacts } from "./artifacts";
 import { safeParseArtifactContext, stringifyArtifactContext } from '@/utils/artifactContext';
 import { getContentTypeById } from '@/registry/content-types';
 import CardTypePickerDialog from './CardTypePickerDialog';
@@ -45,12 +39,13 @@ import { AGIENCE_DRAG_CONTENT_TYPE, getDroppedArtifactIds } from '@/dnd/agienceD
 import { toast } from 'sonner';
 import { IncomingInvites } from './IncomingInvites';
 import { errorDetail } from '../../utils/errorDetail';
-import { artifactTitle, nextUntitledTitle } from '@/utils/untitled';
 import { announceRemoval } from '@/utils/removal';
 import { removeWorkspaceArtifact } from '@/api/workspaces';
-import { CLOSED, isClosedBacklogItem } from '@/utils/backlog';
-import { removeArtifactFromCollection } from '@/api/collections';
+import { getArtifact } from '@/api/artifacts';
+import { changeMemberships, removeArtifactFromCollection } from '@/api/collections';
 import { useWindowInUse } from '@/hooks/useWindowInUse';
+import { LockedActionsContext } from '@/context/view/useLockedActions';
+import { keyList, keySet, keyedIn, notIn, present, removeFromSet, splitList, toggleInSet, unique, without, withoutKey } from '@/display-state/lists';
 
 const INLINE_BYTES_MAX = 128 * 1024; // 128 KiB (~32K tokens, good chunk size for LLM processing)
 const HIDDEN_CONTENT_TYPE_FILTERS_STORAGE_KEY = 'agience.browser.hiddenMimeCategories';
@@ -62,16 +57,6 @@ type ViewOption = 'grid' | 'list';
 
 
 
-function getArtifactContentTypeCategory(artifact: Artifact): string {
-  try {
-    const context = typeof artifact.context === 'string' ? JSON.parse(artifact.context) : artifact.context;
-    const ct = context?.content_type || '';
-    return getContentTypeCategory(ct);
-  } catch {
-    return 'unknown';
-  }
-}
-
 interface BrowserProps {
   activeSource: ActiveSource;
   /** Currently selected artifact ID for preview pane */
@@ -82,8 +67,6 @@ interface BrowserProps {
   onArtifactSelect?: (artifactId: string | null) => void;
   /** Callback when an artifact should be opened (e.g., floating window) */
   onOpenArtifact?: (artifact: Artifact, options?: { startInEditMode?: boolean }) => void;
-  /** External search results from AdvancedSearch (global search) */
-  externalSearchResults?: SearchResponse | null;
   /** Sort mode for search results */
   searchSortMode?: 'relevance' | 'recency';
   /** Callback when sort mode changes */
@@ -91,12 +74,6 @@ interface BrowserProps {
 }
 
 
-/** Every container an artifact is in, workspaces included (BUG-042): what the assign picker ticks
- *  and changes, so a workspace it already holds is shown held, and never added to twice. */
-function membershipsOf(card: Artifact): string[] {
-  const containers = (card as { container_ids?: string[] }).container_ids;
-  return (Array.isArray(containers) ? containers : card.committed_collection_ids ?? []).map(String);
-}
 
 export default function Browser({ 
   activeSource, 
@@ -104,7 +81,6 @@ export default function Browser({
   searchResultArtifacts = [],
   onArtifactSelect,
   onOpenArtifact,
-  externalSearchResults = null,
   searchSortMode = 'relevance',
   onSearchSortChange,
 }: BrowserProps) {
@@ -126,7 +102,7 @@ export default function Browser({
     createArtifact,
     updateArtifact,
     registerNewArtifactHandler,
-    orderArtifacts,
+    moveArtifacts,
     importArtifactsByRootIds,
   } = useWorkspace();
   // setDisplayedArtifacts is exposed by WorkspaceProvider; some context implementations may not define it.
@@ -138,11 +114,10 @@ export default function Browser({
   const latestArtifactsRef = useRef(artifacts);
   useEffect(() => { latestArtifactsRef.current = artifacts; }, [artifacts]);
 
-  const { workspaces, activeWorkspace, createWorkspace, setActiveWorkspaceId, updateWorkspace, deleteWorkspace } = useWorkspaces();
+  const { workspaces, activeWorkspace, createWorkspace, setActiveWorkspaceId, updateWorkspace, deleteWorkspace, restoreWorkspace, openWorkspaceTab } = useWorkspaces();
   const { collections } = useCollections();
-  const { user } = useAuth();
   // The person's Inbox: their oldest own workspace, as Mantle provisions it. Not their user id.
-  const inboxWorkspaceId = useMemo(() => inboxWorkspaceIdOf(workspaces, user?.id), [workspaces, user?.id]);
+  const inboxWorkspaceId = useMemo(() => inboxWorkspaceIdOf(workspaces), [workspaces]);
   // Use activeWorkspace ID, or fall back to inboxWorkspaceId if viewing a workspace, or empty string
   const workspaceId = activeWorkspace?.id || (activeSource?.type === 'workspace' ? inboxWorkspaceId : "") || "";
   const [editArtifact, setEditArtifact] = useState<ArtifactCreate | ArtifactUpdate | null>(null);
@@ -198,9 +173,7 @@ export default function Browser({
         );
       },
       onArtifactDeleted: (artifactId) => {
-        setSourceArtifacts(prev =>
-          prev.filter(c => String(c.root_id ?? c.id) !== String(artifactId))
-        );
+        setSourceArtifacts(prev => withoutKey(prev, c => c.root_id ?? c.id, artifactId));
       },
       onCollectionRefreshed: () => {
         getCollectionArtifacts(collectionId)
@@ -215,7 +188,8 @@ export default function Browser({
   // Filter/Sort/View state
   const [activeFilter, setActiveFilter] = useState<ArtifactState>('all');
   const [sortBy, setSortBy] = useState<SortOption>('recent');
-  const [viewMode, setViewMode] = useState<ViewOption>('grid');
+  // The list layout has its own address (`?layout=list`), so Back returns to the grid.
+  const [viewMode, setViewMode] = useAddressedValue<ViewOption>('layout', 'grid');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [showBulkCollectionPicker, setShowBulkCollectionPicker] = useState(false);
   // The artifacts the picker assigns: one card's (right-click "Assign to collections…") or, when
@@ -249,182 +223,10 @@ export default function Browser({
     }
   }, [activeSource?.type]);
   
-  // State for resolved display artifacts (handles async search artifact fetching)
-  const [resolvedDisplayArtifacts, setResolvedDisplayArtifacts] = useState<Artifact[]>(sourceArtifacts);
-  
-  // Search metadata index - separate from artifact.context (which is user-visible)
-  // Maps artifact root_id or id to search score
-  const [, setSearchMetadataIndex] = useState<Map<string, { score: number }>>(new Map());
-  
-  // Local workspace search (not used when global search results are provided)
-  const {
-    searchQuery,
-    filteredArtifacts: searchFilteredArtifacts,
-    // recentSearches, // Unused here — search input lives in MainHeader
-    // updateSearch, // Unused here — global search runs through AdvancedSearch
-    clearSearch,
-    isSearchActive,
-    // resultCount, // Not displayed - count shown in MainHeader
-    // totalCount, // Not displayed - count shown in MainHeader
-  } = useWorkspaceSearch(sourceArtifacts);
-  
-  // Convert SearchHit to Artifact for display
-  const convertSearchHitsToArtifacts = useCallback(async (hits: SearchHit[]): Promise<Artifact[]> => {
-    // Search returns IDs only; artifacts must be fetched from source.
-    // Strategy:
-    // 1. Check which artifacts already exist in sourceArtifacts (local cache)
-    // 2. Batch fetch missing artifacts from backend (grouped by workspace/collection)
-    // 3. Merge and return artifacts in original search order
-    
-    if (!hits || hits.length === 0) {
-      console.log('[Search] No hits to convert');
-      return [];
-    }
-    
-    console.log(`[Search] Converting ${hits.length} hits, sourceArtifacts=${sourceArtifacts.length}`);
-    
-    // Map search hits by root_id for quick lookup
-    const hitsByRootId = new Map(hits.map(hit => [hit.root_id, hit]));
-    
-    // Find artifacts that already exist in sourceArtifacts (local cache)
-    const existingArtifactsByRootId = new Map<string, Artifact>();
-    sourceArtifacts.forEach(artifact => {
-      const rootId = artifact.root_id || artifact.id;
-      if (rootId && hitsByRootId.has(rootId)) {
-        existingArtifactsByRootId.set(rootId, artifact);
-      }
-    });
-    
-    console.log(`[Search] Found ${existingArtifactsByRootId.size} cached artifacts in sourceArtifacts`);
-    
-    // Find hits that need to be fetched
-    const hitsToFetch = hits.filter(hit => !existingArtifactsByRootId.has(hit.root_id));
-    console.log(`[Search] Need to batch fetch ${hitsToFetch.length} artifacts from backend`);
-    
-    // Fetch missing artifacts from backend using batch endpoints
-    let fetchedArtifacts: Artifact[] = [];
-    if (hitsToFetch.length > 0) {
-      try {
-        const batchFetchPromises: Promise<Artifact[]>[] = [];
-        
-        // Batch fetch workspace artifacts (global search across all workspaces)
-        const workspaceHits = hitsToFetch.filter(h => !h.collection_id);
-        if (workspaceHits.length > 0) {
-          const artifactIds = workspaceHits.map(h => h.version_id);  // Use version_id (artifact ID), not document ID
-          console.log(`[Search] Batch fetching ${artifactIds.length} artifacts from all accessible workspaces`);
-          
-          batchFetchPromises.push(
-            getWorkspaceArtifactsBatchGlobal(artifactIds)
-              .catch(err => {
-                console.error(`[Search] Failed to batch fetch workspace artifacts:`, err);
-                return [];
-              })
-          );
-        }
-        
-        // Batch fetch collection artifacts (global search across all collections)
-        const collectionHits = hitsToFetch.filter(h => h.collection_id);
-        if (collectionHits.length > 0) {
-          const artifactIds = collectionHits.map(h => h.version_id);
-          console.log(`[Search] Batch fetching ${artifactIds.length} artifacts from all accessible collections`);
-          
-          batchFetchPromises.push(
-            getCollectionArtifactsBatchGlobal(artifactIds)
-              .catch(err => {
-                console.error(`[Search] Failed to batch fetch collection artifacts:`, err);
-                return [];
-              })
-          );
-        }
-        
-        // Wait for all batch fetches to complete
-        const results = await Promise.all(batchFetchPromises);
-        fetchedArtifacts = results.flat();
-        console.log(`[Search] Batch fetched ${fetchedArtifacts.length} artifacts from backend`);
-      } catch (err) {
-        console.error('[Search] Error batch fetching artifacts:', err);
-      }
-    }
-    
-    // Create lookup maps for fetched artifacts by root_id and version/artifact id.
-    const fetchedArtifactsByRootId = new Map<string, Artifact>();
-    const fetchedArtifactsById = new Map<string, Artifact>();
-    fetchedArtifacts.forEach(artifact => {
-      if (artifact.root_id) {
-        fetchedArtifactsByRootId.set(artifact.root_id, artifact);
-      }
-      if (artifact.id) {
-        fetchedArtifactsById.set(String(artifact.id), artifact);
-      }
-    });
-    
-    // Build final result array in original search order
-    // This preserves the backend's relevance ranking
-    const orderedArtifacts: Artifact[] = [];
-    const metadataIndex = new Map<string, { score: number }>();
-    
-    for (const hit of hits) {
-      // Look up artifact from either cache or fetched results
-      const artifact = existingArtifactsByRootId.get(hit.root_id)
-        || fetchedArtifactsByRootId.get(hit.root_id)
-        || fetchedArtifactsById.get(hit.version_id);
-      
-      if (!artifact) {
-        console.warn(`[Search] Artifact not found for hit: ${hit.root_id}`);
-        continue;
-      }
-
-      const hydratedArtifact: Artifact = {
-        ...artifact,
-        id: artifact.id ?? hit.version_id,
-        root_id: artifact.root_id ?? hit.root_id,
-        collection_id: artifact.collection_id ?? hit.collection_id,
-      };
-
-      orderedArtifacts.push(hydratedArtifact);
-      
-      // Store search metadata separately (not in artifact.context)
-      const artifactKey = hydratedArtifact.root_id || hydratedArtifact.id;
-      if (artifactKey) {
-        metadataIndex.set(artifactKey, { score: hit.score });
-      }
-    }
-    
-    // Update metadata index state
-    setSearchMetadataIndex(metadataIndex);
-    
-    console.log(`[Search] Returning ${orderedArtifacts.length} artifacts in search order`);
-    return orderedArtifacts;
-  }, [sourceArtifacts]);
-  
-  // Resolve display artifacts from search results or source artifacts
-  useEffect(() => {
-    const resolveArtifacts = async () => {
-      // If search was performed (externalSearchResults is not null), show those results
-      // even if empty (0 hits) - this lets us show "0 results" message
-      if (externalSearchResults !== null) {
-        if (externalSearchResults.hits.length > 0) {
-          const artifacts = await convertSearchHitsToArtifacts(externalSearchResults.hits);
-          setResolvedDisplayArtifacts(artifacts);
-        } else {
-          // Empty search results - show empty state
-          setResolvedDisplayArtifacts([]);
-          setSearchMetadataIndex(new Map()); // Clear metadata
-        }
-      } else {
-        // No search - show source artifacts (inbox or collection)
-        setResolvedDisplayArtifacts(sourceArtifacts);
-        setSearchMetadataIndex(new Map()); // Clear metadata when not searching
-      }
-    };
-    
-    resolveArtifacts();
-  }, [externalSearchResults, sourceArtifacts, convertSearchHitsToArtifacts]);
-
   // Publish the currently-displayed artifacts to workspace context so preview can render non-workspace artifacts
   useEffect(() => {
-    if (typeof setDisplayedArtifacts === 'function') setDisplayedArtifacts(resolvedDisplayArtifacts);
-  }, [resolvedDisplayArtifacts, setDisplayedArtifacts]);
+    if (typeof setDisplayedArtifacts === 'function') setDisplayedArtifacts(sourceArtifacts);
+  }, [sourceArtifacts, setDisplayedArtifacts]);
   
   // Register keyboard shortcuts for artifact selection
   const { registerShortcut } = useShortcuts();
@@ -473,20 +275,15 @@ export default function Browser({
     };
   }, [activeSource?.type, registerShortcut, selectAllArtifacts, selectedArtifactIds.length, unselectAllArtifacts]);
   
-  // When showing search results (even if empty), bypass workspace search
-  const isShowingSearchResults = externalSearchResults !== null;
-  
   // Additional filter chips state
-  const [activeStateFilters, setActiveStateFilters] = useState<Set<string>>(new Set());
-  const [activeContentTypeFilters, setActiveContentTypeFilters] = useState<Set<string>>(new Set());
+  const [activeStateFilters, setActiveStateFilters] = useState(() => keySet<string>());
+  const [activeContentTypeFilters, setActiveContentTypeFilters] = useState(() => keySet<string>());
   const [hiddenContentTypeFilters, setHiddenContentTypeFilters] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem(HIDDEN_CONTENT_TYPE_FILTERS_STORAGE_KEY);
-      if (!raw) return new Set();
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? new Set(parsed.map(String)) : new Set();
+      return keySet(raw ? keyList(JSON.parse(raw)) : []);
     } catch {
-      return new Set();
+      return keySet<string>();
     }
   });
 
@@ -499,156 +296,85 @@ export default function Browser({
   }, [stackArtifactFamilies]);
   
   const bulkSelectedArtifacts = useMemo(
-    () => artifacts.filter((artifact) => selectedArtifactIds.includes(String(artifact.id))),
+    () => keyedIn(artifacts, (artifact) => artifact.id, selectedArtifactIds),
     [artifacts, selectedArtifactIds]
   );
 
-  // The open container's archived members. Default listings leave them out (an archived artifact is
-  // read past, not destroyed), so the Archived chip loads them from the server to count them and,
-  // when it is on, to show them with Restore and Delete.
-  const archivedContainerId =
+  // The open container's view: Crystal runs the rules its members' types declare (what the
+  // Archived and Closed chips set apart, each member's kind, the sorts) on the person's choices,
+  // and the grid shows what comes back. Search results and server tools show as they arrive.
+  const viewContainerId =
     activeSource?.type === 'collection' ? activeSource.id
       : activeSource?.type === 'workspace' ? workspaceId
         : '';
-  const [archivedMembers, setArchivedMembers] = useState<Artifact[]>([]);
-  const showingArchived = activeStateFilters.has('archived');
-  const reloadArchived = useCallback(() => {
-    if (!archivedContainerId) { setArchivedMembers([]); return; }
-    listArchivedChildren(archivedContainerId)
-      .then(list => setArchivedMembers(list as Artifact[]))
-      .catch(err => { console.error('Failed to load archived members:', err); setArchivedMembers([]); });
-  }, [archivedContainerId]);
-  // On a new container, and again whenever the live list changes (an archive or a restore moves a
-  // card between the two).
-  useEffect(() => { reloadArchived(); }, [reloadArchived, sourceArtifacts]);
+  const [view, setView] = useState<ViewResult | null>(null);
+  const viewChoices = useMemo(() => ({
+    apart: activeFilter === 'archived' && !activeStateFilters.has('archived')
+      ? [...activeStateFilters, 'archived'] : [...activeStateFilters],
+    kinds: [...activeContentTypeFilters],
+    hidden_kinds: [...hiddenContentTypeFilters],
+    sort: sortBy,
+  }), [activeFilter, activeStateFilters, activeContentTypeFilters, hiddenContentTypeFilters, sortBy]);
+  const viewRun = useRef(0);
+  const reloadView = useCallback(() => {
+    const run = ++viewRun.current;
+    if (!viewContainerId) { setView(null); return; }
+    runView(viewContainerId, viewChoices)
+      .then(v => { if (run === viewRun.current) setView(v); })
+      .catch(err => { console.error('Failed to run the view:', err); if (run === viewRun.current) setView(null); });
+  }, [viewContainerId, viewChoices]);
+  // Again on each change to the held members (a save, an archive, a new artifact) and whenever
+  // Mantle reports a membership or an artifact changing, a moment after the last of a burst.
+  useEffect(() => {
+    const t = setTimeout(reloadView, 120);
+    return () => clearTimeout(t);
+  }, [reloadView, sourceArtifacts]);
+  useEffect(() => {
+    if (!viewContainerId) return;
+    const onMembership = (e: Event) => { if (containerOf(e) === viewContainerId) reloadView(); };
+    const onChange = (e: Event) => { if (changeOf(e)) reloadView(); };
+    window.addEventListener(MEMBERSHIP_CHANGED_EVENT, onMembership);
+    window.addEventListener(ARTIFACT_CHANGED_EVENT, onChange);
+    return () => {
+      window.removeEventListener(MEMBERSHIP_CHANGED_EVENT, onMembership);
+      window.removeEventListener(ARTIFACT_CHANGED_EVENT, onChange);
+    };
+  }, [viewContainerId, reloadView]);
 
-  // Calculate counts for filter bar (use resolvedDisplayArtifacts which includes search results)
   const counts = useMemo(() => ({
-    total: resolvedDisplayArtifacts.length,
-    archived: resolvedDisplayArtifacts.filter((c: Artifact) => c.state === 'archived').length,
-  }), [resolvedDisplayArtifacts]);
+    total: sourceArtifacts.length,
+    archived: view?.chips.find(c => c.key === 'archived')?.count ?? 0,
+  }), [sourceArtifacts.length, view]);
 
-  // Filter and sort artifacts
+  // The view's members in its order, each as the workspace holds it now when it holds it.
+  const viewed = useMemo(() => {
+    const byKey = new Map<string, Artifact>();
+    for (const a of view?.artifacts ?? []) byKey.set(String(a.root_id ?? a.id), a as Artifact);
+    for (const c of sourceArtifacts) {
+      const key = String(c.root_id ?? c.id);
+      if (byKey.has(key)) byKey.set(key, c);
+    }
+    return byKey;
+  }, [view, sourceArtifacts]);
   const filteredArtifacts = useMemo(() => {
-    // When showing search results, skip workspace search filtering
-    let result = isShowingSearchResults ? resolvedDisplayArtifacts : searchFilteredArtifacts;
+    if (!viewContainerId) return sourceArtifacts;
+    return [...viewed.values()];
+  }, [viewContainerId, viewed, sourceArtifacts]);
 
-    // Strip the workspace container artifact card. The workspace container
-    // artifact uses the workspace ID as both id/root_id and should never
-    // render as a normal card inside its own workspace view.
-    if (activeSource?.type === 'workspace' && workspaceId) {
-      result = result.filter((c: Artifact) => {
-        const artifactId = String(c.id ?? '');
-        const rootId = String(c.root_id ?? '');
-        return artifactId !== workspaceId && rootId !== workspaceId;
-      });
-    }
-
-    if (hiddenContentTypeFilters.size > 0) {
-      result = result.filter((c: Artifact) => !hiddenContentTypeFilters.has(getArtifactContentTypeCategory(c)));
-    }
-
-    // Apply state filter from FilterBar
-    if (activeFilter !== 'all') {
-      result = result.filter((c: Artifact) => c.state === activeFilter);
-    }
-    
-    // An artifact archived here leaves the live view at once, not at the next reload. 2026-10-23,
-    // a tester archived a card from the Inbox and it stayed until they refreshed the page.
-    if (!showingArchived && !isShowingSearchResults && activeFilter !== 'archived') {
-      result = result.filter((c: Artifact) => c.state !== 'archived');
-    }
-
-    // The archived members are not in the live list; with the Archived chip on, they are added.
-    if (showingArchived && !isShowingSearchResults) {
-      const seen = new Set(result.map((c: Artifact) => String(c.root_id ?? c.id)));
-      result = [...result, ...archivedMembers.filter(c => !seen.has(String(c.root_id ?? c.id)))];
-    }
-
-    // A Backlog item its loop closed (G6) leaves the open Backlog; the Closed chip shows the closed
-    // ones alone. That state is the item's own (`context.state`), not the artifact's.
-    // A search still finds closed items unless the chip asks for them alone.
-    const showingClosed = activeStateFilters.has(CLOSED);
-    if (showingClosed || !isShowingSearchResults) {
-      result = result.filter((c: Artifact) => isClosedBacklogItem(c) === showingClosed);
-    }
-
-    // Apply additional state filters from FilterChips
-    const artifactStates = new Set([...activeStateFilters].filter((s) => s !== CLOSED));
-    if (artifactStates.size > 0) {
-      result = result.filter((c: Artifact) => artifactStates.has(c.state || ''));
-    }
-    
-    // Apply MIME type filters from FilterChips
-    if (activeContentTypeFilters.size > 0) {
-      result = result.filter((c: Artifact) => activeContentTypeFilters.has(getArtifactContentTypeCategory(c)));
-    }
-
-    // Search results keep the order recall gave them (its relevance or recency, per the search's
-    // own sort). 2026-10-13, a tester's exact-title search ranked below unrelated cards: the view's
-    // sort (manual order in a workspace, newest first elsewhere) was applied on top of the ranking.
-    if (isShowingSearchResults) return result;
-
-    // Apply sort
-    result = [...result].sort((a, b) => {
-      switch (sortBy) {
-        case 'title': {
-          // Extract title from context or use empty string
-          const getTitleFromContext = (artifact: Artifact) => {
-            try {
-              const ctx = typeof artifact.context === 'string' ? JSON.parse(artifact.context) : artifact.context;
-              return ctx?.filename || ctx?.title || '';
-            } catch {
-              return '';
-            }
-          };
-          const titleA = getTitleFromContext(a);
-          const titleB = getTitleFromContext(b);
-          return titleA.localeCompare(titleB);
-        }
-        case 'created':
-          return (new Date(b.created_time || 0).getTime()) - (new Date(a.created_time || 0).getTime());
-        case 'modified':
-          return (new Date(b.modified_time || b.created_time || 0).getTime()) -
-                 (new Date(a.modified_time || a.created_time || 0).getTime());
-        case 'manual':
-          // Use order_key for manual sorting
-          {
-            const ka = (a.order_key || '');
-            const kb = (b.order_key || '');
-            const primary = ka.localeCompare(kb);
-            if (primary !== 0) return primary;
-
-            const ta = new Date(a.created_time || 0).getTime();
-            const tb = new Date(b.created_time || 0).getTime();
-            if (ta !== tb) return ta - tb;
-
-            return String(a.id || '').localeCompare(String(b.id || ''));
-          }
-        case 'recent':
-        default:
-          return (new Date(b.created_time || 0).getTime()) - (new Date(a.created_time || 0).getTime());
-      }
-    });
-
-    return result;
-  }, [searchFilteredArtifacts, resolvedDisplayArtifacts, isShowingSearchResults, activeFilter, activeStateFilters, activeContentTypeFilters, hiddenContentTypeFilters, sortBy, activeSource?.type, workspaceId, showingArchived, archivedMembers]);
-
-  const artifactCountArtifacts = useMemo(
-    () => deriveArtifactCountArtifacts({
-      searchFilteredArtifacts,
-      resolvedDisplayArtifacts,
-      isShowingSearchResults,
-      activeSourceType: activeSource?.type,
-    }),
-    [searchFilteredArtifacts, resolvedDisplayArtifacts, isShowingSearchResults, activeSource?.type]
-  );
-  const stackedArtifacts = useMemo(() => buildArtifactSections(filteredArtifacts), [filteredArtifacts]);
-  const artifactCountsByOwnerId = useMemo(() => buildArtifactCountsByOwnerId(artifactCountArtifacts), [artifactCountArtifacts]);
+  // The main list and the sections of produced members, as the view gathers them.
+  const stackedArtifacts = useMemo(() => {
+    if (!viewContainerId || !view) return { primaryArtifacts: filteredArtifacts, sections: [] as ArtifactSection[] };
+    const pick = (keys: string[]) => keys.flatMap(k => viewed.get(k) ?? []);
+    return {
+      primaryArtifacts: pick(view.primary ?? []),
+      sections: (view.sections ?? []).map((s): ArtifactSection => ({ id: s.id, title: s.title, artifacts: pick(s.keys) })),
+    };
+  }, [viewContainerId, view, viewed, filteredArtifacts]);
+  const artifactCountsByOwnerId = useMemo(() => view?.owned ?? {}, [view]);
+  const lockedActions = useMemo(() => view?.locked ?? {}, [view]);
   const shouldUseArtifactStacks =
     stackArtifactFamilies &&
     activeSource?.type === 'workspace' &&
-    !isShowingSearchResults &&
     stackedArtifacts.sections.length > 0;
   // The bar acts on the workspace grid's selection, so it stands aside while the person works in a
   // window over the grid: BUG-019, 2026-11-10, a right-click in a collection window showed
@@ -657,8 +383,8 @@ export default function Browser({
   const windowInUse = useWindowInUse();
   const showFloatingToolbar = activeSource?.type === 'workspace' && bulkSelectedArtifacts.length > 0 && !windowInUse;
   const bulkCanDelete = useMemo(
-    () => bulkSelectedArtifacts.some(a => canDeleteArtifact(a, user?.id)),
-    [bulkSelectedArtifacts, user?.id]
+    () => bulkSelectedArtifacts.some(a => allows(a, 'delete')),
+    [bulkSelectedArtifacts]
   );
   const bulkHasLive = useMemo(
     () => bulkSelectedArtifacts.some(a => a.state !== 'archived'),
@@ -667,52 +393,22 @@ export default function Browser({
 
   // Handlers for filter chips
   const handleStateFilterToggle = useCallback((state: string) => {
-    setActiveStateFilters(prev => {
-      const next = new Set(prev);
-      if (next.has(state)) {
-        next.delete(state);
-      } else {
-        next.add(state);
-      }
-      return next;
-    });
+    setActiveStateFilters(prev => toggleInSet(prev, state));
   }, []);
   
   const handleContentTypeFilterToggle = useCallback((contentType: string) => {
-    setActiveContentTypeFilters(prev => {
-      const next = new Set(prev);
-      if (next.has(contentType)) {
-        next.delete(contentType);
-      } else {
-        next.add(contentType);
-      }
-      return next;
-    });
+    setActiveContentTypeFilters(prev => toggleInSet(prev, contentType));
   }, []);
 
   const handleHiddenContentTypeToggle = useCallback((contentType: string) => {
-    setHiddenContentTypeFilters(prev => {
-      const next = new Set(prev);
-      if (next.has(contentType)) {
-        next.delete(contentType);
-      } else {
-        next.add(contentType);
-      }
-      return next;
-    });
-
-    setActiveContentTypeFilters(prev => {
-      if (!prev.has(contentType)) return prev;
-      const next = new Set(prev);
-      next.delete(contentType);
-      return next;
-    });
+    setHiddenContentTypeFilters(prev => toggleInSet(prev, contentType));
+    setActiveContentTypeFilters(prev => (prev.has(contentType) ? removeFromSet(prev, contentType) : prev));
   }, []);
 
   const handleClearAllFilters = useCallback(() => {
-    setActiveStateFilters(new Set());
-    setActiveContentTypeFilters(new Set());
-    setHiddenContentTypeFilters(new Set());
+    setActiveStateFilters(keySet<string>());
+    setActiveContentTypeFilters(keySet<string>());
+    setHiddenContentTypeFilters(keySet<string>());
   }, []);
 
   // Any chip or drawer filter narrowing the view (search text is tracked separately).
@@ -725,12 +421,11 @@ export default function Browser({
   // keeps its own empty state even while a (possibly remembered) filter is set.
   const filtersHideEverything = useMemo(() => {
     if (!isAnyFilterActive) return false;
-    const base = isShowingSearchResults ? resolvedDisplayArtifacts : searchFilteredArtifacts;
-    return base.some((c: Artifact) => {
+    return sourceArtifacts.some((c: Artifact) => {
       if (activeSource?.type !== 'workspace' || !workspaceId) return true;
       return String(c.id ?? '') !== workspaceId && String(c.root_id ?? '') !== workspaceId;
     });
-  }, [activeSource?.type, isAnyFilterActive, isShowingSearchResults, resolvedDisplayArtifacts, searchFilteredArtifacts, workspaceId]);
+  }, [activeSource?.type, isAnyFilterActive, sourceArtifacts, workspaceId]);
   const handleClearEveryFilter = useCallback(() => {
     handleClearAllFilters();
     setActiveFilter('all');
@@ -781,66 +476,49 @@ export default function Browser({
     } else if (added > 0) {
       toast.success(`Added ${added} item${added === 1 ? '' : 's'} to collection`);
     }
+    if (added > 0) announceMembershipChange({ container_id: collectionId });
     return added;
   }, []);
 
-  // The picker opens showing what the artifacts are already in: a collection is checked when every
-  // one of them is in it, as the card window's Change shows one artifact's. Checking adds them all;
-  // unchecking one that was checked takes them all out. 2026-10-29, a tester: Assign to Collections
-  // from the toolbar or menu opened with nothing checked for an artifact already in a collection.
-  const assignCards = useMemo(() => {
+  // Where the selection is held, as Mantle reads it: containers holding all of it are ticked,
+  // those holding some show as mixed (BUG-042: workspaces included). The picker opens on it.
+  const [assignHeld, setAssignHeld] = useState<{ all: string[]; some: string[] } | null>(null);
+  useEffect(() => {
+    setAssignHeld(null);
+    if (!showBulkCollectionPicker) return;
     const ids = assignIds ?? selectedArtifactIds;
-    const all = [...artifacts, ...sourceArtifacts];
-    return ids.map(id => all.find(c => String(c.id) === id)).filter((c): c is Artifact => Boolean(c));
-  }, [assignIds, selectedArtifactIds, artifacts, sourceArtifacts]);
-  const heldByAll = useMemo(() => {
-    if (!assignCards.length) return [];
-    const [first, ...rest] = assignCards.map(c => new Set(membershipsOf(c)));
-    return [...first].filter(id => rest.every(s => s.has(id)));
-  }, [assignCards]);
-
-  // Collections some of the selection belongs to, but not all: the picker shows them as mixed and
-  // leaves them alone unless the person sets them (2026-10-31, a tester: they showed as unchecked).
-  const heldBySome = useMemo(() => {
-    const all = new Set(heldByAll);
-    const any = new Set(assignCards.flatMap(c => membershipsOf(c)));
-    return [...any].filter(id => !all.has(id));
-  }, [assignCards, heldByAll]);
+    let live = true;
+    changeMemberships(ids)
+      .then(m => { if (live) setAssignHeld({ all: m.all, some: m.some }); })
+      .catch(() => { if (live) setAssignHeld({ all: [], some: [] }); });
+    return () => { live = false; };
+  }, [showBulkCollectionPicker, assignIds, selectedArtifactIds]);
 
   const handleBulkSelectCollections = useCallback(async (collectionIds: string[], clearedPartialIds: string[] = []) => {
     const ids = assignIds ?? selectedArtifactIds;
-    const chosen = new Set(collectionIds.map(String));
-    const removed = [...heldByAll.filter(id => !chosen.has(id)), ...clearedPartialIds.map(String)];
-    for (const collectionId of chosen) {
-      const outside = ids.filter(id => {
-        const card = assignCards.find(c => String(c.id) === id);
-        return !card || !membershipsOf(card).includes(collectionId);
-      });
-      if (outside.length) await addArtifactsToCollectionWithFeedback(collectionId, outside);
-    }
-    for (const collectionId of removed) {
-      for (const card of assignCards) {
-        if (!membershipsOf(card).includes(collectionId)) continue;
-        try {
-          await removeArtifactFromCollection(collectionId, String(card.root_id ?? card.id));
-        } catch {
-          toast.error('Could not remove from this collection');
+    try {
+      const { items, failed } = await changeMemberships(ids, { held: collectionIds, cleared: clearedPartialIds });
+      if (failed.length) toast.error('Could not change every collection', { description: failed[0].detail });
+      // Show what Mantle now says holds each one, rather than at the next refresh.
+      for (const now of items) {
+        const held = { committed_collection_ids: now.committed_collection_ids, container_ids: now.container_ids,
+          containers: now.containers };
+        for (const c of artifacts) {
+          if (String(c.root_id ?? c.id) === now.root_id) patchArtifactLocally({ id: String(c.id), ...held });
         }
+        setSourceArtifacts(prev => prev.map(c => (String(c.root_id ?? c.id) === now.root_id ? { ...c, ...held } : c)));
       }
-    }
-    // The card's collection indicator reads `committed_collection_ids`; show the new memberships
-    // now rather than at the next refresh.
-    for (const card of assignCards) {
-      const id = String(card.id);
-      const memberships = Array.from(new Set([...(card.committed_collection_ids ?? []).map(String), ...chosen]))
-        .filter(c => !removed.includes(c));
-      patchArtifactLocally({ id: card.id, committed_collection_ids: memberships });
-      setSourceArtifacts(prev => prev.map(c => (String(c.id) === id ? { ...c, committed_collection_ids: memberships } : c)));
+      // Every container the picker showed or changed lists its members again.
+      for (const container_id of unique([...collectionIds, ...clearedPartialIds, ...(assignHeld?.all ?? []), ...(assignHeld?.some ?? [])])) {
+        announceMembershipChange({ container_id });
+      }
+    } catch (err) {
+      toast.error('Could not change every collection', { description: errorDetail(err, 'Some changes were not saved') });
     }
     setShowBulkCollectionPicker(false);
     if (!assignIds) unselectAllArtifacts();
     setAssignIds(null);
-  }, [assignIds, assignCards, heldByAll, selectedArtifactIds, unselectAllArtifacts, addArtifactsToCollectionWithFeedback, patchArtifactLocally]);
+  }, [assignIds, selectedArtifactIds, unselectAllArtifacts, patchArtifactLocally, artifacts, assignHeld]);
 
   const handleBulkAddTags = useCallback(async () => {
     setShowBulkTagDialog(true);
@@ -848,15 +526,16 @@ export default function Browser({
 
   const handleBulkApplyTags = useCallback(async ({ tags, replaceExisting }: BulkTagApplyRequest) => {
     for (const artifact of bulkSelectedArtifacts) {
-      const context = safeParseArtifactContext(artifact.context);
-      const currentTags = Array.isArray(context.tags) ? context.tags.map(String) : [];
-      await updateArtifact({
-        id: String(artifact.id),
-        context: stringifyArtifactContext({
-          ...context,
-          tags: replaceExisting ? tags : Array.from(new Set([...currentTags, ...tags])),
-        }),
-      });
+      const id = String(artifact.id);
+      // Read the artifact as stored, merge the tags, and write the whole list.
+      try {
+        const context = safeParseArtifactContext((await getArtifact(id)).context);
+        const held = !replaceExisting && Array.isArray(context.tags) ? context.tags : [];
+        await updateArtifact({ id, context: stringifyArtifactContext({ ...context, tags: unique([...held, ...tags]) }) });
+      } catch (err) {
+        toast.error('Could not add the tags', { description: errorDetail(err, 'The tags were not saved') });
+        return;
+      }
     }
   }, [bulkSelectedArtifacts, updateArtifact]);
 
@@ -867,7 +546,7 @@ export default function Browser({
 
   const dockedWorkspaceTabIdsPref = useMemo(() => {
     const raw = (browserPrefs as { dockedWorkspaceCardIds?: unknown }).dockedWorkspaceCardIds;
-    return Array.isArray(raw) ? raw.map(String).filter(Boolean) : undefined;
+    return Array.isArray(raw) ? keyList(raw) : undefined;
   }, [browserPrefs]);
 
   // If the artifact is a workspace card that points to a docked workspace tab, undock that workspace.
@@ -879,16 +558,18 @@ export default function Browser({
     if (!workspaces.some(w => w.id === wsId)) return;
 
     const nextDocked = dockedWorkspaceTabIdsPref
-      ? dockedWorkspaceTabIdsPref.filter(id => id !== wsId)
-      : workspaces.filter(w => w.id !== wsId).map(w => w.id);
+      ? without(dockedWorkspaceTabIdsPref, wsId)
+      : withoutKey(workspaces, w => w.id, wsId).map(w => w.id);
 
     void updatePreferences({ browser: { ...browserPrefs, dockedWorkspaceCardIds: nextDocked } });
   }, [browserPrefs, dockedWorkspaceTabIdsPref, updatePreferences, workspaces]);
 
+  // Every bulk action sends the whole selection; Mantle decides each artifact. Archiving an
+  // archived one or restoring a live one changes nothing, and a delete Mantle refuses comes back
+  // with its reason.
   const handleBulkArchive = useCallback(async () => {
-    const items = bulkSelectedArtifacts.filter(a => a.state !== 'archived');
-    const count = items.length;
-    if (count === 0) return;
+    const items = bulkSelectedArtifacts;
+    if (items.length === 0) return;
 
     for (const artifact of items) {
       undockWorkspaceIfNeeded(artifact);
@@ -900,14 +581,14 @@ export default function Browser({
   // Restore the archived part of the selection. The toolbar and a card's menu share it (2026-10-31,
   // a tester: the archived view's toolbar had no Restore, though the menu's did).
   const handleBulkRestore = useCallback(async () => {
-    const items = bulkSelectedArtifacts.filter(a => a.state === 'archived');
+    const items = bulkSelectedArtifacts;
     if (items.length === 0) return;
     for (const artifact of items) {
       await updateArtifact({ id: String(artifact.id), state: 'live' });
     }
-    reloadArchived();
+    reloadView();
     unselectAllArtifacts();
-  }, [bulkSelectedArtifacts, reloadArchived, unselectAllArtifacts, updateArtifact]);
+  }, [bulkSelectedArtifacts, reloadView, unselectAllArtifacts, updateArtifact]);
 
   // Remove the selection from the container on screen, the way a single card's Remove does. It
   // called the workspace store's remove, which unlinks from the active workspace even while a
@@ -915,7 +596,7 @@ export default function Browser({
   // through a ref.
   const browserRemoveRef = useRef<((artifact: Artifact) => Promise<void>) | null>(null);
   const handleBulkDrop = useCallback(async () => {
-    const items = bulkSelectedArtifacts.filter(a => a.state !== 'archived');
+    const items = bulkSelectedArtifacts;
     if (items.length === 0) return;
     for (const artifact of items) {
       await browserRemoveRef.current?.(artifact);
@@ -924,7 +605,7 @@ export default function Browser({
   }, [bulkSelectedArtifacts, unselectAllArtifacts]);
 
   const handleBulkDelete = useCallback(async () => {
-    const items = bulkSelectedArtifacts.filter(a => canDeleteArtifact(a, user?.id));
+    const items = bulkSelectedArtifacts;
     const count = items.length;
     if (count === 0) return;
     const confirmed = await dangerConfirm.confirm({
@@ -945,7 +626,7 @@ export default function Browser({
     }
     if (trashed.length) announceTrashed(trashed, `${trashed.length} ${noun(trashed.length).toLowerCase()}`);
     unselectAllArtifacts();
-  }, [dangerConfirm, bulkSelectedArtifacts, deleteArtifact, announceTrashed, unselectAllArtifacts, undockWorkspaceIfNeeded, user?.id]);
+  }, [dangerConfirm, bulkSelectedArtifacts, deleteArtifact, announceTrashed, unselectAllArtifacts, undockWorkspaceIfNeeded]);
 
   // A menu opened on a card inside a selection of several acts on the whole selection, as the
   // toolbar does; on any other card, on that card alone. 2026-10-29, a tester: with three cards
@@ -1031,28 +712,21 @@ export default function Browser({
   // A failed create is already toasted by WorkspacesProvider.createWorkspace.
   // One create at a time (BUG-058, 2026-11-10: a second click while the first was on its way made
   // a second workspace).
-  // BUG-001: [+] asks for the name first, offering the first free "Untitled workspace" number, so
-  // new workspaces are not all called the same.
+  // [+] asks for the name first; one left blank is named by Mantle, numbered against the
+  // person's other workspaces.
   const creatingWorkspace = useRef(false);
-  const freeWorkspaceName = useCallback(
-    () => nextUntitledTitle(UNTITLED_WORKSPACE, workspaces.map((w) => String(w.name ?? ''))),
-    [workspaces],
-  );
-  // The name offered, fixed when the prompt opens; null while it is closed.
+  // The prompt's starting name, '' while it is open; null while it is closed.
   const [offeredWorkspaceName, setOfferedWorkspaceName] = useState<string | null>(null);
   const newWorkspaceInitial = useMemo(
     () => ({ name: offeredWorkspaceName ?? '', description: '' }),
     [offeredWorkspaceName],
   );
-  const handleCreateWorkspace = useCallback(
-    () => setOfferedWorkspaceName(freeWorkspaceName()),
-    [freeWorkspaceName],
-  );
+  const handleCreateWorkspace = useCallback(() => setOfferedWorkspaceName(''), []);
   const createNamedWorkspace = useCallback(async (name: string, description: string) => {
     if (creatingWorkspace.current) return;
     creatingWorkspace.current = true;
     try {
-      const ws = await createWorkspace(name.trim() || freeWorkspaceName(), description.trim(),
+      const ws = await createWorkspace(name.trim(), description.trim(),
         { activate: false }).catch(() => null);
       if (!ws) return;
       setOfferedWorkspaceName(null);
@@ -1060,12 +734,12 @@ export default function Browser({
     } finally {
       creatingWorkspace.current = false;
     }
-  }, [createWorkspace, freeWorkspaceName, setActiveWorkspaceId]);
+  }, [createWorkspace, setActiveWorkspaceId]);
 
   // BUG-075: "Add to workspace" asks which workspace and links the artifact there.
   const { addToWorkspace, picker: addToWorkspacePicker } = useAddToWorkspace();
 
-  // "New card" from the no-source empty state: dock the Inbox (its id is the user id),
+  // "New artifact" from the no-source empty state: dock the Inbox (its id is the user id),
   // make it active, and open the type picker. The created card lands in the Inbox.
   const canCreateCardInInbox = Boolean(inboxWorkspaceId && workspaces.some(w => w.id === inboxWorkspaceId));
   const handleCreateCardInInbox = useCallback(() => {
@@ -1101,7 +775,7 @@ export default function Browser({
   };
 
   const resolveDroppedIds = useCallback((draggedIds: string[]): ResolvedDrop => {
-    const pool = [...searchResultArtifacts, ...resolvedDisplayArtifacts, ...artifacts, ...sourceArtifacts];
+    const pool = [...searchResultArtifacts, ...artifacts, ...sourceArtifacts];
     const activeWsId = activeWorkspace?.id;
 
     const result: ResolvedDrop = {
@@ -1147,7 +821,7 @@ export default function Browser({
     }
 
     return result;
-  }, [activeWorkspace?.id, artifacts, resolvedDisplayArtifacts, searchResultArtifacts, sourceArtifacts]);
+  }, [activeWorkspace?.id, artifacts, searchResultArtifacts, sourceArtifacts]);
 
   // ---------------------------------------------------------------------------
   // Unified drop handler: resolves IDs first, then dispatches import or copy.
@@ -1170,20 +844,12 @@ export default function Browser({
       if (dragPayload?.sourceType === 'workspace' || dragPayload?.workspaceId) {
         idsToAdd = draggedIds.map(String);
       } else {
-        const versionIds = Array.isArray(dragPayload?.versionIds)
-          ? dragPayload.versionIds.map(String).map((value) => value.trim()).filter(Boolean)
-          : [];
-        const fallbackVersionIds = draggedIds
-          .map((id) => {
-            const artifact = [...searchResultArtifacts, ...resolvedDisplayArtifacts, ...artifacts, ...sourceArtifacts]
-              .find((candidate) => String(candidate.id ?? '') === id || String(candidate.root_id ?? '') === id);
-            return artifact?.id ? String(artifact.id).trim() : '';
-          })
-          .filter(Boolean);
-        idsToAdd = [...versionIds, ...fallbackVersionIds]
-          .filter((value, index, array) => array.indexOf(value) === index);
+        const versionIds = keyList(dragPayload?.versionIds);
+        const fallbackVersionIds = keyList(draggedIds.map((id) => [...searchResultArtifacts, ...artifacts, ...sourceArtifacts]
+          .find((candidate) => String(candidate.id ?? '') === id || String(candidate.root_id ?? '') === id)?.id));
+        idsToAdd = unique([...versionIds, ...fallbackVersionIds]);
       }
-      idsToAdd = idsToAdd.filter((value) => value && value !== targetCollectionId);
+      idsToAdd = notIn(keyList(idsToAdd), [targetCollectionId]);
 
       // Surfaces a permission error if the target is read-only (e.g. a platform
       // collection) rather than silently doing nothing.
@@ -1197,7 +863,7 @@ export default function Browser({
     }
 
     // Prevent dropping a workspace onto itself (container cannot contain itself)
-    const filteredDraggedIds = draggedIds.filter(id => id !== activeWorkspace?.id);
+    const filteredDraggedIds = notIn(draggedIds, present([activeWorkspace?.id]));
     if (filteredDraggedIds.length === 0) {
       // All dropped artifacts were self-drops; nothing to do
       return;
@@ -1206,9 +872,7 @@ export default function Browser({
     const { collectionImports, workspaceCopies, unresolved } = resolveDroppedIds(filteredDraggedIds);
 
     // 1. Collection imports — combine classified root_ids, unresolved IDs, and any root_ids from the drag payload
-    const fallbackImportIds = Array.isArray(dragPayload?.rootIds) ? dragPayload.rootIds.filter(Boolean) : [];
-    const importIds = [...collectionImports, ...unresolved, ...fallbackImportIds]
-      .filter((value, index, array) => array.indexOf(value) === index);
+    const importIds = unique([...collectionImports, ...unresolved, ...keyList(dragPayload?.rootIds)]);
     if (importIds.length > 0) {
       importArtifactsByRootIds(importIds, insertIndex);
     }
@@ -1224,11 +888,11 @@ export default function Browser({
         offset += 1;
       }
     }
-  }, [activeSource, activeWorkspace, artifacts, addArtifactsToCollectionWithFeedback, createArtifact, importArtifactsByRootIds, resolveDroppedIds, resolvedDisplayArtifacts, searchResultArtifacts, sourceArtifacts]);
+  }, [activeSource, activeWorkspace, artifacts, addArtifactsToCollectionWithFeedback, createArtifact, importArtifactsByRootIds, resolveDroppedIds, searchResultArtifacts, sourceArtifacts]);
 
   const createWorkspaceFromDroppedArtifacts = useCallback(async (draggedIds: string[]) => {
     // Prevent dropping a workspace onto itself (container cannot contain itself)
-    const filteredDraggedIds = draggedIds.filter(id => id !== activeWorkspace?.id);
+    const filteredDraggedIds = notIn(draggedIds, present([activeWorkspace?.id]));
     if (filteredDraggedIds.length === 0) {
       // All dropped artifacts were self-drops; nothing to do
       return false;
@@ -1239,7 +903,7 @@ export default function Browser({
     if (importIds.length === 0 && workspaceCopies.length === 0) return false;
 
     // A failed create is already toasted by WorkspacesProvider.createWorkspace.
-    const ws = await createWorkspace(freeWorkspaceName(), '', { activate: false }).catch(() => null);
+    const ws = await createWorkspace('', '', { activate: false }).catch(() => null);
     if (!ws) return false;
 
     for (const rootId of importIds) {
@@ -1263,19 +927,19 @@ export default function Browser({
 
     setActiveWorkspaceId(ws.id);
     return true;
-  }, [activeWorkspace, createWorkspace, freeWorkspaceName, resolveDroppedIds, setActiveWorkspaceId]);
+  }, [activeWorkspace, createWorkspace, resolveDroppedIds, setActiveWorkspaceId]);
 
   // Drop a workspace card on the header: check workspace_id from context or use the
   // artifact's root_id directly. If no matching workspace, create one on the fly.
   const handleDropWorkspace = useCallback(async (draggedIds: string[]) => {
     // Prevent dropping a workspace onto itself (container cannot contain itself)
-    const filteredDraggedIds = draggedIds.filter(id => id !== activeWorkspace?.id);
+    const filteredDraggedIds = notIn(draggedIds, present([activeWorkspace?.id]));
     if (filteredDraggedIds.length === 0) {
       // All dropped artifacts were self-drops; nothing to do
       return;
     }
 
-    const allArtifacts = [...searchResultArtifacts, ...resolvedDisplayArtifacts, ...artifacts, ...displayedArtifacts, ...sourceArtifacts];
+    const allArtifacts = [...searchResultArtifacts, ...artifacts, ...displayedArtifacts, ...sourceArtifacts];
 
     for (const id of filteredDraggedIds) {
       if (workspaces.some(w => String(w.id) === String(id))) {
@@ -1317,7 +981,7 @@ export default function Browser({
         return;
       }
 
-      const title = typeof ctx.title === 'string' && ctx.title.trim() ? ctx.title : freeWorkspaceName();
+      const title = typeof ctx.title === 'string' ? ctx.title.trim() : '';
       const ws = await createWorkspace(title, '').catch(() => null);
       if (!ws) return;
       if (artifact.id) {
@@ -1335,7 +999,7 @@ export default function Browser({
     if (hasItemsToImport) {
       await createWorkspaceFromDroppedArtifacts(draggedIds);
     }
-  }, [activeWorkspace, artifacts, browserPrefs, createWorkspace, createWorkspaceFromDroppedArtifacts, freeWorkspaceName, displayedArtifacts, dockedWorkspaceTabIdsPref, resolveDroppedIds, resolvedDisplayArtifacts, searchResultArtifacts, setActiveWorkspaceId, sourceArtifacts, updateArtifact, updatePreferences, workspaces]);
+  }, [activeWorkspace, artifacts, browserPrefs, createWorkspace, createWorkspaceFromDroppedArtifacts, displayedArtifacts, dockedWorkspaceTabIdsPref, resolveDroppedIds, searchResultArtifacts, setActiveWorkspaceId, sourceArtifacts, updateArtifact, updatePreferences, workspaces]);
 
   // A workspace is deleted from its tab (BUG-039, 2026-11-10: no control anywhere deleted one, so
   // stray "Untitled Workspace"s could not be removed). What it holds is detached, not destroyed
@@ -1348,9 +1012,9 @@ export default function Browser({
       return;
     }
     const confirmed = await dangerConfirm.confirm({
-      title: `Delete the workspace "${ws.name || 'Untitled workspace'}"?`,
-      description: 'The workspace goes for everyone it is shared with. What it holds is not deleted: '
-        + 'items also elsewhere stay there, and the rest are kept, detached.',
+      title: `Delete the workspace "${ws.name}"?`,
+      description: 'The workspace goes for everyone it is shared with, and moves to your Trash with '
+        + `what it holds. Restore it from Trash within ${TRASH_RETENTION_DAYS} days.`,
       confirmLabel: 'Delete workspace',
       cancelLabel: BUTTON_LABELS.CANCEL,
       tone: 'danger',
@@ -1360,23 +1024,34 @@ export default function Browser({
       await deleteWorkspace(String(id));
       if (dockedWorkspaceTabIdsPref?.includes(String(id))) {
         void updatePreferences({ browser: { ...browserPrefs,
-          dockedWorkspaceCardIds: dockedWorkspaceTabIdsPref.filter(d => d !== String(id)) } });
+          dockedWorkspaceCardIds: without(dockedWorkspaceTabIdsPref, String(id)) } });
       }
-      toast.success('Workspace deleted');
+      const name = ws.name;
+      toast.success(`Moved "${name}" to Trash`, {
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            restoreWorkspace(String(id))
+              .then(() => openWorkspaceTab(String(id)))
+              .catch((err) => toast.error('Could not restore the workspace', {
+                description: errorDetail(err, '') || undefined,
+              }));
+          },
+        },
+      });
     } catch (err) {
       const status = (err as { response?: { status?: number } })?.response?.status;
       toast.error(status === 403 ? 'Only someone who may delete this workspace can delete it'
         : 'Could not delete the workspace', { description: errorDetail(err, '') || undefined });
     }
-  }, [browserPrefs, dangerConfirm, deleteWorkspace, dockedWorkspaceTabIdsPref, inboxWorkspaceId, updatePreferences, workspaces]);
+  }, [browserPrefs, dangerConfirm, deleteWorkspace, dockedWorkspaceTabIdsPref, inboxWorkspaceId, openWorkspaceTab, restoreWorkspace, updatePreferences, workspaces]);
 
   // Artifacts dropped on a workspace's tab go into that workspace, and out of the open one when they
   // came from it (BUG-018, 2026-11-10: a drop on a tab fell through to the tab bar, which made a new
   // workspace of them, so the card seemed moved and the workspace named never held it). A workspace
   // card dropped on a tab is docked as before.
   const handleDropOnTab = useCallback(async (targetId: string, draggedIds: string[]) => {
-    const isWorkspace = (id: string) => workspaces.some(w => String(w.id) === String(id));
-    const ids = draggedIds.filter(id => id !== targetId && !isWorkspace(id));
+    const ids = notIn(draggedIds, [targetId, ...workspaces.map(w => String(w.id))]);
     if (ids.length === 0) {
       await handleDropWorkspace(draggedIds);
       return;
@@ -1393,18 +1068,12 @@ export default function Browser({
   const handleSelectArtifactType = useCallback(async (contentType: string) => {
     const type = getContentTypeById(contentType);
     setIsArtifactTypePickerOpen(false);
-    // Numbered when the plain default is taken, so new cards can be told apart.
-    const title = nextUntitledTitle(`Untitled ${type?.label || 'Artifact'}`,
-      [...artifacts, ...sourceArtifacts].map(artifactTitle));
-    const created = await createArtifact({
-      content_type: contentType,
-      content: '',
-      context: stringifyArtifactContext({ title }),
-    });
+    // Sent untitled: Mantle names it after its type, numbered against the others beside it.
+    const created = await createArtifact({ content_type: contentType, content: '' });
     if (!created) return;
     const startInEditMode = Boolean(type?.states.includes('edit'));
     onOpenArtifact?.(created, startInEditMode ? { startInEditMode: true } : undefined);
-  }, [artifacts, createArtifact, onOpenArtifact, sourceArtifacts]);
+  }, [createArtifact, onOpenArtifact]);
 
   // Upload files: inline text stored directly, binary files uploaded to S3
   const uploadFilesAt = useCallback(async (files: File[], insertIndex: number) => {
@@ -1456,17 +1125,15 @@ export default function Browser({
         }
       } else {
         // Large or binary files: upload to S3, backend creates artifact
-        // Compute order_key to place at correct position
+        // Mantle places it just before the member at the target index.
         const targetIndex = insertIndex + i;
-        const prevKey = targetIndex > 0 ? latestArtifactsRef.current[targetIndex - 1]?.order_key : null;
-        const nextKey = targetIndex < latestArtifactsRef.current.length ? latestArtifactsRef.current[targetIndex]?.order_key : null;
-        const order_key = midKey(prevKey || null, nextKey || null);
-        
+        const beforeId = latestArtifactsRef.current[targetIndex]?.id;
+
         const init = await initiateUpload(workspaceId, {
           filename: file.name,
           content_type: file.type || "application/octet-stream",
           size: file.size,
-          order_key,
+          ...(beforeId ? { before_id: String(beforeId) } : {}),
         });
         const artifactId = init.upload_id;
         newArtifactIds.push(artifactId);
@@ -1531,7 +1198,7 @@ export default function Browser({
     // No need to refresh - artifacts were added to local state during initiation
     // and updated during upload progress and completion
     
-    // Artifacts are created with correct order_key and inserted at correct position
+    // Mantle placed each artifact where it was dropped
     // No need to reorder after upload
   }, [workspaceId, createArtifact, addArtifact, addExistingArtifact, patchArtifactLocally, latestArtifactsRef]);
 
@@ -1585,7 +1252,7 @@ export default function Browser({
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.ids)) {
-          return parsed.ids.map(String).filter(Boolean);
+          return keyList(parsed.ids);
         }
       }
     } catch {
@@ -1596,11 +1263,11 @@ export default function Browser({
       const raw = e.dataTransfer.getData('application/json') || e.dataTransfer.getData('text/plain');
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed?.ids)) return parsed.ids.map(String).filter(Boolean);
-      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+      if (Array.isArray(parsed?.ids)) return keyList(parsed.ids);
+      if (Array.isArray(parsed)) return keyList(parsed);
     } catch {
       const raw = e.dataTransfer.getData('text/plain');
-      if (raw) return raw.split(',').map((value) => value.trim()).filter(Boolean);
+      if (raw) return splitList(raw);
     }
 
     return [];
@@ -1641,9 +1308,7 @@ export default function Browser({
   // know whether a file or artifact drag is over the workspace (e.g. BrowserHeader drop targets).
 
   // Themed pale background for browser area
-  const browserBg = isShowingSearchResults
-    ? 'bg-blue-50'
-    : activeSource?.type === 'workspace'
+  const browserBg = activeSource?.type === 'workspace'
     ? 'bg-purple-50'
     : activeSource?.type === 'collection'
     ? 'bg-blue-50'
@@ -1679,7 +1344,7 @@ export default function Browser({
       if (!(await deleteArtifact(String(artifact.id)))) return;
       undockWorkspaceIfNeeded(artifact);
       const deletedId = String(artifact.id);
-      setSourceArtifacts(prev => prev.filter(candidate => String(candidate.id) !== deletedId && String(candidate.root_id ?? '') !== deletedId));
+      setSourceArtifacts(prev => withoutKey(withoutKey(prev, c => c.id, deletedId), c => c.root_id ?? '', deletedId));
       return;
     }
 
@@ -1706,7 +1371,7 @@ export default function Browser({
         });
         return;
       }
-      setSourceArtifacts(prev => prev.filter(candidate => String(candidate.root_id ?? candidate.id) !== removableId));
+      setSourceArtifacts(prev => withoutKey(prev, c => c.root_id ?? c.id, removableId));
       return;
     }
 
@@ -1728,7 +1393,7 @@ export default function Browser({
         toast.error('Could not remove the artifact', { description: errorDetail(err, '') || undefined });
         return;
       }
-      setSourceArtifacts(prev => prev.filter(candidate => String(candidate.root_id ?? candidate.id) !== removableId));
+      setSourceArtifacts(prev => withoutKey(prev, c => c.root_id ?? c.id, removableId));
       return;
     }
 
@@ -1763,7 +1428,6 @@ export default function Browser({
             selectedIds={selectedArtifactIds}
             isSelected={(id) => selectedArtifactIds.includes(id)}
             activeSource={namedSource}
-            isShowingSearchResults={isShowingSearchResults}
             onArtifactMouseDown={(id, e, shownIds) => {
               selectArtifact(id, e, shownIds);
               onArtifactSelect?.(id);
@@ -1777,7 +1441,7 @@ export default function Browser({
             deleteEnabled
             onSelectionAction={handleSelectionAction}
             onAddToWorkspace={addToWorkspace}
-            onOrder={sectionKey === 'primary' ? ((ids) => orderArtifacts(ids)) : undefined}
+            onOrder={sectionKey === 'primary' ? ((_ids, moved) => moveArtifacts(moved.ids, moved.beforeId)) : undefined}
             onFileDrop={sectionKey === 'primary' && !!workspaceId ? ((index, files) => uploadFilesAt(files, index)) : undefined}
             onArtifactDrop={sectionKey === 'primary' && (!!workspaceId || activeSource?.type === 'collection')
               ? ((index, draggedIds, dragPayload) => handleResolvedDrop(draggedIds, index, dragPayload))
@@ -1825,7 +1489,7 @@ export default function Browser({
                   .then(arts => setSourceArtifacts(arts as Artifact[]))
                   .catch(err => console.error('Failed to reload collection artifacts:', err));
               }
-              reloadArchived();
+              reloadView();
             }
           }}
           onReorder={sectionKey === 'primary' ? ((artifactId, targetIndex) => {
@@ -1834,27 +1498,29 @@ export default function Browser({
             if (fromIndex !== -1) {
               const [artifact] = newOrder.splice(fromIndex, 1);
               newOrder.splice(targetIndex, 0, artifact);
-              orderArtifacts(newOrder.map(c => String(c.id)));
+              const after = newOrder[targetIndex + 1];
+              moveArtifacts([artifactId], after ? String(after.id) : null);
             }
           }) : undefined}
           onFileDrop={sectionKey === 'primary' && !!workspaceId ? ((files, index) => uploadFilesAt(files, index || 0)) : undefined}
         />
       </div>
     );
-  }, [activeSource, namedSource, containerName, addToWorkspace, artifactCountsByOwnerId, handleBrowserRemove, handleResolvedDrop, handleSelectionAction, reloadArchived, isShowingSearchResults, openAssignFor, onArtifactSelect, onOpenArtifact, orderArtifacts, selectArtifact, selectedArtifactIds, undockWorkspaceIfNeeded, updateArtifact, uploadFilesAt, viewMode, workspaceId]);
+  }, [activeSource, namedSource, containerName, addToWorkspace, artifactCountsByOwnerId, handleBrowserRemove, handleResolvedDrop, handleSelectionAction, reloadView, openAssignFor, onArtifactSelect, onOpenArtifact, moveArtifacts, selectArtifact, selectedArtifactIds, undockWorkspaceIfNeeded, updateArtifact, uploadFilesAt, viewMode, workspaceId]);
 
   return (
+    <LockedActionsContext.Provider value={lockedActions}>
     <div className="h-full flex flex-col">
       
       <BrowserHeader
         activeSource={activeSource}
+        viewChoices={viewChoices}
         onToggleFilters={() => setFiltersOpen(!filtersOpen)}
         filtersOpen={filtersOpen}
         hasActiveFilter={activeFilter !== 'all'}
         activeFilter={activeFilter}
         viewMode={viewMode}
         onViewModeChange={(mode) => setViewMode(mode)}
-        isShowingSearchResults={isShowingSearchResults}
         sortMode={searchSortMode}
         onSortChange={onSearchSortChange}
         onNewArtifact={handleOpenTypePicker}
@@ -1873,9 +1539,8 @@ export default function Browser({
 
       {/* Filter Chips - Always visible so the grey bar stays as a consistent landmark */}
       <FilterChips
-        artifacts={sourceArtifacts}
-        archivedCount={archivedContainerId ? archivedMembers.length : undefined}
-        closedCount={sourceArtifacts.filter(isClosedBacklogItem).length}
+        chips={view?.chips ?? []}
+        kinds={view?.kinds ?? []}
         activeStates={activeStateFilters}
         activeContentTypes={activeContentTypeFilters}
         hiddenContentTypes={hiddenContentTypeFilters}
@@ -1947,11 +1612,9 @@ export default function Browser({
             onCreateWorkspace={handleCreateWorkspace}
             onCreateCard={canCreateCardInInbox ? handleCreateCardInInbox : undefined}
           />
-        ) : filteredArtifacts.length === 0 && (isSearchActive || filtersHideEverything) ? (
+        ) : filteredArtifacts.length === 0 && filtersHideEverything ? (
           <EmptyState
             type="no-search-results"
-            searchQuery={isSearchActive ? searchQuery : undefined}
-            onClearSearch={isSearchActive ? clearSearch : undefined}
             onClearFilters={isAnyFilterActive ? handleClearEveryFilter : undefined}
           />
         ) : filteredArtifacts.length === 0 ? (
@@ -1977,7 +1640,7 @@ export default function Browser({
                       >
                         <div>
                           <div className="text-sm font-semibold text-slate-900">{section.title}</div>
-                          <div className="text-xs text-slate-500">{section.artifacts.length} cards</div>
+                          <div className="text-xs text-slate-500">{section.artifacts.length} artifacts</div>
                         </div>
                         <div className="text-xs font-medium text-slate-600">{collapsed ? 'Expand' : 'Collapse'}</div>
                       </button>
@@ -2002,9 +1665,8 @@ export default function Browser({
           onMove={handleBulkMove}
           onDelete={handleBulkDelete}
           onDrop={handleBulkDrop}
-          dropLabel={`Remove from ${containerName}`}
+          dropTitle={`Remove from ${containerName}`}
           onClear={unselectAllArtifacts}
-          moveLabel="Assign to Collections"
           canDelete={bulkCanDelete}
           hasLive={bulkHasLive}
           hasArchived={bulkSelectedArtifacts.some(a => a.state === 'archived')}
@@ -2021,11 +1683,11 @@ export default function Browser({
         onClose={() => setOfferedWorkspaceName(null)}
       />
       <CollectionPicker
-        open={showBulkCollectionPicker}
+        open={showBulkCollectionPicker && assignHeld !== null}
         onClose={() => { setShowBulkCollectionPicker(false); setAssignIds(null); }}
         onSelect={handleBulkSelectCollections}
-        selectedCollectionIds={heldByAll}
-        partialCollectionIds={heldBySome}
+        selectedCollectionIds={assignHeld?.all ?? []}
+        partialCollectionIds={assignHeld?.some ?? []}
         multiple={true}
         title={(() => {
           const n = (assignIds ?? selectedArtifactIds).length;
@@ -2055,6 +1717,7 @@ export default function Browser({
         onSelect={handleSelectArtifactType}
       />
     </div>
+    </LockedActionsContext.Provider>
   );
 }
 
@@ -2064,126 +1727,3 @@ type ArtifactSection = {
   artifacts: Artifact[];
   defaultCollapsed?: boolean;
 };
-
-function isArtifactArtifact(artifact: Artifact): boolean {
-  const context = safeParseArtifactContext(artifact.context);
-  const type = typeof context.type === 'string' ? context.type : '';
-
-  return type === 'transcript' || type === 'palette-output' || Boolean(context.source_artifact_id);
-}
-
-function getArtifactFallbackSectionId(artifact: Artifact): string | null {
-  const context = safeParseArtifactContext(artifact.context);
-  const type = typeof context.type === 'string' ? context.type : '';
-
-  if (type === 'transcript') return 'transcripts';
-  if (type === 'palette-output') return 'palette-outputs';
-  if (context.source_artifact_id && type !== 'transcript') return 'stream-sessions';
-  return null;
-}
-
-function resolveArtifactOwnerArtifact(artifact: Artifact, artifactsById: Map<string, Artifact>): Artifact | null {
-  const visited = new Set<string>();
-  let current: Artifact | null = artifact;
-
-  for (let depth = 0; depth < 8; depth += 1) {
-    if (!current) return null;
-
-    const context = safeParseArtifactContext(current.context);
-    const nextId = typeof context.source_artifact_id === 'string' ? context.source_artifact_id : '';
-    if (!nextId) {
-      return current.id && String(current.id) !== String(artifact.id) ? current : null;
-    }
-
-    const normalizedId = String(nextId);
-    if (visited.has(normalizedId)) return null;
-    visited.add(normalizedId);
-
-    current = artifactsById.get(normalizedId) ?? null;
-  }
-
-  return null;
-}
-
-function getArtifactTitle(artifact: Artifact): string {
-  const context = safeParseArtifactContext(artifact.context);
-  return String(context.title || context.filename || artifact.content || 'Untitled').trim() || 'Untitled';
-}
-
-function buildArtifactSections(artifacts: Artifact[]): { primaryArtifacts: Artifact[]; sections: ArtifactSection[] } {
-  const primaryArtifacts: Artifact[] = [];
-  const sections = new Map<string, ArtifactSection>();
-  const artifactsById = new Map(artifacts.map((artifact) => [String(artifact.id), artifact]));
-  const ownerOrder: string[] = [];
-
-  for (const artifact of artifacts) {
-    if (!isArtifactArtifact(artifact)) {
-      primaryArtifacts.push(artifact);
-      continue;
-    }
-
-    const ownerArtifact = resolveArtifactOwnerArtifact(artifact, artifactsById);
-    if (ownerArtifact) {
-      const ownerId = String(ownerArtifact.id);
-      const sectionId = `owner:${ownerId}`;
-
-      if (!sections.has(sectionId)) {
-        ownerOrder.push(sectionId);
-        sections.set(sectionId, {
-          id: sectionId,
-          title: `${getArtifactTitle(ownerArtifact)} Artifacts`,
-          artifacts: [],
-          defaultCollapsed: true,
-        });
-      }
-
-      sections.get(sectionId)!.artifacts.push(artifact);
-      continue;
-    }
-
-    const sectionId = getArtifactFallbackSectionId(artifact);
-    if (!sectionId) {
-      primaryArtifacts.push(artifact);
-      continue;
-    }
-
-    if (!sections.has(sectionId)) {
-      sections.set(
-        sectionId,
-        sectionId === 'transcripts'
-          ? { id: sectionId, title: 'Transcripts', artifacts: [], defaultCollapsed: true }
-          : sectionId === 'stream-sessions'
-            ? { id: sectionId, title: 'Stream Sessions', artifacts: [], defaultCollapsed: true }
-            : { id: sectionId, title: 'Transform Outputs', artifacts: [], defaultCollapsed: true }
-      );
-    }
-
-    sections.get(sectionId)!.artifacts.push(artifact);
-  }
-
-  return {
-    primaryArtifacts,
-    sections: [
-      ...ownerOrder.map((id) => sections.get(id)).filter((section): section is ArtifactSection => Boolean(section)),
-      ...Array.from(sections.entries())
-        .filter(([id]) => !id.startsWith('owner:'))
-        .map(([, section]) => section),
-    ],
-  };
-}
-
-function buildArtifactCountsByOwnerId(artifacts: Artifact[]): Record<string, number> {
-  const artifactsById = new Map(artifacts.map((artifact) => [String(artifact.id), artifact]));
-  const counts: Record<string, number> = {};
-
-  for (const artifact of artifacts) {
-    if (!isArtifactArtifact(artifact)) continue;
-    const ownerArtifact = resolveArtifactOwnerArtifact(artifact, artifactsById);
-    if (!ownerArtifact?.id) continue;
-
-    const ownerId = String(ownerArtifact.id);
-    counts[ownerId] = (counts[ownerId] ?? 0) + 1;
-  }
-
-  return counts;
-}

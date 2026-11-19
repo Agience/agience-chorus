@@ -49,6 +49,7 @@ Transport
 
 from __future__ import annotations
 
+import asyncio
 import json
 from urllib.parse import quote
 import logging
@@ -580,6 +581,24 @@ async def _workflow_runs_to(client: httpx.AsyncClient, artifact_id: str, headers
         return ""
     runs_to = await _runs_container(client, artifact_id, ctx, "")
     return runs_to
+
+
+async def _titles_of(client: httpx.AsyncClient, picked: dict, headers: dict) -> dict:
+    """The titles a timer's view shows for its picks (`timer.titles`), read as the person scheduling
+    it sees each artifact. An artifact it cannot read is left out, and the view shows its id."""
+    out = {}
+    for key, artifact_id in picked.items():
+        try:
+            resp = await client.get(artifact_url(MANTLE_URI, artifact_id), headers=headers)
+        except httpx.HTTPError:
+            continue
+        if resp.status_code != 200:
+            continue
+        doc = resp.json()
+        name = _timers._context(doc).get("title") or doc.get("name") or doc.get("title")
+        if name:
+            out[key] = str(name)
+    return out
 
 
 async def _runs_container(client: httpx.AsyncClient, workflow_id: str, ctx: dict, workspace_id: str,
@@ -1180,8 +1199,11 @@ def _timer_store() -> Optional["_timers.Store"]:
 
 @mcp.tool(
     description=(
-        "Create a Timer card that will run an artifact's operation on a schedule: `every_minutes`, "
-        "`daily_at` (HH:MM UTC) or `at` (an ISO time, once). The target is usually a Transform "
+        "Create a timer artifact that will run an artifact's operation on a schedule: `every_minutes`, "
+        "`daily_at` (HH:MM UTC) or `at` (an ISO time, once); or, in place of a schedule, on each change "
+        "inside a container (`on_changes_in`, with `on_events` among artifact.created, artifact.updated "
+        "and artifact.deleted; created when none are named), the run's body then carrying "
+        "`params.artifact_id` and `params.event`. The target is usually a Transform "
         "(a workflow) or an Operator. The timer runs only once its owner arms it from the card, "
         "approving at Origin a job grant over what it reaches."
     )
@@ -1197,12 +1219,16 @@ async def schedule_action(
     title: Optional[str] = None,
     results_to: Optional[str] = None,
     inbox_to: Optional[str] = None,
+    on_changes_in: Optional[str] = None,
+    on_events: Optional[list] = None,
 ) -> str:
     """
     Args:
-        workspace_id: Workspace for the Timer card.
+        workspace_id: Workspace for the timer artifact.
         target_artifact_id: The artifact whose operation runs.
-        every_minutes / daily_at / at: The schedule; exactly one.
+        every_minutes / daily_at / at: The schedule; exactly one, or none with `on_changes_in`.
+        on_changes_in: A container whose changes fire the timer, in place of a schedule.
+        on_events: The changes there that fire it (default `artifact.created`).
         operation: The target's operation (default `invoke`).
         body: The operation's request body.
         title: The card's title.
@@ -1211,8 +1237,9 @@ async def schedule_action(
     """
     schedule = {k: v for k, v in (("every_minutes", every_minutes), ("daily_at", daily_at), ("at", at))
                 if v not in (None, "")}
+    on = {"container_id": on_changes_in, "event_names": on_events} if on_changes_in else None
     try:
-        _timers.check_schedule(schedule)
+        kind, when = _timers.check_when({"schedule": schedule, "on": on})
     except _timers.ScheduleError as exc:
         return json.dumps({"error": str(exc)})
     try:
@@ -1225,13 +1252,16 @@ async def schedule_action(
         # The timer records there too, unless told otherwise, so its key reaches it.
         if not results_to:
             results_to = await _workflow_runs_to(client, target_artifact_id, headers) or None
+        picked = {"target": target_artifact_id, "results_to": results_to, "inbox_to": inbox_to}
+        titles = await _titles_of(client, {k: v for k, v in picked.items() if v}, headers)
         context = {
             "title": title or "Timer",
             "content_type": _timers.TIMER_TYPE,
-            "timer": {"schedule": schedule,
+            "timer": {kind: when,
                       "target": {"artifact_id": target_artifact_id, "operation": operation, "body": body or {}},
                       **({"results_to": results_to} if results_to else {}),
-                      **({"inbox_to": inbox_to} if inbox_to else {})},
+                      **({"inbox_to": inbox_to} if inbox_to else {}),
+                      **({"titles": titles} if titles else {})},
         }
         resp = await client.post(f"{MANTLE_URI}/artifacts", headers=headers, json={
             "container_id": workspace_id, "content_type": _timers.TIMER_TYPE,
@@ -1240,7 +1270,7 @@ async def schedule_action(
         return json.dumps({"error": f"could not create the timer ({resp.status_code})"})
     doc = resp.json()
     return json.dumps({"timer_id": doc.get("id"), "armed": False,
-                       "next": "open the Timer card and arm it; it runs on the job grant you approve "
+                       "next": "open the timer artifact and arm it; it runs on the job grant you approve "
                                "at Origin"})
 
 
@@ -1295,7 +1325,7 @@ def _timer_tokens(timer_id: str, entry: dict) -> tuple:
 
 @mcp.tool(
     description=(
-        "Arm a Timer: fire it on its schedule under the job grant its owner approved at Origin "
+        "Arm a Timer: fire it on its schedule, or on the changes it names, under the job grant its owner approved at Origin "
         "(`job_grant`, job `lumen.timer.<timer id>`). Called by the app's host once Origin's page "
         "returns the grant; the caller must be able to read the timer, and Origin must mint under "
         "the grant now."
@@ -1335,11 +1365,11 @@ async def arm_timer(timer_id: str, job_grant: str) -> str:
                                     f"({granted.status_code})"})
     ctx = _timers._context(granted.json())
     try:
-        _timers.check_schedule((ctx.get("timer") or {}).get("schedule"))
+        kind, when = _timers.check_when(ctx.get("timer"))
     except _timers.ScheduleError as exc:
         return json.dumps({"error": f"the timer's schedule: {exc}"})
-    store.arm(timer_id, job_grant, person, schedule=(ctx.get("timer") or {}).get("schedule"),
-              last_run=(ctx.get("timer_state") or {}).get("last_run"))
+    store.arm(timer_id, job_grant, person, last_run=(ctx.get("timer_state") or {}).get("last_run"),
+              **{kind: when})
     log.info("timer armed: %s (job grant %s)", timer_id, job_grant)
     return json.dumps({"timer_id": timer_id, "armed": True, "job_grant": job_grant})
 
@@ -1347,7 +1377,7 @@ async def arm_timer(timer_id: str, job_grant: str) -> str:
 @mcp.tool(
     description=(
         "What a Timer's job grant must reach to run what it runs: the timer and its target, where it "
-        "records runs and raises failures, and for a workflow each operator a step invokes and each "
+        "records runs and raises failures, the container whose changes fire it, and for a workflow each operator a step invokes and each "
         "artifact a step links; never its workspace. The person arming it approves this list at Origin. "
         "Answers `need` (ids) when it must read sealed items first: call again with `contexts`, each "
         "id's context as read in the person's own session."
@@ -1376,7 +1406,7 @@ async def timer_reach(timer_id: str, contexts: Optional[dict] = None,
             return json.dumps({"error": "no such timer, or you cannot read it"})
         spec = context_of(timer_id, mine.json()).get("timer") or {}
         target = (spec.get("target") or {}).get("artifact_id")
-        if not spec.get("schedule") or not target:
+        if not (spec.get("schedule") or spec.get("on")) or not target:
             if timer_id not in given:
                 return json.dumps({"need": [timer_id]})
             return json.dumps({"error": "the timer has no schedule or no target to run"})
@@ -1440,9 +1470,9 @@ def _run_block(ctx: dict) -> dict:
 
 @mcp.tool(
     description=(
-        "What one run of a workflow must reach, now: the workflow, each operator a step invokes and "
-        "each item a step links. The person approves this list at Origin for that one run. `context` "
-        "and `links` are the workflow as the person's own session reads it."
+        "What one run of a workflow must reach, now: the workflow, its Runs collection, each operator "
+        "a step invokes and each item a step links. The person approves this list at Origin for that "
+        "one run. `context` and `links` are the workflow as the person's own session reads it."
     )
 )
 async def workflow_reach(workflow_id: str, context: Optional[dict] = None,
@@ -1455,13 +1485,19 @@ async def workflow_reach(workflow_id: str, context: Optional[dict] = None,
         card = await client.get(artifact_url(MANTLE_URI, workflow_id), headers=headers)
         if card.status_code != 200:
             return json.dumps({"error": "no such workflow, or you cannot read it"})
-        run = _run_block(_given_ctx(card.json(), context))
+        ctx = _given_ctx(card.json(), context)
+        run = _run_block(ctx)
         steps = run.get("steps") or []
         if run.get("type") != "workflow" or not steps:
             return json.dumps({"error": "this workflow has no steps to run"})
         found = await _links_for(client, workflow_id, links)
+        # The run records itself in the workflow's Runs collection, so the grant reaches it. Crystal
+        # finds it as `context.runs_to`, else the workflow's `runs` link; one is made here, in the
+        # person's session, when the workflow has neither, since the run's key makes nothing top-level.
+        runs_to = found.get("runs") if not ctx.get("runs_to") else ""
+        runs_to = runs_to or await _runs_container(client, workflow_id, ctx, "")
     out: list = []
-    for rid in [workflow_id, str(card.json().get("root_id") or ""),
+    for rid in [workflow_id, str(card.json().get("root_id") or ""), str(runs_to or ""),
                 *(str(st.get("operator_id") or "") for st in steps)]:
         if rid and rid not in out:
             out.append(rid)
@@ -1806,6 +1842,25 @@ def _items(resp) -> list:
     return (body.get("items", body) if isinstance(body, dict) else body) or []
 
 
+#: How many times the catalog asks Mantle for one listing before it says it could not read it.
+READ_TRIES = 3
+
+
+async def _listing(client, url: str, headers: dict, params: Optional[dict] = None):
+    """`url`'s items and whether Mantle answered: a refused or failed read is asked again, up to
+    READ_TRIES times, so a node that is still starting gives its menu and not an empty one."""
+    for attempt in range(READ_TRIES):
+        try:
+            resp = await client.get(url, headers=headers, params=params)
+        except httpx.HTTPError:
+            resp = None
+        if resp is not None and resp.status_code == 200:
+            return _items(resp), True
+        if attempt + 1 < READ_TRIES:
+            await asyncio.sleep(0.5 * (attempt + 1))
+    return [], False
+
+
 @mcp.tool(
     description=(
         "What a workflow card's builder offers: the operators the caller may invoke (the platform's, "
@@ -1826,11 +1881,20 @@ async def workflow_catalog(workflow_id: str, context: Optional[dict] = None) -> 
         workspace_id = card.json().get("collection_id") or ""
         wf_ctx = _given_ctx(card.json(), context)
         # What the platform provides is named by the node, never by what an operator says of itself.
-        platform = {i["id"]: i.get("slug") or "" for i in _items(await client.get(
-            f"{MANTLE_URI}/artifacts/platform-operators", headers=headers)) if i.get("id")}
+        listed, platform_read = await _listing(client, f"{MANTLE_URI}/artifacts/platform-operators", headers)
+        platform = {i["id"]: i.get("slug") or "" for i in listed if i.get("id")}
+        found, operators_read = await _listing(client, f"{MANTLE_URI}/artifacts/visible", headers, {
+            "content_type": _OPERATOR_TYPE, "action": "invoke", "limit": 500})
+        # A platform operator the node says the person may invoke is offered even when the listing
+        # has not reached it yet, read by its id.
+        seen = {m.get("root_id") or m.get("id") for m in found}
+        for i in listed:
+            if i.get("id") and i.get("may_invoke") and i["id"] not in seen:
+                one = await client.get(artifact_url(MANTLE_URI, i["id"]), headers=headers)
+                if one.status_code == 200:
+                    found.append(one.json())
         operators = []
-        for m in _items(await client.get(f"{MANTLE_URI}/artifacts/visible", headers=headers, params={
-                "content_type": _OPERATOR_TYPE, "action": "invoke", "limit": 500})):
+        for m in found:
             oid = m.get("root_id") or m.get("id")
             ctx = _ctx_of(m)
             group = "platform" if oid in platform else ("mine" if str(m.get("created_by")) == str(me) else "shared")
@@ -1874,8 +1938,11 @@ async def workflow_catalog(workflow_id: str, context: Optional[dict] = None) -> 
                if str(w.get("created_by")) == str(me)]
         own.sort(key=lambda w: str(w.get("created_time") or ""))
         inbox_id = own[0].get("id") if own else ""
-    return json.dumps({"workspace_id": workspace_id, "operators": operators, "steps": steps, "inbox_id": inbox_id,
-                       "runs_to": runs_to, "runs": recent[:5]})
+    out = {"workspace_id": workspace_id, "operators": operators, "steps": steps, "inbox_id": inbox_id,
+           "runs_to": runs_to, "runs": recent[:5]}
+    if not (platform_read and operators_read):
+        out["operators_error"] = "Mantle did not list the operators you may invoke; open the menu again."
+    return json.dumps(out)
 
 
 @mcp.tool(
@@ -2020,18 +2087,51 @@ def _timer_http() -> "_timers.Http":
                         patch=lambda u, k, b: call("PATCH", u, k, b))
 
 
+def _events_url() -> str:
+    """Mantle's event stream, on ws:// or wss://."""
+    base = MANTLE_URI.rstrip("/")
+    return ("ws" + base[len("http"):] if base.startswith("http") else base) + "/events"
+
+
+def _events_connect(url: str, key: str):
+    """Open Mantle's event stream with `key` as its bearer."""
+    import websockets
+    return websockets.connect(url, additional_headers={"Authorization": f"Bearer {key}"},
+                              open_timeout=20, ping_interval=30)
+
+
+def _keep_listeners(store: "_timers.Store", listeners: dict, http: "_timers.Http",
+                    connect=None) -> None:
+    """One listener for each timer armed here to fire on changes, and none for any other."""
+    import asyncio as _asyncio
+    from datetime import datetime as _dt, timezone as _tz
+    armed = {tid for tid, entry in store.load().items() if entry.get("on") and entry.get("job_grant")}
+    for tid in list(listeners):
+        if tid not in armed or listeners[tid].done():
+            listeners.pop(tid).cancel()
+    for tid in sorted(armed - set(listeners)):
+        def fire(event, tid=tid):
+            return _timers.fire_on_event(store, http, MANTLE_URI, CRYSTAL_URI, _dt.now(_tz.utc),
+                                         _timer_tokens, tid, event)
+        listeners[tid] = _asyncio.create_task(_timers.listen(
+            store, tid, _timer_tokens, connect or _events_connect, _events_url(), fire))
+
+
 async def _run_timers(store: "_timers.Store") -> None:
-    """Fire due timers every `TICK_SECONDS`, for as long as the process runs."""
+    """Fire due timers every `TICK_SECONDS`, and keep a listener on each timer that fires on
+    changes, for as long as the process runs."""
     import asyncio as _asyncio
     from datetime import datetime as _dt, timezone as _tz
     http = _timer_http()
+    listeners: dict = {}
     while True:
         try:
             report = await _asyncio.to_thread(_timers.fire_due, store, http, MANTLE_URI, CRYSTAL_URI,
                                               _dt.now(_tz.utc), _timer_tokens)
             for timer_id, what in report.items():
-                if what != "not due":
+                if what not in ("not due", "listening"):
                     log.info("timer %s: %s", timer_id, what)
+            _keep_listeners(store, listeners, http)
         except Exception:
             log.warning("timer pass failed", exc_info=True)
         await _asyncio.sleep(_timers.TICK_SECONDS)

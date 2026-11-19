@@ -1,3 +1,4 @@
+import { keySet } from '@/display-state/lists';
 // isolation/mergeViewContext.ts
 //
 // A view edits a copy of its card's context, taken when it opened. Meanwhile an operator may have
@@ -17,7 +18,7 @@ function same(a: unknown, b: unknown): boolean {
 
 export function mergeViewContext(given: Ctx, stored: Ctx, fromView: Ctx): Ctx {
   const out: Ctx = { ...stored };
-  const keys = new Set([...Object.keys(given), ...Object.keys(fromView)]);
+  const keys = keySet([...Object.keys(given), ...Object.keys(fromView)]);
   for (const key of keys) {
     const inView = Object.prototype.hasOwnProperty.call(fromView, key);
     if (same(given[key], fromView[key]) && inView === Object.prototype.hasOwnProperty.call(given, key)) {

@@ -28,6 +28,21 @@ export function changeOf(e: Event): ArtifactChange | null {
   return a && a.id ? a : null;
 }
 
+/** The window event Mantle's answer to a membership change sends, `detail: { container_id, id,
+ * archived }`: an artifact left a container (archived when nothing else held it) or came back. */
+export const MEMBERSHIP_CHANGED_EVENT = 'agience:membership-changed';
+
+export type MembershipChange = { container_id?: string; id?: string; archived?: boolean };
+
+export function announceMembershipChange(change: MembershipChange): void {
+  window.dispatchEvent(new CustomEvent(MEMBERSHIP_CHANGED_EVENT, { detail: change }));
+}
+
+/** The container a membership event names, or ''. */
+export function containerOf(e: Event): string {
+  return String((e as CustomEvent<MembershipChange>).detail?.container_id ?? '');
+}
+
 // Artifact deletion/removal confirmations
 export const CARD_CONFIRM = {
   DELETE_TITLE: `Move this ${PRODUCT_NOUN.singular.toLowerCase()} to Trash?`,
@@ -120,15 +135,16 @@ export const BUTTON_LABELS = {
 // Browser empty states
 export const EMPTY_STATE = {
   CREATE_WORKSPACE: 'Create a workspace',
-  NEW_CARD: 'New card',
-  NO_SOURCE_TITLE: 'No workspace docked',
-  NO_SOURCE_BODY: 'Create a workspace or find one and dock it in the header above.',
+  NEW_CARD: 'New artifact',
+  NO_SOURCE_TITLE: 'No workspace open',
+  NO_SOURCE_BODY: 'Create one, or find one and open it.',
   NO_ARTIFACTS_TITLE: 'Nothing here yet',
-  NO_ARTIFACTS_INBOX_BODY: 'This is your Inbox. Create a card right here, drop a file, or double-click an empty space.',
-  NO_ARTIFACTS_BODY: 'Create a card, drop a file, or double-click an empty space.',
+  NO_ARTIFACTS_INBOX_BODY: 'Create an artifact right here, drop a file, or double-click an empty space.',
+  NO_ARTIFACTS_BODY: 'Create an artifact, drop a file, or double-click an empty space.',
   NO_SEARCH_RESULTS_TITLE: 'No matches',
   NO_SEARCH_RESULTS_BODY: (query: string) => `Nothing here matches "${query}".`,
-  NO_FILTER_RESULTS_BODY: 'The active filters hide every card here.',
+  NO_SEARCH_RESULTS_IN: (query: string, place: string) => `Nothing in ${place} matches "${query}".`,
+  NO_FILTER_RESULTS_BODY: 'The active filters hide every artifact here.',
   CLEAR_SEARCH: 'Clear search',
   CLEAR_FILTERS: 'Clear filters',
 } as const;

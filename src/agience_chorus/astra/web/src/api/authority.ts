@@ -12,6 +12,7 @@
  */
 import { getRuntimeConfig } from '../config/runtime'
 import type { GrantResponse } from './types/grant'
+import { recordInvite } from './inviteArtifacts'
 
 /** CRUDEASIO, in the ledger's order. */
 export const ACTIONS = ['create', 'read', 'update', 'delete', 'evict', 'invoke', 'add', 'share',
@@ -41,18 +42,6 @@ export class AuthorityRefused extends Error {
 
 export function actionsOf(flags: Flags | Record<string, unknown>): string[] {
   return ACTIONS.filter((a) => Boolean((flags as Record<string, unknown>)[`can_${a}`]))
-}
-
-async function sha256hex(s: string): Promise<string> {
-  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))
-  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-/** The ledger's digest of an invite's target (Origin's `authority_ledger.target_digest`). */
-export async function targetDigest(kind: string, value: string): Promise<string> {
-  let v = value.trim()
-  if (kind === 'email' || kind === 'domain') v = v.toLowerCase()
-  return sha256hex(`agience-invite-target:${kind}:${v}`)
 }
 
 /** Send one ledger entry to Origin in the person's Origin session. */
@@ -91,6 +80,8 @@ export async function claimInviteAtOrigin(token: string): Promise<Record<string,
 }
 
 export interface GrantInput extends Flags {
+  /** The actions granted, as a role Mantle answers names them; else read from the flags. */
+  actions?: string[]
   grantee_type?: string
   grantee_id?: string
   target_entity?: string
@@ -184,7 +175,8 @@ interface OriginGrant {
  *  never names a change (round 13, H2). */
 const FROM_ORIGIN = '__fromOrigin'
 
-async function session(method: string, path: string, body?: unknown): Promise<unknown> {
+/** A request to Origin in the person's own Origin session, at `/auth/me/authority{path}`. */
+export async function session(method: string, path: string, body?: unknown): Promise<unknown> {
   const origin = getRuntimeConfig().originUri.replace(/\/$/, '')
   const r = await fetch(`${origin}/auth/me/authority${path}`, {
     method,
@@ -239,14 +231,15 @@ function originGrantId(prior: GrantResponse): string {
 export async function makeGrant(resourceId: string, input: GrantInput): Promise<GrantResponse> {
   const direct = (input.grantee_type ?? (input.grantee_id ? 'user' : 'invite')) !== 'invite'
     && Boolean(input.grantee_id)
-  const actions = actionsOf(input)
+  const actions = input.actions ?? actionsOf(input)
   if (direct) {
     const made = (await session('POST', '/grants', {
       resource_id: resourceId, grantee_id: String(input.grantee_id), actions,
+      ...(input.grantee_type === 'artifact' ? { grantee_type: 'artifact' } : {}),
       effect: input.effect ?? 'allow', expires_at: input.expires_at ?? null,
       ...(input.preview ? { preview: input.preview } : {}),
     })) as OriginGrant
-    return asGrant({ ...made, grantee_type: made.grantee_type ?? 'user',
+    return asGrant({ ...made, grantee_type: made.grantee_type ?? input.grantee_type ?? 'user',
                      actions: made.actions ?? actions,
                      grantee_id: made.grantee_id ?? String(input.grantee_id) }, resourceId)
   }
@@ -273,6 +266,9 @@ export async function makeGrant(resourceId: string, input: GrantInput): Promise<
   const invite_echo: InviteEcho = { resource_id: made.resource_id ?? resourceId,
                                     resource_name: made.resource_name ?? input.resource_name ?? '',
                                     email: made.email ?? email }
+  // The invite as an artifact its invitee reads in their Inbox (FR-004). The invite is made and
+  // mailed either way; a record that fails is logged, never shown as a failed share.
+  void recordInvite(made.invite_id).catch((e) => console.warn('invite record not made', e))
   return { ...g, target_entity: email, max_claims: 1, invite_echo } as GrantResponse
 }
 
@@ -326,22 +322,6 @@ export interface InviteContext {
 
 export async function inviteContext(token: string): Promise<InviteContext> {
   return (await session('POST', '/invite-context', { token })) as InviteContext
-}
-
-/** A live invite that names the signed-in person (their id or their verified address), as Origin
- *  lists it in their Origin session (FR-004). Origin keeps no name for what is shared. */
-export interface IncomingInvite {
-  invite_id: string
-  resource_id: string
-  actions: string[]
-  expires_at?: string | null
-  /** The sender's display name at Origin. */
-  from: string
-}
-
-export async function incomingInvites(): Promise<IncomingInvite[]> {
-  const r = (await session('GET', '/invites/incoming')) as { invites?: IncomingInvite[] }
-  return r.invites ?? []
 }
 
 /** Accept an invite in the app: the same claim as the mailed link, proven by the Origin session. */

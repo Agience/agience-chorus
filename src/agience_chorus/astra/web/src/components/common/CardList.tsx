@@ -3,6 +3,7 @@ import { Artifact } from '../../context/workspace/workspace.types';
 import type { CardRemoveMode } from '@/utils/artifact-permissions';
 import { CardListItem } from './CardListItem';
 import { getStableArtifactId } from '@/utils/artifact-identifiers';
+import { keyList, present } from '@/display-state/lists';
 
 const DND_MIME = 'application/x-agience-artifact';
 
@@ -243,18 +244,14 @@ export default function CardList({
 
   const selectedIdsForDrag = useMemo(() => {
     if (!isSelected) return [] as string[];
-    return artifacts
-      .map((c) => getArtifactListId(c, isShowingSearchResults))
-      .filter((id): id is string => {
-        if (!id) return false;
-        return isSelected(id);
-      });
+    return present(artifacts.map((c) => {
+      const id = getArtifactListId(c, isShowingSearchResults);
+      return id && isSelected(id) && id;
+    }));
   }, [artifacts, isSelected, isShowingSearchResults]);
 
   const shownIds = useMemo(
-    () => artifacts
-      .map((c) => getArtifactListId(c, isShowingSearchResults))
-      .filter((id): id is string => !!id),
+    () => present(artifacts.map((c) => getArtifactListId(c, isShowingSearchResults))),
     [artifacts, isShowingSearchResults],
   );
 
@@ -278,18 +275,14 @@ export default function CardList({
         sourceCollectionId,
         sourceType: sourceWorkspaceId ? 'workspace' : sourceCollectionId ? 'collection' : undefined,
         sourceId: sourceWorkspaceId ?? sourceCollectionId,
-        rootIds: ids
-          .map((selectedId) => {
-            const selectedArtifact = artifacts.find((candidate) => getArtifactListId(candidate, isShowingSearchResults) === selectedId);
-            return String(selectedArtifact?.root_id ?? selectedArtifact?.id ?? selectedId);
-          })
-          .filter(Boolean),
-        versionIds: ids
-          .map((selectedId) => {
-            const selectedArtifact = artifacts.find((candidate) => getArtifactListId(candidate, isShowingSearchResults) === selectedId);
-            return String(selectedArtifact?.id ?? '');
-          })
-          .filter(Boolean),
+        rootIds: keyList(ids.map((selectedId) => {
+          const selectedArtifact = artifacts.find((candidate) => getArtifactListId(candidate, isShowingSearchResults) === selectedId);
+          return selectedArtifact?.root_id ?? selectedArtifact?.id ?? selectedId;
+        })),
+        versionIds: keyList(ids.map((selectedId) => {
+          const selectedArtifact = artifacts.find((candidate) => getArtifactListId(candidate, isShowingSearchResults) === selectedId);
+          return selectedArtifact?.id;
+        })),
         timestamp: Date.now(),
         ids,
       };

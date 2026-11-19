@@ -7,6 +7,7 @@ vi.mock('../../../hooks/useWorkspaces', () => ({
   useWorkspaces: () => ({ activeWorkspace: null }),
 }));
 
+/** As `GET /artifacts/store-keys` answers. */
 const STORE_OWNED = [
   'minted_by', 'minted', 'placement', 'addressing', 'screen', 'enriched', 'caller',
   'provenance', 'provenance_history', 'provenance_evidence', 'content_key',
@@ -24,15 +25,15 @@ function customRowKeys(): string[] {
   return screen.queryAllByPlaceholderText('key').map((el) => (el as HTMLInputElement).value);
 }
 
-describe('KeyValueEditor with store-owned keys', () => {
+describe('KeyValueEditor with the keys Mantle owns', () => {
   it('offers none of them as editable rows, and keeps an ordinary custom key editable', () => {
-    render(<KeyValueEditor value={contextWithEveryStoreOwnedKey()} onChange={vi.fn()} />);
+    render(<KeyValueEditor value={contextWithEveryStoreOwnedKey()} onChange={vi.fn()} storeKeys={STORE_OWNED} />);
 
     expect(customRowKeys()).toEqual(['my_field']);
   });
 
   it('shows them in the read-only section', () => {
-    render(<KeyValueEditor value={contextWithEveryStoreOwnedKey()} onChange={vi.fn()} />);
+    render(<KeyValueEditor value={contextWithEveryStoreOwnedKey()} onChange={vi.fn()} storeKeys={STORE_OWNED} />);
 
     expect(screen.getByText('System Metadata (Read-only)')).toBeInTheDocument();
     for (const key of STORE_OWNED) {
@@ -43,7 +44,7 @@ describe('KeyValueEditor with store-owned keys', () => {
   it('passes them through unchanged when an ordinary field is edited', () => {
     const onChange = vi.fn();
     const value = contextWithEveryStoreOwnedKey();
-    render(<KeyValueEditor value={value} onChange={onChange} />);
+    render(<KeyValueEditor value={value} onChange={onChange} storeKeys={STORE_OWNED} />);
 
     fireEvent.change(screen.getByDisplayValue('mine'), { target: { value: 'edited' } });
 
@@ -54,11 +55,23 @@ describe('KeyValueEditor with store-owned keys', () => {
 
   it('a custom row cannot set a store-owned key', () => {
     const onChange = vi.fn();
-    render(<KeyValueEditor value={{ title: 'Note', my_field: 'mine' }} onChange={onChange} />);
+    render(<KeyValueEditor value={{ title: 'Note', my_field: 'mine' }} onChange={onChange} storeKeys={STORE_OWNED} />);
 
     fireEvent.change(screen.getByDisplayValue('my_field'), { target: { value: 'caller' } });
 
     const next = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] as JSONObject;
     expect('caller' in next).toBe(false);
+  });
+
+  it('offers the fields the root type declares, each starting from its declared value', () => {
+    const onChange = vi.fn();
+    render(<KeyValueEditor value={{}} onChange={onChange} storeKeys={STORE_OWNED} />);
+
+    for (const label of ['Title', 'Description', 'Content Type', 'Tags']) {
+      expect(screen.getByText(`Add ${label}`)).toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByText('Add Tags'));
+    const next = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] as JSONObject;
+    expect(next.tags).toEqual([]);
   });
 });

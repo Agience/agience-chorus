@@ -14,7 +14,7 @@ vi.mock('../../../api/workspaces', () => ({
   updateWorkspaceArtifact: vi.fn(),
   removeWorkspaceArtifact: vi.fn(),
   deleteWorkspaceArtifact: vi.fn(),
-  orderWorkspaceArtifacts: vi.fn(),
+  moveWorkspaceArtifacts: vi.fn(),
   subscribeWorkspaceEvents: vi.fn(() => () => {}),
 }));
 

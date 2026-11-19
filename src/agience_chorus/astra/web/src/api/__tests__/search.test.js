@@ -11,12 +11,13 @@ vi.mock('../api', () => {
   return {
     default: {
       post: vi.fn(),
+      get: vi.fn(),
     },
   };
 });
 
 import api from '../api';
-import { searchGlobal, searchWorkspace, searchCollection, getWorkspaceSuggestions, getCollectionSuggestions } from '../search';
+import { searchGlobal, searchWorkspace, searchCollection, getWorkspaceSuggestions, getCollectionSuggestions, forgetPlatformSearch } from '../search';
 
 // `ArtifactRecallResponse`, as the live schema declares it: `from_`, and `ordering` where
 // `used_hybrid` used to be.
@@ -36,6 +37,9 @@ const mkRecall = (overrides = {}) => ({
 describe('api/search (POST /artifacts/recall)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    forgetPlatformSearch();
+    // A node that names no platform Search: a text search reads the plain recall.
+    api.get.mockResolvedValue({ data: { items: [], search: null } });
   });
 
   it('asks for the archived segment only when the archived scope is chosen', async () => {
@@ -82,8 +86,23 @@ describe('api/search (POST /artifacts/recall)', () => {
       expect(body[dead]).toBeUndefined();
     }
     expect(Object.keys(body).sort()).toEqual(
-      ['from_', 'highlight', 'query_text', 'scope', 'size', 'sort'].sort()
+      ['artifacts', 'from_', 'highlight', 'query_text', 'scope', 'size', 'sort'].sort()
     );
+  });
+
+  it('writes the panel choices into the query text and sends none of them as fields', async () => {
+    api.post.mockResolvedValueOnce({ data: mkRecall() });
+    await searchGlobal({ query_text: 'quasar "lantern"', exact: true, tag: 'Alpha Test',
+                         tag_exact: true, types: ['text/plain', ' text/html ', 'a,b'] });
+    const [, body] = api.post.mock.calls[0];
+    expect(body.query_text).toBe('="quasar lantern" tag:="Alpha Test" type:text/plain,text/html');
+    for (const field of ['exact', 'tag', 'tag_exact', 'types']) expect(body[field]).toBeUndefined();
+  });
+
+  it('a loose tag runs as one word', async () => {
+    api.post.mockResolvedValueOnce({ data: mkRecall() });
+    await searchGlobal({ query_text: '131026', tag: 'alpha test', types: ['text/markdown'] });
+    expect(api.post.mock.calls[0][1].query_text).toBe('131026 tag:alphatest type:text/markdown');
   });
 
   it('searchWorkspace adds scope', async () => {
@@ -138,5 +157,59 @@ describe('api/search (POST /artifacts/recall)', () => {
       expect(res).toEqual({ tags: [], titles: [] });
       expect(api.post).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('a text search runs the platform Search in Crystal', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    forgetPlatformSearch();
+    api.get.mockResolvedValue({ data: { items: [], search: 's-1' } });
+  });
+
+  it('invokes the Search and reads the artifacts in hit order', async () => {
+    api.post.mockImplementation(async (url) => {
+      if (url === '/artifacts/s-1/op/invoke') {
+        return { data: { hits: [
+          { id: 'h2', score: null, root_id: 'r2', version_id: 'v2' },
+          { id: 'h1', score: null, root_id: 'r1', version_id: 'v1' },
+        ], total: 7, search_id: 's-1' } };
+      }
+      if (url === '/artifacts/batch') return { data: { items: [{ id: 'r1' }, { id: 'r2' }] } };
+      throw new Error(`unexpected ${url}`);
+    });
+    const res = await searchWorkspace({ query_text: 'plan trip', collection_id: 'w1', tag: 'x y' });
+    expect(api.get).toHaveBeenCalledWith('/artifacts/platform-operators');
+    const [url, body] = api.post.mock.calls[0];
+    expect(url).toBe('/artifacts/s-1/op/invoke');
+    expect(body).toEqual({ query_text: 'plan trip tag:xy', from: 0, size: 20, scope: ['w1'] });
+    expect(res.hits.map((h) => h.id)).toEqual(['h2', 'h1']);
+    expect(res.artifacts.map((a) => a.id)).toEqual(['r2', 'r1']);
+    expect(res.total).toBe(7);
+    expect(res.ordering).toBe('search');
+  });
+
+  it('reads the platform Search id once', async () => {
+    api.post.mockResolvedValue({ data: { hits: [], total: 0 } });
+    await searchGlobal({ query_text: 'a' });
+    await searchGlobal({ query_text: 'b' });
+    expect(api.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the plain recall when the Search does not run', async () => {
+    api.post.mockImplementation(async (url) => {
+      if (url.endsWith('/op/invoke')) throw new Error('403');
+      return { data: mkRecall() };
+    });
+    const res = await searchGlobal({ query_text: 'foo' });
+    expect(api.post.mock.calls[1][0]).toBe('/artifacts/recall');
+    expect(res.total).toBe(2);
+  });
+
+  it('an archived search and a recency sort read Mantle directly', async () => {
+    api.post.mockResolvedValue({ data: mkRecall() });
+    await searchGlobal({ query_text: 'foo', state: 'archived' });
+    await searchGlobal({ query_text: 'foo', sort: 'recency' });
+    expect(api.post.mock.calls.map((c) => c[0])).toEqual(['/artifacts/recall', '/artifacts/recall']);
   });
 });

@@ -1,3 +1,4 @@
+import { textEntries } from '@/display-state/lists';
 // utils/errorDetail.ts
 
 /**
@@ -11,9 +12,7 @@ export function errorDetail(err: unknown, fallback: string): string {
   const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
   if (typeof detail === 'string' && detail.trim()) return detail;
   if (Array.isArray(detail)) {
-    const msgs = detail
-      .map((d) => (d && typeof d === 'object' && typeof (d as { msg?: unknown }).msg === 'string' ? (d as { msg: string }).msg : null))
-      .filter((m): m is string => Boolean(m));
+    const msgs = textEntries(detail.map((d) => (d && typeof d === 'object' ? (d as { msg?: unknown }).msg : null)));
     if (msgs.length) return msgs.join('; ');
   }
   if (detail && typeof detail === 'object') {

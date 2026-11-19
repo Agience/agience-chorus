@@ -7,11 +7,11 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { describeGrantee, describeItem, describeParent, previewAtOrigin, resendInviteAtOrigin, type OriginPreview } from '@/api/authority';
+import { actionsOf, describeGrantee, describeItem, describeParent, previewAtOrigin, resendInviteAtOrigin, type OriginPreview } from '@/api/authority';
 import { getArtifact } from '@/api/artifacts';
-import { createGrant } from '@/api/collections';
+import { createGrant, listRoles, roleNamed, shownRole, type Role } from '@/api/collections';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
-import { deleteGrant, listGrants } from '@/api/collections';
+import { deleteGrant, listGrants, markMembers, type Member } from '@/api/collections';
 import type { GrantResponse } from '@/api/types/grant';
 import { errorDetailOf, inviteRefusal, sentOn } from './shareText';
 import { useAuth } from '@/hooks/useAuth';
@@ -30,52 +30,9 @@ interface ShareDialogProps {
 /** The shared item as the store holds it, loaded by the dialog itself, never a caller's name. */
 interface SharedItem { title: string; contentType: string; isContainer: boolean }
 
-const ROLES = [
-  { value: 'viewer', label: 'Viewer' },
-  { value: 'contributor', label: 'Contributor (adds, changes nothing of others)' },
-  { value: 'editor', label: 'Editor' },
-  { value: 'collaborator', label: 'Collaborator' },
-  { value: 'admin', label: 'Admin' },
-];
-
-
-
-// Role -> CRUDEASIO bit bundle. Must match backend Grant.ROLE_PRESETS.
-const ROLE_BITS: Record<string, Record<string, boolean>> = {
-  viewer: { can_read: true },
-  contributor: { can_create: true, can_read: true },
-  editor: { can_create: true, can_read: true, can_update: true, can_delete: true },
-  collaborator: {
-    can_create: true,
-    can_read: true,
-    can_update: true,
-    can_delete: true,
-    can_evict: true,
-    can_invoke: true,
-    can_add: true,
-    can_share: true,
-  },
-  admin: {
-    can_create: true,
-    can_read: true,
-    can_update: true,
-    can_delete: true,
-    can_evict: true,
-    can_invoke: true,
-    can_add: true,
-    can_share: true,
-    can_admin: true,
-  },
-};
-
-const FLAGS = ['can_create', 'can_read', 'can_update', 'can_delete', 'can_evict', 'can_invoke',
-  'can_add', 'can_share', 'can_admin'] as const;
-
-// The role a grant's bits are exactly, else "Custom".
-function roleOf(grant: GrantResponse): string {
-  const held = (f: string) => Boolean((grant as unknown as Record<string, unknown>)[f]);
-  const match = ROLES.find((r) => FLAGS.every((f) => held(f) === Boolean(ROLE_BITS[r.value][f])));
-  return match ? match.label.split(' (')[0] : 'Custom';
+// The role whose actions a grant holds exactly, else "Custom".
+function roleOf(grant: GrantResponse, roles: Role[]): string {
+  return roleNamed(actionsOf(grant as unknown as Record<string, unknown>), roles) ?? 'Custom';
 }
 
 function copy(text: string) {
@@ -94,7 +51,9 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
   const [parentNames, setParentNames] = useState<Record<string, string>>({});
   const workspaceName = typeof item === 'object' ? item.title : undefined;
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('viewer');
+  // The roles offered are Mantle's; the first is chosen until the person picks another.
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [role, setRole] = useState('');
   const [sending, setSending] = useState(false);
   // Shown in the dialog itself: a toast behind an open dialog can go unseen.
   const [inviteError, setInviteError] = useState<string | null>(null);
@@ -111,9 +70,22 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
   // What Origin holds about the item, for the owner to confirm (review 15, L4).
   const [preview, setPreview] = useState<OriginPreview | null>(null);
   const routeId = workspaceId;
-  const [grants, setGrants] = useState<GrantResponse[] | 'loading' | 'hidden'>('loading');
+  const [grants, setGrants] = useState<Member[] | 'loading' | 'hidden' | 'unread'>('loading');
   const [busy, setBusy] = useState<string | null>(null);
   const { user } = useAuth();
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    listRoles()
+      .then((got) => {
+        if (cancelled) return;
+        setRoles(got);
+        setRole((r) => r || (got[0]?.name ?? ''));
+      })
+      .catch(() => { if (!cancelled) setRoles([]); });
+    return () => { cancelled = true; };
+  }, [open]);
 
   const deepLink = `${window.location.origin}/${workspaceId}`;
 
@@ -123,8 +95,10 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
   const loadGrants = useCallback(() => {
     let cancelled = false;
     listGrants(workspaceId)
-      .then((items) => { if (!cancelled) setGrants(items); })
-      .catch(() => { if (!cancelled) setGrants('hidden'); });
+      .then((items) => markMembers(workspaceId, items).then(
+        (marked) => { if (!cancelled) setGrants(marked); },
+        () => { if (!cancelled) setGrants('unread'); }),
+      () => { if (!cancelled) setGrants('hidden'); });
     return () => { cancelled = true; };
   }, [workspaceId]);
 
@@ -288,7 +262,7 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
         target_entity_type: 'email',
         resource_name: workspaceName || undefined,
         preview: preview.preview,
-        ...ROLE_BITS[role],
+        actions: roles.find((r) => r.name === role)?.actions ?? [],
       });
       setEmail('');
       setPendingTo(null);
@@ -304,25 +278,17 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
     } finally {
       setSending(false);
     }
-  }, [pendingTo, resendOf, routeId, item, workspaceName, role, loadGrants, preview]);
+  }, [pendingTo, resendOf, routeId, item, workspaceName, role, roles, loadGrants, preview]);
 
   // Origin lists a resource's grants only to someone who may share it, so a refused listing means
   // this person cannot invite either (2026-10-31, a tester: a Viewer got an enabled Send invite form
   // that Origin then refused).
   const mayNotShare = grants === 'hidden';
 
-  // An invite whose claims are spent is not waiting on anyone: whoever accepted it is listed as a
-  // member, by the grant the claim made.
-  const spent = (g: GrantResponse) => g.grantee_type === 'invite' && g.max_claims != null
-    && (g.claims_count ?? 0) >= g.max_claims;
-  // An invite its target declined in the app is retired with no claim (FR-004): it stays listed
-  // as declined, so its sender learns the answer instead of seeing the invite vanish.
-  const declined = (g: GrantResponse) => g.grantee_type === 'invite' && g.state === 'retired'
-    && (g.claims_count ?? 0) === 0;
-  const members = Array.isArray(grants)
-    ? grants.filter((g) => (g.state === 'active' && !spent(g)
-        && (g.grantee_type === 'user' || g.grantee_type === 'invite')) || declined(g))
-    : [];
+  // Who is listed, and how, is the resource's types' answer (the `members` op): a member, an
+  // invite still waiting, or an invite its target declined.
+  const members = Array.isArray(grants) ? grants : [];
+  const declined = (g: Member) => g.mark === 'declined';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -348,11 +314,11 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
-                disabled={mayNotShare}
+                disabled={mayNotShare || !roles.length}
                 className="w-32 shrink-0 px-2 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900"
               >
-                {ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>{r.label}</option>
+                {roles.map((r) => (
+                  <option key={r.name} value={r.name} title={r.actions.join(', ')}>{shownRole(r.name)}</option>
                 ))}
               </select>
             </div>
@@ -364,7 +330,7 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
             )}
             <button
               onClick={handleInvite}
-              disabled={mayNotShare || sending || !email.trim()}
+              disabled={mayNotShare || sending || !email.trim() || !role}
               className="w-full bg-gray-900 text-white py-2 px-4 rounded-md hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
             >
               {sending ? 'Sending...' : 'Send invite'}
@@ -431,12 +397,14 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
               )}
               {grants === 'loading' ? (
                 <p className="text-xs text-gray-400">Loading…</p>
+              ) : grants === 'unread' ? (
+                <p className="text-xs text-gray-500">Who has access could not be read. Close and open again to retry.</p>
               ) : members.length === 0 ? (
                 <p className="text-xs text-gray-500">No one has been invited yet.</p>
               ) : (
                 <ul className="divide-y divide-gray-100 border border-gray-100 rounded max-h-48 overflow-y-auto">
                   {members.map((g) => {
-                    const pending = g.grantee_type === 'invite';
+                    const pending = g.mark !== 'member';
                     const you = !pending && g.grantee_id === user?.id;
                     const who = pending
                       ? (g.target_entity || 'An invite sent by email')
@@ -445,7 +413,7 @@ export function ShareDialog({ open, onOpenChange, resourceId, workspaceId: legac
                       <li key={g.id} className="flex items-center gap-2 px-3 py-2 text-xs">
                         <div className="flex-1 min-w-0">
                           <div className="truncate text-gray-800">{who}</div>
-                          <div className="text-gray-500">{roleOf(g)}{declined(g) ? ' · invite declined'
+                          <div className="text-gray-500">{roleOf(g, roles)}{declined(g) ? ' · invite declined'
                             : pending ? ' · invite not yet accepted' : ''}{pending && sentOn(g)
                               ? ` · sent ${sentOn(g)}` : ''}</div>
                         </div>

@@ -21,9 +21,12 @@ import { buildCspMetaTag } from './csp';
 import { isWebUrl } from './openLink';
 import { getAgienceDragPayload } from '@/dnd/agienceDrag';
 import { safeParseArtifactContext } from '@/utils/artifactContext';
-import { CHAT_CONTENT_TYPE, OPERATOR_CONTENT_TYPE } from '@/utils/content-type';
+import { CHAT_CONTENT_TYPE, OPERATOR_CONTENT_TYPE, TRANSFORM_CONTENT_TYPE } from '@/utils/content-type';
+import { holdStepGrants } from '@/api/stepGrants';
 import { getArtifact, invokeWithContext, listLinks } from '@/api/artifacts';
 import { mergeViewContext } from './mergeViewContext';
+import { notIn, textEntries, unique } from '@/display-state/lists';
+import { getContentType } from '@/registry/content-types';
 
 /** The document every view runs in: `public/view-host.html`, with its own CSP at the edge. */
 export const VIEW_HOST = `${import.meta.env.BASE_URL}view-host.html`;
@@ -79,15 +82,16 @@ interface JsonRpcNotification {
   params?: Record<string, unknown>;
 }
 
-/**
- * The API key ids an artifact's context records as its own: `key.api_key_id` (the key artifact
- * view) and `api_key.id` (the MCP client view).
- */
-function recordedKeyIds(artifact: Artifact): string[] {
+/** The hosted artifact's type: a key a view issues is of the type that view belongs to. */
+function typeOf(artifact: Artifact): string {
   const ctx = safeParseArtifactContext(artifact.context) as Record<string, unknown>;
-  const key = ctx.key as { api_key_id?: unknown } | undefined;
-  const apiKey = ctx.api_key as { id?: unknown } | undefined;
-  return [key?.api_key_id, apiKey?.id].filter((v): v is string => typeof v === 'string' && v !== '');
+  return String(artifact.content_type ?? ctx.content_type ?? '');
+}
+
+/** Has the hosted artifact issued a token? Only a Key carries a `token_hash`. */
+function hasToken(artifact: Artifact): boolean {
+  const ctx = safeParseArtifactContext(artifact.context) as Record<string, unknown>;
+  return Boolean(ctx.token_hash);
 }
 
 /** The job grant a timer's context records as the one it runs on (`job_grant.grant_id`). */
@@ -95,6 +99,15 @@ function recordedJobGrant(artifact: Artifact): string {
   const ctx = safeParseArtifactContext(artifact.context) as Record<string, unknown>;
   const grant = ctx.job_grant as { grant_id?: unknown } | undefined;
   return typeof grant?.grant_id === 'string' ? grant.grant_id : '';
+}
+
+/**
+ * The hosted artifact's type as its view reads it: the type's label and the layout its `ui.record`
+ * declares, passed through as served. A view that lays out named fields reads them from here.
+ */
+function hostedType(artifact: Artifact): { content_type?: string; label: string; record: unknown } {
+  const def = getContentType(artifact);
+  return { content_type: artifact.content_type, label: def.label, record: def.record ?? null };
 }
 
 /** An error as a person reads it: a refusal's own detail, never a transport's class name. */
@@ -145,6 +158,8 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
   // The event bridge below subscribes once per artifact; it reads the latest content here.
   const resolvedContentRef = useRef(resolvedContent);
   resolvedContentRef.current = resolvedContent;
+  const hostedTypeRef = useRef(hostedType(artifact));
+  hostedTypeRef.current = hostedType(artifact);
 
   // Assemble the HTML with CSP meta tag injected
   const srcdocHtml = buildCspMetaTag(csp) + html;
@@ -247,8 +262,10 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
               type: 'text',
               text: JSON.stringify({
                 artifact_id: artifact.id,
+                state: artifact.state,
                 context: safeParseArtifactContext(artifact.context),
                 content: resolvedContent,
+                type: hostedType(artifact),
               }),
             },
           ],
@@ -341,6 +358,16 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           if (patch) {
             await updateArtifact({ ...patch, id: artifact.id } as Parameters<typeof updateArtifact>[0]);
           }
+          // A workflow holds its inline steps' grants (FR-007): the person makes the ones it lacks
+          // as they save it. One Origin refuses leaves that step refused at run, in words.
+          if (patch && patch.context !== undefined && artifact.content_type === TRANSFORM_CONTENT_TYPE) {
+            const saved = (typeof patch.context === 'string' ? safeParseArtifactContext(patch.context)
+              : patch.context) as { run?: unknown };
+            const wid = String(artifact.id);
+            const links = await listLinks(wid).catch(() => ({}));
+            const refused = await holdStepGrants(wid, saved?.run, links).catch(() => []);
+            if (refused.length) console.warn('the workflow was not given grants on', refused);
+          }
           sendResponse(req.id, { content: [{ type: 'text', text: 'OK' }] });
         } catch (e) {
           sendError(req.id, -32000, `Update failed: ${e}`);
@@ -361,8 +388,10 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
       }
 
       // Credential tools. Each runs only after the user approves it in the host's own dialog, one
-      // request at a time. A new key's secret is shown in that host dialog and is never posted
-      // into the view: the view receives the key's record without `key`.
+      // request at a time. A Key artifact issues its own token (Mantle's `token` stamp): the host
+      // fills the hosted blank Key, or creates a new Key, with what the view names. The token is
+      // shown once by the workspace's own dialog and never reaches the view, which gets the Key's
+      // id, hint and context.
       case 'create_api_key': {
         if (!confirmDialog) {
           sendError(req.id, -32000, 'create_api_key needs the host confirmation dialog');
@@ -374,68 +403,82 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         }
         credentialRequestPending.current = true;
         try {
-          const keyName = typeof toolArgs.name === 'string' && toolArgs.name ? toolArgs.name : 'API key';
-          if (!keyExpiry(toolArgs.expires_at)) {
-            sendError(req.id, -32000, 'create_api_key needs expires_at: a time within the next 90 days');
+          const keyName = typeof toolArgs.name === 'string' && toolArgs.name ? toolArgs.name : 'Key';
+          const collections = unique(textEntries(toolArgs.collections));
+          const actions = unique(textEntries(toolArgs.actions));
+          const expiresAt = keyExpiry(toolArgs.expires_at);
+          const agent = typeof toolArgs.agent === 'string' ? toolArgs.agent.trim() : '';
+          // The type the view issues, as the view names it.
+          const keyType = typeof toolArgs.content_type === 'string' ? toolArgs.content_type.trim() : '';
+          if (!keyType) {
+            sendError(req.id, -32000, 'create_api_key needs the content_type of the key it issues');
             return;
           }
+          if (!collections.length || !actions.length) {
+            sendError(req.id, -32000, 'create_api_key needs the collections the key reaches and the actions it may take');
+            return;
+          }
+          if (!expiresAt) {
+            sendError(req.id, -32000, 'create_api_key needs expires_at: a time in the future');
+            return;
+          }
+          // The titles the view shows its collections by, as the view names them.
+          const titles = toolArgs.collection_titles && typeof toolArgs.collection_titles === 'object'
+            ? toolArgs.collection_titles as Record<string, unknown> : {};
+          const fields: Record<string, unknown> = {
+            collections,
+            collection_titles: titles,
+            actions,
+            expires_at: expiresAt,
+            ...(agent ? { agent } : {}),
+          };
           const approved = await confirmDialog.confirm({
-            title: 'Create an API key?',
-            description: `This artifact's view is asking to create the API key "${keyName}" with the settings below. Anyone holding the key can act with them.`,
+            title: agent ? 'Create a key for this agent?' : 'Create a key?',
+            description: `This artifact's view is asking to issue the key "${keyName}" with the settings below. Anyone holding it can act with them until it expires or the Key is archived.`,
             customContent: (
               <pre className="max-h-48 overflow-auto rounded bg-gray-50 p-2 text-xs">
-                {JSON.stringify(toolArgs, null, 2)}
+                {JSON.stringify(fields, null, 2)}
               </pre>
             ),
             confirmLabel: 'Create key',
             tone: 'warn',
           });
           if (!approved) {
-            sendError(req.id, -32000, 'The user declined to create an API key');
+            sendError(req.id, -32000, 'The user declined to create a key');
             return;
           }
-          // The view names the collections the key reaches and one access level; anything it
-          // did not name, the key cannot reach. 2026-10-18: the view's `scopes` and
-          // `resource_filters` were passed through as they were, Mantle read neither, and every
-          // key made from a Key card was a bundle that reached nothing.
-          const { createKeyOver } = await import('@/api/apiKeys');
-          const resources = Array.isArray(toolArgs.resources)
-            ? (toolArgs.resources as unknown[]).filter((r): r is string => typeof r === 'string')
-            : [];
-          const role = toolArgs.role === 'editor' ? 'editor' : 'viewer';
-          // Every key a view asks for expires (FR-019): a time within `KEY_MAX_DAYS`, never none.
-          const expiresAt = keyExpiry(toolArgs.expires_at);
-          if (!expiresAt) {
-            sendError(req.id, -32000, 'create_api_key needs expires_at: a time within the next 90 days');
-            return;
-          }
-          const created = await createKeyOver(keyName, role, resources, expiresAt);
-          const { key: secret, ...record } = created;
-          if (secret) {
-            await confirmDialog.confirm({
-              title: 'Copy your new API key',
-              description: 'It is shown once, here, and cannot be shown again.',
-              customContent: (
-                <code
-                  data-testid="mcp-app-host-new-key"
-                  className="block select-all break-all rounded bg-gray-50 p-2 text-xs"
-                >
-                  {secret}
-                </code>
-              ),
-              confirmLabel: 'Done',
-              cancelLabel: 'Close',
-              tone: 'warn',
+          let keyId: string;
+          // A live hosted artifact of that type with no token yet is filled rather than another made.
+          if (typeOf(artifact) === keyType && artifact.state !== 'archived' && !hasToken(artifact)) {
+            const stored = safeParseArtifactContext(artifact.context) as Record<string, unknown>;
+            const ok = await updateArtifact(
+              { id: String(artifact.id), context: JSON.stringify({ ...stored, ...fields }) });
+            if (!ok) {
+              sendError(req.id, -32000, 'The key was not created');
+              return;
+            }
+            keyId = String(artifact.id);
+          } else {
+            const created = await createArtifact({
+              content_type: keyType,
+              content: '',
+              context: JSON.stringify({ content_type: keyType, title: keyName, ...fields }),
             });
+            if (!created) {
+              sendError(req.id, -32000, 'The key was not created');
+              return;
+            }
+            keyId = String(created.id);
           }
+          const record = await getArtifact(keyId);
+          const context = safeParseArtifactContext(
+            (record as { context?: unknown }).context as string) as Record<string, unknown>;
           sendResponse(req.id, {
-            content: [{ type: 'text', text: JSON.stringify(record) }],
+            content: [{ type: 'text', text: JSON.stringify({
+              id: keyId, hint: context.hint ?? null, expires_at: context.expires_at ?? null, context }) }],
           });
         } catch (e) {
-          // The server's own reason, not "AxiosError: …409": a key refused on a node with Origin's
-          // ledger says where keys are made (2026-11-13, the Tester read the bare 409 as a hang).
-          const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
-          sendError(req.id, -32000, `The key was not created: ${typeof detail === 'string' && detail ? detail : String(e)}`);
+          sendError(req.id, -32000, `The key was not created: ${readableError(e)}`);
         } finally {
           credentialRequestPending.current = false;
         }
@@ -487,9 +530,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
             const links = typeof target === 'string' && target ? await listLinks(target).catch(() => ({})) : {};
             const answer = await proxyToolCall('timer_reach', { timer_id: artifact.id, contexts, links }, 'lumen');
             reach = JSON.parse(answer.content?.[0]?.text ?? '{}') as typeof reach;
-            const need = Array.isArray(reach.need)
-              ? reach.need.filter((n): n is string => typeof n === 'string' && n !== '' && !(n in contexts))
-              : [];
+            const need = notIn(textEntries(reach.need), Object.keys(contexts));
             if (need.length === 0) break;
             const allowed = chain();
             const outside = need.find((id) => !allowed.has(id));
@@ -506,9 +547,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
                 : { run: ctxOf.run ?? nested('transform') ?? nested('order') };
             }
           }
-          const resources = Array.isArray(reach.resources)
-            ? reach.resources.filter((r): r is string => typeof r === 'string' && r !== '')
-            : [];
+          const resources = textEntries(reach.resources);
           const timerId = String(artifact.id ?? '');
           if (!timerId || !resources.includes(timerId)) {
             sendError(req.id, -32000, `Arming failed: ${typeof reach.error === 'string' ? reach.error
@@ -588,11 +627,10 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         return;
       }
 
+      // Archiving a Key ends its token: the hosted Key, and no other.
       case 'delete_api_key': {
-        // Only the key recorded on the hosted artifact can be revoked from its view.
-        const keyId = typeof toolArgs.id === 'string' ? toolArgs.id : '';
-        if (!keyId || !recordedKeyIds(artifact).includes(keyId)) {
-          sendError(req.id, -32000, 'delete_api_key is limited to the key recorded on the hosted artifact');
+        if (!hasToken(artifact)) {
+          sendError(req.id, -32000, 'delete_api_key is limited to a hosted Key');
           return;
         }
         if (!confirmDialog) {
@@ -606,20 +644,24 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
         credentialRequestPending.current = true;
         try {
           const approved = await confirmDialog.confirm({
-            title: 'Revoke this API key?',
-            description: `This artifact's view is asking to revoke the API key ${keyId}. Anything using it stops working.`,
+            title: 'Revoke this key?',
+            description: 'This archives the Key. Anything using its token stops working.',
             confirmLabel: 'Revoke key',
             tone: 'danger',
           });
           if (!approved) {
-            sendError(req.id, -32000, 'The user declined to revoke the API key');
+            sendError(req.id, -32000, 'The user declined to revoke the key');
             return;
           }
-          const { deleteAPIKey } = await import('@/api/apiKeys');
-          await deleteAPIKey(keyId);
+          const ok = await updateArtifact(
+            { id: artifact.id, state: 'archived' } as Parameters<typeof updateArtifact>[0]);
+          if (!ok) {
+            sendError(req.id, -32000, 'The key was not revoked');
+            return;
+          }
           sendResponse(req.id, { content: [{ type: 'text', text: 'OK' }] });
         } catch (e) {
-          sendError(req.id, -32000, `Delete API key failed: ${e}`);
+          sendError(req.id, -32000, `Revoking the key failed: ${readableError(e)}`);
         } finally {
           credentialRequestPending.current = false;
         }
@@ -669,8 +711,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
           const links = await listLinks(workflowId).catch(() => ({}));
           const answer = await proxyToolCall('workflow_reach', { workflow_id: workflowId, context: ctxArg, links }, 'lumen');
           const reach = JSON.parse(answer.content?.[0]?.text ?? '{}') as { resources?: unknown; error?: unknown };
-          const resources = Array.isArray(reach.resources)
-            ? reach.resources.filter((r): r is string => typeof r === 'string' && r !== '') : [];
+          const resources = textEntries(reach.resources);
           if (!resources.includes(workflowId)) {
             sendError(req.id, -32000, `Running failed: ${typeof reach.error === 'string' ? reach.error
               : 'Lumen could not say what this run reaches'}`);
@@ -731,9 +772,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
       // and input form are sealed under its owner's key, so the persona listing them showed each as
       // "Operator". Read here, in the person's session, for operators only, and only those fields.
       case 'describe_operators': {
-        const ids = Array.isArray(toolArgs.ids)
-          ? [...new Set(toolArgs.ids.filter((i): i is string => typeof i === 'string' && i !== ''))]
-          : [];
+        const ids = unique(textEntries(toolArgs.ids));
         if (ids.length === 0 || ids.length > 100) {
           sendError(req.id, -32602, 'describe_operators takes 1 to 100 operator ids');
           return;
@@ -759,28 +798,26 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
       // title of each item, read in the person's session, which the picker showed them when they
       // chose it. Title and type only, for items the person can read.
       case 'server_tools': {
-        // A server artifact's view lists its tools: Iris relays tools/list for the hosted server
-        // artifact, and for no other (the id is the host's, never the view's).
-        const hostedType = String(
-          (safeParseArtifactContext(artifact.context) as { content_type?: string }).content_type
-          ?? (artifact as { content_type?: string }).content_type ?? '');
-        if (hostedType !== 'application/vnd.agience.mcp-server+json') {
-          sendError(req.id, -32000, 'server_tools is for a server artifact');
-          return;
-        }
+        // A server artifact's view lists its tools: Iris relays tools/list for the hosted artifact
+        // (the id is the host's, never the view's) and refuses any artifact that is not a server.
         try {
           const answer = await proxyToolCall(
             'call_mcp_server', { server_artifact_id: String(artifact.id), method: 'tools/list' }, 'iris');
-          sendResponse(req.id, { content: [{ type: 'text', text: answer.content?.[0]?.text ?? '{}' }] });
+          const text = answer.content?.[0]?.text ?? '{}';
+          let refused: string | undefined;
+          try { refused = (JSON.parse(text) as { error?: string }).error; } catch { refused = undefined; }
+          if (refused) {
+            sendError(req.id, -32000, refused);
+            return;
+          }
+          sendResponse(req.id, { content: [{ type: 'text', text }] });
         } catch (e) {
           sendError(req.id, -32000, `Could not reach the server: ${e}`);
         }
         return;
       }
       case 'describe_items': {
-        const ids = Array.isArray(toolArgs.ids)
-          ? [...new Set(toolArgs.ids.filter((i): i is string => typeof i === 'string' && i !== ''))]
-          : [];
+        const ids = unique(textEntries(toolArgs.ids));
         if (ids.length === 0 || ids.length > 100) {
           sendError(req.id, -32602, 'describe_items takes 1 to 100 item ids');
           return;
@@ -889,7 +926,7 @@ const McpAppHost = forwardRef<McpAppHostHandle, McpAppHostProps>(function McpApp
               const fresh = safeParseArtifactContext((a as { context?: unknown }).context as string) as Record<string, unknown>;
               viewContextBase.current = fresh;
               sendNotification('ui/notifications/tool-result', {
-                content: [{ type: 'text', text: JSON.stringify({ artifact_id: artifact.id, context: fresh, content: resolvedContentRef.current }) }],
+                content: [{ type: 'text', text: JSON.stringify({ artifact_id: artifact.id, context: fresh, content: resolvedContentRef.current, type: hostedTypeRef.current }) }],
               });
             })
             .catch(() => { /* the view keeps what it shows; the next open reads it again */ });

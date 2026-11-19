@@ -106,7 +106,8 @@
     "default_state": "view",
     "is_container": false,
     "creatable": true,
-    "viewer": "record",
+    "resource_uri": "ui://astra/vnd.agience.record.html",
+    "resource_server": "astra",
     "description": "Canonical operator or legal-entity record used for governance and licensing decisions.",
     "record": {
       "titlePath": "identity.display_name",

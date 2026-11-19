@@ -1,0 +1,76 @@
+{
+  "content_type": "application/vnd.agience.budget+json",
+  "version": 1,
+  "inherits": [
+    "application/json"
+  ],
+  "on_create": {
+    "does": "add"
+  },
+  "description": "Budget — a limit and what has been spent against it. A spend created in a collection edged to it by charged_to adds its amount to spent; a spend that would pass the limit is refused. Charging needs Invoke on the budget; changing the limit, or starting it again, needs update on it.",
+  "ui": {
+    "label": "Budget",
+    "icon": "wallet",
+    "color": "#047857",
+    "badge_class": "bg-emerald-100 text-emerald-800",
+    "tile_class": "",
+    "modes": [
+      "floating",
+      "preview"
+    ],
+    "states": [
+      "view",
+      "edit"
+    ],
+    "default_mode": "floating",
+    "default_state": "view",
+    "is_container": false,
+    "creatable": true,
+    "resource_uri": "ui://astra/vnd.agience.record.html",
+    "resource_server": "astra",
+    "record": {
+      "titlePath": "title",
+      "fields": [
+        {
+          "path": "limit",
+          "label": "Limit",
+          "editable": true
+        },
+        {
+          "path": "spent",
+          "label": "Spent",
+          "editable": false
+        },
+        {
+          "path": "unit",
+          "label": "Unit",
+          "editable": true
+        }
+      ]
+    }
+  },
+  "context_schema": {
+    "title": {
+      "type": "string",
+      "mutable": true
+    },
+    "limit": {
+      "type": "number",
+      "minimum": 0,
+      "description": "The most that may be spent. A charge that would take spent past it is refused.",
+      "mutable": true
+    },
+    "spent": {
+      "type": "number",
+      "minimum": 0,
+      "default": 0,
+      "description": "What has been charged so far. Each spend adds its amount.",
+      "mutable": true
+    },
+    "unit": {
+      "type": "string",
+      "description": "What the limit and amounts count, such as CAD or GPU hours.",
+      "mutable": true
+    }
+  }
+}

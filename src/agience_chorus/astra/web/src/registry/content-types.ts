@@ -16,6 +16,7 @@ import type {
   ResolvedFrontendImplementation,
   RecordConfig,
   RecordFieldConfig,
+  ContextFieldConfig,
 } from 'virtual:content-types';
 import type { Artifact } from '@/context/workspace/workspace.types';
 import { resolveIcon } from './icon-map';
@@ -31,7 +32,7 @@ export type ViewMode = string;
 export type ViewState = string;
 
 // Re-export the generic-record viewer schema types so viewers import from the registry.
-export type { RecordConfig, RecordFieldConfig };
+export type { RecordConfig, RecordFieldConfig, ContextFieldConfig };
 
 /**
  * A single action an artifact context menu or hover bar can offer.
@@ -132,10 +133,12 @@ export interface ContentTypeDefinition {
   /** Whether this is a container that can show children. */
   isContainer: boolean;
 
+  /** Present when the type takes drops: what its drop zone says. Crystal decides what it keeps. */
+  drop?: { label: string };
+
   /**
-   * Declarative schema for the generic `_record` viewer (view/edit/save).
-   * Present when the type sets `ui.viewer: "record"` + a `ui.record` block;
-   * the viewer renders from this instead of a hardcoded definition.
+   * The type's `ui.record` layout of named fields, passed through as served to the view its
+   * `resourceUri` names.
    */
   record?: RecordConfig;
 
@@ -162,8 +165,14 @@ export interface ContentTypeDefinition {
   /** Whether users may create new artifacts of this type. */
   creatable: boolean;
 
+  /** The type's context fields, by key. */
+  contextSchema?: Record<string, ContextFieldConfig>;
+
   /** File extensions associated with this type. */
   extensions: string[];
+
+  /** For a wildcard: patterns (`*` any run) of the types in its category it does not cover. */
+  notFor: string[];
 
   /** Optional frontend implementation manifest entries for future plane-aware resolution. */
   implementations: ContentTypeFrontendImplementation[];
@@ -216,13 +225,16 @@ function hydrateDefinition(raw: ResolvedContentType): ContentTypeDefinition {
     ...(raw.max_depth != null ? { maxDepth: raw.max_depth } : {}),
     ...(raw.container_variant ? { containerVariant: raw.container_variant } : {}),
     isContainer: raw.is_container,
+    ...(raw.drop ? { drop: raw.drop } : {}),
     ...(raw.record ? { record: raw.record } : {}),
+    ...(raw.context_schema ? { contextSchema: raw.context_schema } : {}),
     ...(raw.open_action ? { openAction: raw.open_action } : {}),
     ...(raw.resource_uri ? { resourceUri: raw.resource_uri } : {}),
     ...(raw.resource_server ? { resourceServer: raw.resource_server } : {}),
     viewer: viewerFactory ?? undefined,
     creatable: raw.creatable,
     extensions: raw.extensions,
+    notFor: raw.not_for ?? [],
     implementations: raw.implementations.map(hydrateImplementation),
     // `actions` isn't part of the typed ResolvedContentType shape yet; read it
     // defensively in case a presentation.json already carries it.
@@ -280,6 +292,7 @@ function serverEntryToResolved(entry: {
     is_wildcard: isWildcard,
     wildcard_prefix: isWildcard ? ct.slice(0, -2) : null,
     extensions: arr(typeBlock.extensions) ?? [],
+    not_for: arr(def.not_for) ?? [],
     description: str(typeBlock.description) ?? str(ui.description) ?? '',
     label: str(ui.label) ?? ct,
     icon: str(ui.icon) ?? 'file',
@@ -296,7 +309,11 @@ function serverEntryToResolved(entry: {
     resource_uri: str(ui.resource_uri) ?? null,
     resource_server: str(ui.resource_server) ?? null,
     container_variant: str(ui.container_variant) ?? null,
+    drop: def.drop && typeof def.drop === 'object'
+      ? { label: str((def.drop as Record<string, unknown>).label) ?? '' }
+      : null,
     record: (ui.record as RecordConfig | null | undefined) ?? null,
+    context_schema: (def.context_schema as Record<string, ContextFieldConfig> | undefined) ?? {},
     viewer: str(ui.viewer) ?? null,
     provider: str(ui.provider) ?? null,
     default_depth: typeof ui.default_depth === 'number' ? (ui.default_depth as number) : null,
@@ -314,13 +331,7 @@ function serverEntryToResolved(entry: {
 export function setRuntimeContentTypes(
   entries: Array<{ content_type: string; definition: Record<string, unknown> }>,
 ): void {
-  const resolved = entries
-    .map(serverEntryToResolved)
-    // exact MIME types before wildcards (matching priority), then by name
-    .sort((a, b) => (a.is_wildcard === b.is_wildcard
-      ? a.content_type.localeCompare(b.content_type)
-      : a.is_wildcard ? 1 : -1))
-    .map(hydrateDefinition);
+  const resolved = entries.map(serverEntryToResolved).map(hydrateDefinition);
   CONTENT_TYPES.splice(0, CONTENT_TYPES.length, ...resolved);
 }
 
@@ -328,9 +339,12 @@ export function setRuntimeContentTypes(
 // MIME resolution
 // ──────────────────────────────────────────────────────────────────────────────
 
-/** A structured data type rather than a file format: an Agience type, or any `+json`. */
-function isDataType(mime: string): boolean {
-  return mime.startsWith('application/vnd.agience.') || mime.endsWith('+json');
+/** Whether `mime` is one of the types the wildcard names in its `not_for` patterns. */
+function notCovered(wildcard: ContentTypeDefinition, mime: string): boolean {
+  return wildcard.notFor.some((pattern) => {
+    const parts = pattern.toLowerCase().split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'));
+    return new RegExp(`^${parts.join('.*')}$`).test(mime);
+  });
 }
 
 // The root type, `*/*` (Artifact): what every type inherits from, and what an unknown type is.
@@ -338,13 +352,18 @@ function rootType(): ContentTypeDefinition {
   return CONTENT_TYPES.find((t) => t.content_type === '*/*') ?? FALLBACK_TYPE;
 }
 
+/** The context fields every artifact has, as the root type declares them, in declared order. */
+export function rootContextFields(): Array<ContextFieldConfig & { key: string }> {
+  return Object.entries(rootType().contextSchema ?? {}).map(([key, field]) => ({ ...field, key }));
+}
+
 /**
  * Resolve the best ContentTypeDefinition for a given MIME string.
  *
  * Priority:
  *   1. Exact match (e.g. "text/markdown")
- *   2. Category wildcard (e.g. "text/*" for any "text/..."); `application/*` (File) only for a
- *      file format, never for an Agience or `+json` data type
+ *   2. Category wildcard (e.g. "text/*" for any "text/..."), unless the wildcard's `not_for`
+ *      names the type (`application/*`, File, leaves out Agience and `+json` data types)
  *   3. The root type, `*` + `/*` (Artifact)
  *
  * File is not a default: an artifact whose type nothing declares is an artifact.
@@ -359,10 +378,8 @@ function findForContentType(contentType: string): ContentTypeDefinition {
 
   // 2. Category wildcard
   const category = normalized.split('/')[0];
-  if (!(category === 'application' && isDataType(normalized))) {
-    const wildcard = CONTENT_TYPES.find((t) => t.content_type === `${category}/*`);
-    if (wildcard) return wildcard;
-  }
+  const wildcard = CONTENT_TYPES.find((t) => t.content_type === `${category}/*`);
+  if (wildcard && !notCovered(wildcard, normalized)) return wildcard;
 
   // 3. The root
   return rootType();
@@ -383,40 +400,7 @@ export function getContentTypeById(id: string): ContentTypeDefinition | undefine
   return CONTENT_TYPES.find((t) => t.id === id || t.content_type === id);
 }
 
-/** All container types (isContainer === true). */
-export function getContainerTypes(): ContentTypeDefinition[] {
-  return CONTENT_TYPES.filter((t) => t.isContainer);
-}
-
 /** All types that users can create (creatable === true). */
 export function getCreatableTypes(): ContentTypeDefinition[] {
   return CONTENT_TYPES.filter((t) => t.creatable);
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Implementation resolution
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Resolve the best frontend implementation for a content type on a given
- * UX plane.
- *
- * Resolution order (per content-type-registry-v2.md):
- *   1. Gather candidate implementations from the content type.
- *   2. Filter by requested plane.
- *   3. Sort by priority (higher wins).
- *   4. Return the first compatible candidate, or null.
- *
- * When no implementation matches the requested plane, the caller falls
- * back to the default bundled viewer path.
- */
-export function resolveImplementation(
-  contentType: ContentTypeDefinition,
-  plane: string,
-): ContentTypeFrontendImplementation | null {
-  const candidates = contentType.implementations
-    .filter((impl) => impl.planes.length === 0 || impl.planes.includes(plane))
-    .sort((a, b) => b.priority - a.priority);
-
-  return candidates[0] ?? null;
 }

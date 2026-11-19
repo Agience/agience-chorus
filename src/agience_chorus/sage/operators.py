@@ -191,6 +191,8 @@ def register_operators(artifact_store, graph_store=None, *, author: str = "ember
             "content_type": OPERATOR_CONTENT_TYPE,
             "state": "live",
             "context": op.offer,
+            "offer": op.offer,
+            "needs": ["store.read", "store.write"],
             "content": f"describe-operator {op.name}: {op.offer}",
             "created_by": author,
         })

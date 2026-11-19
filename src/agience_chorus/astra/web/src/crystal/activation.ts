@@ -1,19 +1,13 @@
 // crystal/activation.ts
 //
-// The prism junction, browser side: the browser (via prism-js conventions) is the prism
-// that grounds crystal.workbench; this module is the activation gate. No silent
-// fallback anywhere — a crystal that fails validation, integrity, or the capability
-// subset check refuses to activate, and the refusal reason is the finding.
+// The prism junction, browser side: the browser is the prism that grounds
+// crystal.workbench. Crystal answers whether it activates (`POST /crystals/activate`):
+// structure, then the claimed sha, then the reach of every requirement over what this
+// prism advertises. A refusal is shown as Crystal gives it; nothing falls back.
 
-import {
-  activatesOn,
-  type Crystal,
-  type Organon,
-  requiredCapabilities,
-  validate,
-  verify,
-} from './crystalModel';
-import { WORKBENCH, WORKBENCH_SHA256, workbenchArtifact } from './workbench';
+import { post } from '@/api/api';
+import { type Crystal, type Organon } from './crystalModel';
+import { WORKBENCH, WORKBENCH_SHA256 } from './workbench';
 
 /**
  * The browser prism's named capability set.
@@ -37,9 +31,18 @@ export function browserPrismCapabilities(): string[] {
 }
 
 export type ActivationFailureKind =
-  | 'invalid-structure' // validate() found shape problems
-  | 'integrity' // sha mismatch (tamper, or drift from the pinned Python sha)
+  | 'invalid-structure' // Crystal found shape problems
+  | 'integrity' // the structure does not hash to the pinned sha
   | 'capability-gap'; // the prism does not advertise everything the organons require
+
+/** What Crystal answers for a crystal it does not refuse. */
+interface Junction {
+  crystal: Crystal;
+  sha256: string;
+  requires: string[];
+  missing: string[];
+  activates: boolean;
+}
 
 /** Typed refusal — thrown, never swallowed. The reason is the finding. */
 export class ActivationError extends Error {
@@ -64,55 +67,42 @@ export interface ActivatedCrystal {
   requiredCapabilities: string[];
 }
 
-/**
- * validate → verify sha → activatesOn — then and only then return the activated
- * descriptor. Order matters: structure before integrity before capability, so the
- * refusal names the first gate that failed.
- */
+/** Crystal's refusal, read from the 422 it answers: `{detail: {kind, problems}}`. */
+function refusal(e: unknown): ActivationError | null {
+  const detail = (e as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
+  if (detail?.status !== 422) return null;
+  const d = detail.data?.detail as { kind?: string; problems?: unknown } | undefined;
+  const kind = d?.kind === 'integrity' ? 'integrity' : 'invalid-structure';
+  const problems = Array.isArray(d?.problems) ? d.problems.map(String) : [];
+  return new ActivationError(kind, `Crystal refused crystal.workbench: ${problems.join('; ')}`, problems);
+}
+
+/** Ask Crystal whether crystal.workbench activates on this prism, and return the activated
+ * descriptor, or throw the refusal Crystal gave. */
 export async function activateWorkbench(
   prismCapabilities: string[] = browserPrismCapabilities(),
 ): Promise<ActivatedCrystal> {
-  // 1. Structure: an invalid crystal must refuse to ground, never half-load.
-  const problems = validate(WORKBENCH as unknown as Record<string, unknown>);
-  if (problems.length > 0) {
-    throw new ActivationError('invalid-structure', 'crystal.workbench failed validation', problems);
-  }
-
-  // 2. Integrity: build the artifact, re-hash it, refuse on mismatch...
-  const artifact = await workbenchArtifact();
-  let crystal: Crystal;
+  let j: Junction;
   try {
-    crystal = await verify(artifact);
+    j = await post<Junction>('/crystals/activate', {
+      crystal: { ...WORKBENCH, sha256: WORKBENCH_SHA256 },
+      capabilities: prismCapabilities,
+    });
   } catch (e) {
-    throw new ActivationError('integrity', e instanceof Error ? e.message : String(e));
+    throw refusal(e) ?? e;
   }
-  // ...and hold the definition to its pinned cross-language content address: if the TS
-  // constant drifts from the Python reference definition, that is tampering-by-drift.
-  if (crystal.sha256 !== WORKBENCH_SHA256) {
-    throw new ActivationError(
-      'integrity',
-      `crystal.workbench hashes to ${crystal.sha256} but the pinned reference sha is ` +
-        `${WORKBENCH_SHA256} — the definition drifted from the Python reference; refusing to ground`,
-    );
-  }
-
-  // 3. The prism junction: one subset check, both directions (§12).
-  if (!activatesOn(crystal, prismCapabilities)) {
-    const required = requiredCapabilities(crystal);
-    const advertised = new Set(prismCapabilities);
-    const missing = required.filter((c) => !advertised.has(c));
+  if (!j.activates) {
     throw new ActivationError(
       'capability-gap',
-      `this prism does not advertise: ${missing.join(', ')}`,
-      missing,
+      `this prism does not advertise: ${j.missing.join(', ')}`,
+      j.missing,
     );
   }
-
   return {
-    crystal,
-    sha256: crystal.sha256 as string,
+    crystal: j.crystal,
+    sha256: j.sha256,
     prismCapabilities,
-    boundOrganons: crystal.organons ?? [],
-    requiredCapabilities: requiredCapabilities(crystal),
+    boundOrganons: j.crystal.organons ?? [],
+    requiredCapabilities: j.requires,
   };
 }

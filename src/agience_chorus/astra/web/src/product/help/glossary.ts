@@ -21,7 +21,7 @@ export const GLOSSARY_ENTRIES: GlossaryEntry[] = [
     term: 'Artifact',
     aka: ['Card'],
     short: 'The basic object in Agience.',
-    body: 'An Artifact is content plus its context: what it is, where it came from and who made it. It can hold text or media of any type, and it carries its own version history and provenance. On screen it shows as a card.',
+    body: 'An Artifact is content plus its context: what it is, where it came from and who made it. It can hold text or media of any type, and it carries its own version history and provenance. On screen it shows as a tile in a grid or a row in a list.',
   },
   {
     id: 'workspace',

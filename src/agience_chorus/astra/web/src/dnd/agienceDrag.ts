@@ -1,4 +1,6 @@
-export const AGIENCE_DRAG_CONTENT_TYPE = 'application/vnd.agience.drag+json';
+import { AGIENCE_DRAG_CONTENT_TYPE } from '@/display-state/drag';
+
+export { AGIENCE_DRAG_CONTENT_TYPE };
 
 export type AgienceDragPayload =
   | { kind: 'artifacts'; ids: string[]; orderedIds?: string[]; source?: { kind: string; id: string } }

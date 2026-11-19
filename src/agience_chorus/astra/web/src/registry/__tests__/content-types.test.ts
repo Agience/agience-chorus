@@ -251,10 +251,12 @@ describe('everything inherits from Artifact (*/*)', () => {
     content_type, definition: { content_type, ui: { label, ...extra } },
   });
 
+  const NOT_FOR = ['application/vnd.agience.*', 'application/*+json'];
+
   function loadCatalogue() {
     setRuntimeContentTypes([
       entry('*/*', 'Artifact'),
-      entry('application/*', 'File'),
+      { content_type: 'application/*', definition: { content_type: 'application/*', not_for: NOT_FOR, ui: { label: 'File' } } },
       entry('application/vnd.agience.collection+json', 'Collection', { is_container: true }),
       entry('application/vnd.agience.workspace+json', 'Workspace', { is_container: true }),
       entry('text/*', 'Text'),
@@ -273,6 +275,11 @@ describe('everything inherits from Artifact (*/*)', () => {
     loadCatalogue();
     expect(getContentType(makeArtifact('application/vnd.agience.lead+json')).label).toBe('Artifact');
     expect(getContentType(makeArtifact('application/ld+json')).label).toBe('Artifact');
+  });
+
+  it('which types a wildcard leaves out is its own definition', () => {
+    setRuntimeContentTypes([entry('*/*', 'Artifact'), entry('application/*', 'File')]);
+    expect(getContentType(makeArtifact('application/ld+json')).label).toBe('File');
   });
 
   it('a file format nothing declares is a File, and an unknown category is an Artifact', () => {

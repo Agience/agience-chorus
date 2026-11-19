@@ -7,6 +7,7 @@ import {
   matchesParsedCombo,
   parseCombo,
 } from './shortcut-utils';
+import { sortedBy, withoutKey } from '@/display-state/lists';
 
 const DEFAULT_GROUP_ORDER = 100;
 const DEFAULT_SHORTCUT_ORDER = 1000;
@@ -20,18 +21,14 @@ interface HandlerEntry {
 type GroupState = ShortcutGroup;
 
 function sortGroups(groups: Record<string, GroupState>): ShortcutGroup[] {
-  return Object.values(groups)
-    .map((group) => ({
+  return sortedBy(
+    Object.values(groups).map((group) => ({
       ...group,
-      shortcuts: [...group.shortcuts].sort((a, b) => {
-        if (a.order !== b.order) return a.order - b.order;
-        return a.label.localeCompare(b.label);
-      }),
-    }))
-    .sort((a, b) => {
-      if (a.order !== b.order) return a.order - b.order;
-      return a.title.localeCompare(b.title);
-    });
+      shortcuts: sortedBy(group.shortcuts, (s) => s.order, (s) => s.label),
+    })),
+    (g) => g.order,
+    (g) => g.title,
+  );
 }
 
 export function ShortcutsProvider({ children }: PropsWithChildren) {
@@ -82,7 +79,7 @@ export function ShortcutsProvider({ children }: PropsWithChildren) {
             ...existing,
             title: groupTitle ?? existing.title,
             order: groupOrder ?? existing.order,
-            shortcuts: existing.shortcuts.filter((shortcut) => shortcut.id !== id),
+            shortcuts: withoutKey(existing.shortcuts, (shortcut) => shortcut.id, id),
           }
         : {
             id: group,
@@ -108,7 +105,7 @@ export function ShortcutsProvider({ children }: PropsWithChildren) {
         const next = { ...prev };
         const targetGroup = next[group];
         if (!targetGroup) return prev;
-        const filteredShortcuts = targetGroup.shortcuts.filter((shortcut) => shortcut.id !== id);
+        const filteredShortcuts = withoutKey(targetGroup.shortcuts, (shortcut) => shortcut.id, id);
         if (filteredShortcuts.length === 0) {
           delete next[group];
         } else {

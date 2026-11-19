@@ -5,35 +5,40 @@ import { get, getList, LIST_PAGE, post, postList, patch, del } from './api';
 import { WORKSPACE_CONTENT_TYPE } from '@/utils/content-type';
 import { subscribeEvents, type BusEvent } from './events';
 import { completeFromFeed } from './feedArtifact';
+import { withMarks } from './marks';
+import { namedCreate, updateArtifact } from './artifacts';
 import {
   WorkspaceResponse,
   WorkspaceCreate,
   WorkspaceUpdate,
 } from './types/workspace';
 import { ArtifactResponse, ArtifactCreate, ArtifactUpdate } from './types/artifact';
-import { titled } from '@/utils/untitled';
 import { stringifyArtifactContext } from '@/utils/artifactContext';
 
-// list all workspaces accessible to the caller
-// Each is `titled`: its `name` is the title it is shown by.
+// list all workspaces accessible to the caller, oldest first. Crystal marks what the workspace
+// type keeps (`inbox`, each person's first workspace) and takes the ops it refuses out of
+// `allowed_actions`. Each `name` is the title Mantle shows it by.
 export async function listWorkspaces(): Promise<WorkspaceResponse[]> {
-  const list = await getList<WorkspaceResponse>('/artifacts/visible?content_type=' + encodeURIComponent('application/vnd.agience.workspace+json'));
-  return list.map(titled);
+  return withMarks(
+    getList<WorkspaceResponse>('/types/visible?content_type=' + encodeURIComponent('application/vnd.agience.workspace+json')),
+    WORKSPACE_CONTENT_TYPE);
 }
 
 // get one workspace
 export async function getWorkspace(id: string): Promise<WorkspaceResponse> {
-  return titled(await get<WorkspaceResponse>(`/artifacts/${id}`));
+  return get<WorkspaceResponse>(`/artifacts/${id}`);
 }
 
 // create new workspace
 export async function createWorkspace(
   input: WorkspaceCreate
 ): Promise<WorkspaceResponse> {
-  // The title is content and lives in the context; `name` is kept beside it for older readers.
-  return titled(await post<WorkspaceResponse>('/artifacts', {
-    ...input, content_type: WORKSPACE_CONTENT_TYPE, context: stringifyArtifactContext({ content_type: WORKSPACE_CONTENT_TYPE, title: input.name }),
-  }));
+  // The title is content and lives in the context. A blank name is sent blank: Crystal names it.
+  const title = input.name.trim();
+  return namedCreate<WorkspaceResponse>({
+    ...input, name: title, content_type: WORKSPACE_CONTENT_TYPE,
+    context: stringifyArtifactContext({ content_type: WORKSPACE_CONTENT_TYPE, ...(title ? { title } : {}) }),
+  });
 }
 
 // update name/description (and, with them, the context that holds the title)
@@ -41,12 +46,7 @@ export async function updateWorkspace(
   id: string,
   input: WorkspaceUpdate
 ): Promise<WorkspaceResponse> {
-  return titled(await patch<WorkspaceResponse>(`/artifacts/${id}`, input));
-}
-
-// delete workspace
-export function deleteWorkspace(id: string): Promise<void> {
-  return del(`/artifacts/${id}`);
+  return updateArtifact<WorkspaceResponse>(id, input);
 }
 
 // list artifacts in workspace
@@ -70,15 +70,20 @@ export function addArtifactToWorkspace(
   workspaceId: string,
   input: ArtifactCreate
 ): Promise<ArtifactResponse> {
-  return post('/artifacts', { container_id: workspaceId, ...input });
+  return namedCreate({ container_id: workspaceId, ...input });
 }
 
 // Import a collection artifact (by root_id) into a workspace — links, does not copy
 export function importCollectionArtifactToWorkspace(
   workspaceId: string,
-  rootId: string
+  rootId: string,
+  beforeId?: string
 ): Promise<ArtifactResponse> {
-  return post(`/artifacts`, { container_id: workspaceId, source_artifact_id: rootId });
+  return post(`/artifacts`, {
+    container_id: workspaceId,
+    source_artifact_id: rootId,
+    ...(beforeId ? { before_id: beforeId } : {}),
+  });
 }
 
 // update an artifact
@@ -87,7 +92,7 @@ export function updateWorkspaceArtifact(
   artifactId: string,
   input: ArtifactUpdate
 ): Promise<ArtifactResponse> {
-  return patch(`/artifacts/${artifactId}`, input);
+  return updateArtifact(artifactId, input);
 }
 
 // delete an artifact
@@ -147,13 +152,16 @@ export function findSimilarArtifact(
   return post('/artifacts/recall', { query_text: artifactId });
 }
 
-export async function orderWorkspaceArtifacts(
+/** Mantle moves `ids`, in that order, to sit just before `beforeId` (last when it is null). */
+export async function moveWorkspaceArtifacts(
   workspaceId: string,
-  orderedIds: string[],
+  ids: string[],
+  beforeId: string | null,
   version?: number
 ): Promise<{ ok: boolean; version: number }> {
   const result = await patch<{ order_version: number }>(`/artifacts/${workspaceId}/children/order`, {
-    ordered_ids: orderedIds,
+    move_ids: ids,
+    ...(beforeId ? { before_id: beforeId } : {}),
     ...(version !== undefined ? { order_version: version } : {}),
   });
   return { ok: true, version: result.order_version };
@@ -216,6 +224,18 @@ export type WorkspaceEventHandlers = {
   onInvokeCompleted?: (payload: InvokeEventPayload) => void;
   onInvokeFailed?: (payload: InvokeEventPayload) => void;
 };
+
+/**
+ * Call `onChange` with an item's id each time a grant on it is applied at Mantle. Mantle delivers
+ * the event only where the item can now be read, so a claimed invitation reaches the person it
+ * was for. Returns the cleanup function.
+ */
+export function subscribeAccessChanges(onChange: (artifactId: string) => void): () => void {
+  return subscribeEvents({ event_names: ['access.changed'] }, (evt: BusEvent) => {
+    const id = (evt.payload as { artifact_id?: string } | undefined)?.artifact_id;
+    if (id) onChange(id);
+  });
+}
 
 /**
  * Subscribe to real-time workspace change events via the unified /events

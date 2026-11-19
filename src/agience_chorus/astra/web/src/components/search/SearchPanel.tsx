@@ -17,9 +17,17 @@ import CardList from '../common/CardList';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { getStableArtifactId } from '@/utils/artifact-identifiers';
 import { LayoutGrid, List } from 'lucide-react';
+import { EMPTY_STATE } from '@/constants/strings';
+import { lookUp, notIn, onlyIn, present, toggle, unique } from '@/display-state/lists';
 
 type GlobalSearchSourceScope = 'all' | 'collections' | 'workspaces';
 type SearchViewMode = 'grid' | 'list';
+
+const SCOPE_PLACE: Record<GlobalSearchSourceScope, string> = {
+  all: 'your workspaces and collections',
+  collections: 'your collections',
+  workspaces: 'your workspaces',
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +42,8 @@ export interface SearchPanelProps {
   onClear?: () => void;
   /** External clear trigger (increment to programmatically clear the search bar). */
   clearTrigger?: number;
+  /** Increment to ask the open search again. */
+  refreshTrigger?: number;
   /** Allow user to add a search result artifact to the active workspace. */
   onAddToWorkspace?: (artifact: Artifact) => void;
   onOpenArtifact?: (artifact: Artifact) => void;
@@ -52,6 +62,7 @@ export function SearchPanel({
   onResults,
   onClear,
   clearTrigger,
+  refreshTrigger,
   onAddToWorkspace,
   onOpenArtifact,
   onCollectionSelect,
@@ -64,11 +75,27 @@ export function SearchPanel({
   const [viewMode, setViewMode] = useState<SearchViewMode>('grid');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [anchorId, setAnchorId] = useState<string | null>(null);
+  // What the last search sent, so an empty result says what found nothing. Empty when no search ran.
+  const [searchedFor, setSearchedFor] = useState('');
+  const [searchedIn, setSearchedIn] = useState<GlobalSearchSourceScope>('all');
+
+  const handleResults = (results: SearchResponse) => {
+    setSearchedFor((results.query_text ?? '').trim());
+    setSearchedIn(sourceScope);
+    onResults?.(results);
+  };
+  const handleClear = () => {
+    setSearchedFor('');
+    onClear?.();
+  };
+  useEffect(() => {
+    if (clearTrigger) setSearchedFor('');
+  }, [clearTrigger]);
 
   const artifactUiId = (artifact: Artifact) => (artifact.root_id ? String(artifact.root_id) : getStableArtifactId(artifact));
 
   const incomingOrderedIds = useMemo(
-    () => artifacts.map((artifact) => artifactUiId(artifact)).filter((id): id is string => Boolean(id)),
+    () => present(artifacts.map((artifact) => artifactUiId(artifact))),
     [artifacts],
   );
 
@@ -76,16 +103,13 @@ export function SearchPanel({
 
   useEffect(() => {
     setOrderedIds((prev) => {
-      const incomingSet = new Set(incomingOrderedIds);
-      const preserved = prev.filter((id) => incomingSet.has(id));
-      const existing = new Set(preserved);
-      const appended = incomingOrderedIds.filter((id) => !existing.has(id));
-      return [...preserved, ...appended];
+      const preserved = onlyIn(prev, incomingOrderedIds);
+      return [...preserved, ...notIn(incomingOrderedIds, preserved)];
     });
   }, [incomingOrderedIds]);
 
   useEffect(() => {
-    setSelectedIds((prev) => prev.filter((id) => orderedIds.includes(id)));
+    setSelectedIds((prev) => onlyIn(prev, orderedIds));
     setAnchorId((prev) => (prev && orderedIds.includes(prev) ? prev : null));
   }, [orderedIds]);
 
@@ -112,14 +136,12 @@ export function SearchPanel({
         if (start === -1 || end === -1) return prev;
         const [lo, hi] = start < end ? [start, end] : [end, start];
         const range = orderedIds.slice(lo, hi + 1);
-        return Array.from(new Set([...prev, ...range]));
+        return unique([...prev, ...range]);
       }
 
       if (isMeta) {
         setAnchorId(normalizedId);
-        return prev.includes(normalizedId)
-          ? prev.filter((existing) => existing !== normalizedId)
-          : [...prev, normalizedId];
+        return toggle(prev, normalizedId);
       }
 
       setAnchorId(normalizedId);
@@ -148,7 +170,7 @@ export function SearchPanel({
       const id = artifactUiId(artifact);
       if (id) map.set(id, artifact);
     });
-    return orderedIds.map((id) => map.get(id)).filter((artifact): artifact is Artifact => Boolean(artifact));
+    return lookUp(orderedIds, map);
   }, [artifacts, orderedIds]);
 
   const hasResults = orderedArtifacts.length > 0;
@@ -164,9 +186,10 @@ export function SearchPanel({
           scopeId=""
           globalSourceScope={sourceScope}
           placeholder="Find something..."
-          onResults={onResults}
-          onClear={onClear}
+          onResults={handleResults}
+          onClear={handleClear}
           clearTrigger={clearTrigger}
+          refreshTrigger={refreshTrigger}
           sortMode={sortMode}
           compact
           enableSuggestions
@@ -251,9 +274,16 @@ export function SearchPanel({
               />
             </div>
           )
+        ) : searchedFor ? (
+          <div role="status" className="flex flex-col items-center justify-center h-full px-4 text-center text-sm text-gray-500 gap-2">
+            <p className="font-medium">{EMPTY_STATE.NO_SEARCH_RESULTS_TITLE}</p>
+            <p className="text-xs break-words max-w-full">
+              {EMPTY_STATE.NO_SEARCH_RESULTS_IN(searchedFor, SCOPE_PLACE[searchedIn])}
+            </p>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full px-4 text-center text-sm text-gray-400 gap-2">
-            <p className="font-medium text-gray-500">Nothing Here</p>
+            <p className="font-medium text-gray-500">Nothing here yet</p>
             <p className="text-xs">
               Use the search bar above to find artifacts across your workspaces and collections.
             </p>

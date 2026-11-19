@@ -18,12 +18,16 @@ describe('WorkspaceDetailModal, creating (BUG-001: a new workspace is named firs
     expect(onSave).toHaveBeenCalledWith('Pilot notes', '');
   });
 
-  it('will not create a workspace with a blank name', () => {
+  it('creates a workspace with a blank name, left for Mantle to number', () => {
+    const onSave = vi.fn();
     render(
       <WorkspaceDetailModal open mode="create" initial={{ name: '', description: '' }}
-        onSave={() => {}} onClose={() => {}} />,
+        onSave={onSave} onClose={() => {}} />,
     );
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: '   ' } });
-    expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true);
+    const create = screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement;
+    expect(create.disabled).toBe(false);
+    fireEvent.click(create);
+    expect(onSave).toHaveBeenCalledTimes(1);
   });
 });

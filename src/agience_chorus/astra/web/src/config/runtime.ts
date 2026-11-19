@@ -1,4 +1,5 @@
-﻿type RuntimeConfig = {
+﻿import { keyList, textEntries } from '@/display-state/lists';
+type RuntimeConfig = {
   mantleUri: string;
   originUri: string;
   crystalUri: string;
@@ -14,8 +15,8 @@
    */
   idpUri: string;
   /**
-   * Service-provider origins this IdP may hand an access token to, beyond the platform's own
-   * (`KNOWN_SP_ORIGINS` in `auth/spRedirect.ts`). Exact origins, e.g. `https://sp.example.com`.
+   * Service-provider origins this IdP may hand an access token to, beyond this app's own
+   * origin and Origin's. Exact origins, e.g. `https://sp.example.com`.
    */
   spOrigins: string[];
 };
@@ -39,7 +40,7 @@ function normalizeString(value: unknown, fallback: string): string {
 
 function normalizeStringList(value: unknown): string[] {
   return Array.isArray(value)
-    ? value.filter((v): v is string => typeof v === 'string' && v.trim() !== '').map((v) => v.trim())
+    ? keyList(textEntries(value))
     : [];
 }
 

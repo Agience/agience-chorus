@@ -3,6 +3,7 @@ import { usePalette } from '../../../hooks/usePalette';
 import { useWorkspace } from '../../../hooks/useWorkspace';
 import CardGrid from '../../common/CardGrid';
 import { getAgienceDragPayload, getDroppedArtifactIds } from '../../../dnd/agienceDrag';
+import { withoutKey } from '@/display-state/lists';
 
 export default function InstructionsPanel() {
   const { state, updatePanelData } = usePalette();
@@ -30,7 +31,7 @@ export default function InstructionsPanel() {
     (id: string) => {
       updatePanelData('instructions', (prev) => {
         const existing = prev.artifacts;
-        return { ...prev, artifacts: existing.filter((c) => c.id !== id) };
+        return { ...prev, artifacts: withoutKey(existing, (c) => c.id, id) };
       });
     },
     [updatePanelData]

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { Artifact } from '../../../context/workspace/workspace.types';
 import { usePalette } from '../../../hooks/usePalette';
@@ -24,13 +24,6 @@ export default function Prompts() {
     }));
   };
 
-  const validArtifacts = useMemo(() => panelState.artifacts.filter(
-    (c): c is Artifact =>
-      typeof c === "object" &&
-      c !== null &&
-      "id" in c &&
-      "content" in c
-  ), [panelState.artifacts]);
 
   const addPromptArtifact = useCallback(
     (content: string, context: string) => {
@@ -125,13 +118,13 @@ export default function Prompts() {
       }
     >
       <CardGrid
-        artifacts={validArtifacts}
+        artifacts={panelState.artifacts}
         isSelected={(id) => id === panelState.selectedId}
         selectable
         draggable={false}
         editable={false}
         onArtifactMouseDown={(id) => {
-          const artifact = validArtifacts.find((c) => String(c.id) === String(id));
+          const artifact = panelState.artifacts.find((c) => String(c.id) === String(id));
           if (artifact) handleSelect(artifact);
         }}
       />

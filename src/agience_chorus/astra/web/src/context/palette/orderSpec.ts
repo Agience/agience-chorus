@@ -2,6 +2,7 @@ import type { Artifact } from '../workspace/workspace.types';
 import type { PanelData, PanelKey, PaletteState } from './palette.types';
 import type { TransformArtifactContext, TransformKind, TransformRunConfig, TransformSpec, TransformSpecV1 } from './order.types';
 import { TRANSFORM_CONTENT_TYPE } from '@/utils/content-type';
+import { fingerprint } from '@/display-state/fingerprint';
 
 function safeJsonParse<T>(raw: unknown): T | null {
   if (typeof raw !== 'string' || !raw) return null;
@@ -131,10 +132,7 @@ export function makeTransformArtifactContext(args: {
 }
 
 export function computeTransformHash(spec: TransformSpec): string {
-  // UI-scoped comparison hash: sorts object keys before stringifying so
-  // equivalent specs hash the same regardless of key order.
-  const stable = stableStringify(spec);
-  return `v1:${simpleHash(stable)}`;
+  return `v1:${fingerprint(spec)}`;
 }
 
 export const buildOrderSpec = buildTransformSpec;
@@ -142,27 +140,3 @@ export const applyOrderSpec = applyTransformSpec;
 export const getOrderFromArtifact = getTransformFromArtifact;
 export const makeOrderArtifactContext = makeTransformArtifactContext;
 export const computeOrderHash = computeTransformHash;
-
-function stableStringify(value: unknown): string {
-  return JSON.stringify(sortKeysDeep(value));
-}
-
-function sortKeysDeep(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeysDeep);
-  if (!value || typeof value !== 'object') return value;
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  const out: Record<string, unknown> = {};
-  for (const k of keys) out[k] = sortKeysDeep(obj[k]);
-  return out;
-}
-
-function simpleHash(input: string): string {
-  // Deterministic, not cryptographic.
-  let h = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(16).padStart(8, '0');
-}
